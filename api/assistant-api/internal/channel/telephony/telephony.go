@@ -21,6 +21,7 @@ import (
 	internal_asterisk_websocket "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/asterisk/websocket"
 	internal_exotel_telephony "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/exotel"
 	internal_sip_telephony "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/sip"
+	internal_telnyx_telephony "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/telnyx"
 	internal_twilio_telephony "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/twilio"
 	internal_vonage_telephony "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/vonage"
 	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
@@ -38,6 +39,7 @@ const (
 	Twilio   Telephony = "twilio"
 	Exotel   Telephony = "exotel"
 	Vonage   Telephony = "vonage"
+	Telnyx   Telephony = "telnyx"
 	Asterisk Telephony = "asterisk"
 	SIP      Telephony = "sip"
 )
@@ -66,6 +68,8 @@ func GetTelephony(at Telephony, cfg *config.AssistantConfig, logger commons.Logg
 		return internal_vonage_telephony.NewVonageTelephony(cfg, logger)
 	case Asterisk:
 		return internal_asterisk_telephony.NewAsteriskTelephony(cfg, logger)
+	case Telnyx:
+		return internal_telnyx_telephony.NewTelnyxTelephony(cfg, logger)
 	case SIP:
 		if opt.SIPServer == nil {
 			return nil, errors.New("SIP server not available — SIP telephony requires a running SIP server")
@@ -134,7 +138,9 @@ func (at Telephony) NewStreamer(
 		if opt.AudioSocketConn != nil {
 			return internal_asterisk_audiosocket.NewStreamer(logger, opt.AudioSocketConn, opt.AudioSocketReader, opt.AudioSocketWriter, cc, vaultCred)
 		}
-		return internal_asterisk_websocket.NewAsteriskWebsocketStreamer(logger, opt.WebSocketConn, cc, vaultCred)
+		return internal_asterisk_websocket.NewAsteriskWebsocketStreamer(logger, opt.WebSocketConn, cc, vaultCred), nil
+	case Telnyx:
+		return internal_telnyx_telephony.NewTelnyxWebsocketStreamer(logger, opt.WebSocketConn, cc, vaultCred), nil
 	case SIP:
 		return internal_sip_telephony.NewStreamer(opt.Ctx, logger, opt.SIPSession, cc, vaultCred)
 	default:
