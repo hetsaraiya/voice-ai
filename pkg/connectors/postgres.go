@@ -21,11 +21,14 @@ import (
 
 type postgresTxContextKey struct{}
 
-type PostgresConnector interface {
+type SQLConnector interface {
 	Connector
 	Query(ctx context.Context, qry string, dest interface{}) error
 	DB(ctx context.Context) *gorm.DB
 }
+
+// PostgresConnector is an alias for SQLConnector for backward compatibility.
+type PostgresConnector = SQLConnector
 
 type postgresConnector struct {
 	logger commons.Logger
@@ -33,7 +36,7 @@ type postgresConnector struct {
 	db     *gorm.DB
 }
 
-func NewPostgresConnector(config *configs.PostgresConfig, logger commons.Logger) PostgresConnector {
+func NewPostgresConnector(config *configs.PostgresConfig, logger commons.Logger) SQLConnector {
 	return &postgresConnector{cfg: config, logger: logger}
 }
 

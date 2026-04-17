@@ -44,11 +44,11 @@ type CallStatusUpdate struct {
 }
 
 type postgresStore struct {
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 	logger   commons.Logger
 }
 
-func NewStore(postgres connectors.PostgresConnector, logger commons.Logger) Store {
+func NewStore(postgres connectors.SQLConnector, logger commons.Logger) Store {
 	return &postgresStore{
 		postgres: postgres,
 		logger:   logger,

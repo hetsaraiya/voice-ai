@@ -22,7 +22,7 @@ type unifiedProviderGRPCApi struct {
 	integrationApi
 }
 
-func NewUnifiedProviderGRPC(cfg *config.IntegrationConfig, logger commons.Logger, postgres connectors.PostgresConnector) protos.UnifiedProviderServiceServer {
+func NewUnifiedProviderGRPC(cfg *config.IntegrationConfig, logger commons.Logger, postgres connectors.SQLConnector) protos.UnifiedProviderServiceServer {
 	return &unifiedProviderGRPCApi{
 		integrationApi: NewInegrationApi(cfg, logger, postgres),
 	}

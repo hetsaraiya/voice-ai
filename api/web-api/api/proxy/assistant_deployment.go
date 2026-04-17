@@ -19,7 +19,7 @@ type webAssistantDeploymentApi struct {
 	web_api.WebApi
 	cfg             *config.WebAppConfig
 	logger          commons.Logger
-	postgres        connectors.PostgresConnector
+	postgres        connectors.SQLConnector
 	redis           connectors.RedisConnector
 	assistantClient assistant_client.AssistantServiceClient
 }
@@ -228,7 +228,7 @@ func (w *webAssistantDeploymentGRPCApi) CreateAssistantWhatsappDeployment(c cont
 }
 
 // G
-func NewAssistantDeploymentGRPCApi(config *config.WebAppConfig, logger commons.Logger, postgres connectors.PostgresConnector, redis connectors.RedisConnector) protos.AssistantDeploymentServiceServer {
+func NewAssistantDeploymentGRPCApi(config *config.WebAppConfig, logger commons.Logger, postgres connectors.SQLConnector, redis connectors.RedisConnector) protos.AssistantDeploymentServiceServer {
 	return &webAssistantDeploymentGRPCApi{
 		webAssistantDeploymentApi{
 			WebApi:          web_api.NewWebApi(config, logger, postgres, redis),

@@ -28,7 +28,7 @@ import (
 
 type assistantToolService struct {
 	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 	storage  storages.Storage
 }
 
@@ -277,7 +277,7 @@ func (eService *assistantToolService) CreateOrUpdateExecutionOption(
 	return mtrs, nil
 }
 
-func NewAssistantToolService(logger commons.Logger, postgres connectors.PostgresConnector, storage storages.Storage) internal_services.AssistantToolService {
+func NewAssistantToolService(logger commons.Logger, postgres connectors.SQLConnector, storage storages.Storage) internal_services.AssistantToolService {
 	return &assistantToolService{
 		logger:   logger,
 		postgres: postgres,

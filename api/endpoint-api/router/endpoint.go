@@ -14,7 +14,7 @@ func EndpointReaderApiRoute(
 	Cfg *config.EndpointConfig,
 	S *grpc.Server,
 	Logger commons.Logger,
-	Postgres connectors.PostgresConnector,
+	Postgres connectors.SQLConnector,
 	Redis connectors.RedisConnector,
 
 ) {
@@ -25,7 +25,7 @@ func InvokeApiRoute(
 	Cfg *config.EndpointConfig,
 	S *grpc.Server,
 	Logger commons.Logger,
-	Postgres connectors.PostgresConnector,
+	Postgres connectors.SQLConnector,
 	Redis connectors.RedisConnector,
 ) {
 	protos.RegisterDeploymentServer(S, endpoint_api.NewInvokerGRPCApi(Cfg, Logger, Postgres, Redis))

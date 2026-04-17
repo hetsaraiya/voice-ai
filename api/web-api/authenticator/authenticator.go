@@ -8,10 +8,10 @@ import (
 	"github.com/rapidaai/pkg/types"
 )
 
-func GetUserAuthenticator(logger commons.Logger, postgres connectors.PostgresConnector) types.Authenticator {
+func GetUserAuthenticator(logger commons.Logger, postgres connectors.SQLConnector) types.Authenticator {
 	return internal_user_service.NewAuthenticator(logger, postgres)
 }
 
-func GetProjectAuthenticator(logger commons.Logger, postgres connectors.PostgresConnector) types.ClaimAuthenticator[*types.ProjectScope] {
+func GetProjectAuthenticator(logger commons.Logger, postgres connectors.SQLConnector) types.ClaimAuthenticator[*types.ProjectScope] {
 	return internal_project_service.NewProjectAuthenticator(logger, postgres)
 }

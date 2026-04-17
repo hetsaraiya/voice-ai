@@ -14,7 +14,7 @@ import (
 )
 
 // all the provider routes
-func ProviderApiRoute(Cfg *config.IntegrationConfig, S *grpc.Server, Logger commons.Logger, Postgres connectors.PostgresConnector) {
+func ProviderApiRoute(Cfg *config.IntegrationConfig, S *grpc.Server, Logger commons.Logger, Postgres connectors.SQLConnector) {
 	protos.RegisterUnifiedProviderServiceServer(S, integrationApi.NewUnifiedProviderGRPC(Cfg, Logger, Postgres))
 }
 
@@ -23,7 +23,7 @@ func AuditLoggingApiRoute(
 	Cfg *config.IntegrationConfig,
 	S *grpc.Server,
 	Logger commons.Logger,
-	Postgres connectors.PostgresConnector,
+	Postgres connectors.SQLConnector,
 ) {
 	protos.RegisterAuditLoggingServiceServer(S, integrationApi.NewAuditLoggingGRPC(Cfg, Logger, Postgres))
 }

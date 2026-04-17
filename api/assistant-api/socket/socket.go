@@ -39,7 +39,7 @@ import (
 type audioSocketEngine struct {
 	logger     commons.Logger
 	cfg        *config.AssistantConfig
-	postgres   connectors.PostgresConnector
+	postgres   connectors.SQLConnector
 	redis      connectors.RedisConnector
 	opensearch connectors.OpenSearchConnector
 	storage    storages.Storage
@@ -57,7 +57,7 @@ type audioSocketEngine struct {
 }
 
 func NewAudioSocketEngine(cfg *config.AssistantConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	redis connectors.RedisConnector,
 	opensearch connectors.OpenSearchConnector,
 ) *audioSocketEngine {

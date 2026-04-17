@@ -42,7 +42,7 @@ type AppRunner struct {
 	S         *grpc.Server
 	Cfg       *config.EndpointConfig
 	Logger    commons.Logger
-	Postgres  connectors.PostgresConnector
+	Postgres  connectors.SQLConnector
 	Redis     connectors.RedisConnector
 	Closeable []func(context.Context) error
 }
@@ -201,7 +201,7 @@ func (app *AppRunner) Logging() error {
 }
 
 func (g *AppRunner) AllConnectors() {
-	g.Postgres = connectors.NewPostgresConnector(&g.Cfg.PostgresConfig, g.Logger)
+	g.Postgres = connectors.NewSQLConnector(g.Cfg.SQLConfig(), g.Logger)
 	g.Redis = connectors.NewRedisConnector(&g.Cfg.RedisConfig, g.Logger)
 }
 
@@ -233,7 +233,7 @@ func (app *AppRunner) ResolveConfig() error {
 func (app *AppRunner) Init(ctx context.Context) error {
 	err := app.Postgres.Connect(ctx)
 	if err != nil {
-		app.Logger.Error("error while connecting to postgres.", err)
+		app.Logger.Error("error while connecting to sql database.", err)
 		return err
 	}
 	err = app.Redis.Connect(ctx)
@@ -303,15 +303,12 @@ func (app *AppRunner) Migrate() error {
 		app.Logger.Infof("Skipping migration due to -skip-migration flag")
 		return nil
 	}
-	dsn := fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		app.Cfg.PostgresConfig.Auth.User,
-		app.Cfg.PostgresConfig.Auth.Password,
-		app.Cfg.PostgresConfig.Host,
-		app.Cfg.PostgresConfig.Port,
-		app.Cfg.PostgresConfig.DBName,
-		app.Cfg.PostgresConfig.SslMode,
-	)
+	sqlConfig := app.Cfg.SQLConfig()
+	if sqlConfig.DriverName() == "sqlite" {
+		app.Logger.Warnf("Skipping migrations for %s: bundled migrations are PostgreSQL-specific today.", sqlConfig.DisplayName())
+		return nil
+	}
+	dsn := sqlConfig.MigrationDSN()
 	currentDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current working directory: %w", err)

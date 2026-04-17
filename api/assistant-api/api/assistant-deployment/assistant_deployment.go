@@ -20,7 +20,7 @@ import (
 type AssistantDeploymentApi struct {
 	cfg               *config.AssistantConfig
 	logger            commons.Logger
-	postgres          connectors.PostgresConnector
+	postgres          connectors.SQLConnector
 	deploymentService internal_services.AssistantDeploymentService
 	storage           storages.Storage
 }
@@ -30,7 +30,7 @@ type assistantDeploymentGrpcApi struct {
 }
 
 func NewAssistantDeploymentGRPCApi(config *config.AssistantConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 ) protos.AssistantDeploymentServiceServer {
 	return &assistantDeploymentGrpcApi{
 		AssistantDeploymentApi: AssistantDeploymentApi{

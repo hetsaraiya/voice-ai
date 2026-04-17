@@ -25,7 +25,7 @@ func AssistantApiRoute(
 	S *grpc.Server,
 	engine *gin.Engine,
 	Logger commons.Logger,
-	Postgres connectors.PostgresConnector,
+	Postgres connectors.SQLConnector,
 	Redis connectors.RedisConnector,
 	Opensearch connectors.OpenSearchConnector,
 ) {
@@ -64,7 +64,7 @@ func AssistantDeploymentApiRoute(Cfg *config.AssistantConfig,
 	S *grpc.Server,
 	engine *gin.Engine,
 	Logger commons.Logger,
-	Postgres connectors.PostgresConnector) {
+	Postgres connectors.SQLConnector) {
 	workflow_api.RegisterAssistantDeploymentServiceServer(S,
 		assistantDeploymentApi.NewAssistantDeploymentGRPCApi(Cfg,
 			Logger,
@@ -94,7 +94,7 @@ func AssistantConversationApiRoute(
 	Cfg *config.AssistantConfig,
 	S *grpc.Server,
 	Logger commons.Logger,
-	Postgres connectors.PostgresConnector,
+	Postgres connectors.SQLConnector,
 	Redis connectors.RedisConnector,
 	Opensearch connectors.OpenSearchConnector,
 	sipServer *sip_infra.Server,
@@ -121,7 +121,7 @@ func AssistantConversationApiRoute(
 
 func TalkApiRoute(
 	cfg *config.AssistantConfig, engine *gin.Engine, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	redis connectors.RedisConnector,
 	opensearch connectors.OpenSearchConnector,
 	sipServer *sip_infra.Server,

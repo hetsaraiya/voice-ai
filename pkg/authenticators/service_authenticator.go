@@ -19,7 +19,7 @@ type serviceAuthenticator struct {
 	cfg    *config.AppConfig
 }
 
-func NewServiceAuthenticator(cfg *config.AppConfig, logger commons.Logger, postgres connectors.PostgresConnector) types.ClaimAuthenticator[*types.ServiceScope] {
+func NewServiceAuthenticator(cfg *config.AppConfig, logger commons.Logger, postgres connectors.SQLConnector) types.ClaimAuthenticator[*types.ServiceScope] {
 	return &serviceAuthenticator{
 		logger: logger, cfg: cfg,
 	}

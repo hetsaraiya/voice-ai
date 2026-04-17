@@ -26,7 +26,7 @@ var (
 	HUBSPOT_CONNECT = "/connect-crm/hubspot"
 )
 
-func NewHubspotConnect(cfg *config.WebAppConfig, oAuthcfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) HubspotConnect {
+func NewHubspotConnect(cfg *config.WebAppConfig, oAuthcfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) HubspotConnect {
 	return HubspotConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		hubspotOauthConfig: oauth2.Config{

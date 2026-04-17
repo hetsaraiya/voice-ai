@@ -30,7 +30,7 @@ type integrationApi struct {
 	auditService internal_services.AuditService
 }
 
-func NewInegrationApi(cfg *config.IntegrationConfig, logger commons.Logger, postgres connectors.PostgresConnector) integrationApi {
+func NewInegrationApi(cfg *config.IntegrationConfig, logger commons.Logger, postgres connectors.SQLConnector) integrationApi {
 	return integrationApi{cfg: cfg, logger: logger,
 		storage:      storage_files.NewStorage(cfg.AssetStoreConfig, logger),
 		auditService: internal_audit_service.NewAuditService(logger, postgres)}

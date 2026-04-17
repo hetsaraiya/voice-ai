@@ -33,7 +33,7 @@ import (
 type webAuthApi struct {
 	cfg                 *config.WebAppConfig
 	logger              commons.Logger
-	postgres            connectors.PostgresConnector
+	postgres            connectors.SQLConnector
 	userService         internal_services.UserService
 	organizationService internal_services.OrganizationService
 	projectService      internal_services.ProjectService
@@ -55,7 +55,7 @@ var (
 	GOOGLE_STATE = "google"
 )
 
-func NewAuthRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) *webAuthRPCApi {
+func NewAuthRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) *webAuthRPCApi {
 	return &webAuthRPCApi{
 		webAuthApi{
 			cfg:             config,
@@ -70,7 +70,7 @@ func NewAuthRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, logg
 	}
 }
 
-func NewAuthGRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) protos.AuthenticationServiceServer {
+func NewAuthGRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) protos.AuthenticationServiceServer {
 	return &webAuthGRPCApi{
 		webAuthApi{
 			cfg:                 config,

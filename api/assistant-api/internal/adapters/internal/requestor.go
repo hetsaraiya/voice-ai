@@ -74,7 +74,7 @@ type genericRequestor struct {
 	assistantToolService internal_services.AssistantToolService
 
 	//
-	postgres      connectors.PostgresConnector
+	postgres      connectors.SQLConnector
 	opensearch    connectors.OpenSearchConnector
 	vectordb      connectors.VectorConnector
 	queryEmbedder internal_agent_embeddings.QueryEmbedding
@@ -139,7 +139,7 @@ func NewGenericRequestor(
 	ctx context.Context,
 	config *config.AssistantConfig,
 	logger commons.Logger, source utils.RapidaSource,
-	postgres connectors.PostgresConnector, opensearch connectors.OpenSearchConnector,
+	postgres connectors.SQLConnector, opensearch connectors.OpenSearchConnector,
 	redis connectors.RedisConnector, storage storages.Storage, streamer internal_type.Streamer,
 	observer observability.Recorder,
 ) *genericRequestor {

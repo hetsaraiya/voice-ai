@@ -15,7 +15,7 @@ import (
 	"github.com/rapidaai/protos"
 )
 
-func NewNotificationService(logger commons.Logger, postgres connectors.PostgresConnector) internal_services.NotificationService {
+func NewNotificationService(logger commons.Logger, postgres connectors.SQLConnector) internal_services.NotificationService {
 	return &notificationService{
 		logger:   logger,
 		postgres: postgres,
@@ -24,7 +24,7 @@ func NewNotificationService(logger commons.Logger, postgres connectors.PostgresC
 
 type notificationService struct {
 	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 }
 
 func (oS *notificationService) UpdateNotificationSetting(ctx context.Context, auth types.Principle, authId uint64, settings []*protos.NotificationSetting) ([]*internal_entity.NotificationSetting, error) {

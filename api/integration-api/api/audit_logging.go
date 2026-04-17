@@ -25,7 +25,7 @@ type auditLoggingGRPCApi struct {
 	auditLoggingApi
 }
 
-func NewAuditLoggingGRPC(config *config.IntegrationConfig, logger commons.Logger, postgres connectors.PostgresConnector) integration_api.AuditLoggingServiceServer {
+func NewAuditLoggingGRPC(config *config.IntegrationConfig, logger commons.Logger, postgres connectors.SQLConnector) integration_api.AuditLoggingServiceServer {
 	return &auditLoggingGRPCApi{
 		auditLoggingApi{
 			integrationApi: NewInegrationApi(config, logger, postgres),

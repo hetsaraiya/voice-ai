@@ -32,7 +32,7 @@ var (
 	LINKEDIN_ACTION_SCOPE   = []string{"openid", "profile", "email"}
 )
 
-func NewLinkedinAuthenticationConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) LinkedinConnect {
+func NewLinkedinAuthenticationConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) LinkedinConnect {
 	return LinkedinConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		redirectURL:     fmt.Sprintf("%s%s", cfg.BaseUrl(), LINKEDIN_AUTHENTICATION_URL),
@@ -47,7 +47,7 @@ func NewLinkedinAuthenticationConnect(cfg *config.WebAppConfig, oauthCfg *config
 	}
 }
 
-func NewLinkedinActionConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) LinkedinConnect {
+func NewLinkedinActionConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) LinkedinConnect {
 	return LinkedinConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		redirectURL:     fmt.Sprintf("%s%s", cfg.BaseUrl(), LINKEDIN_ACTION_CONNECT),

@@ -18,12 +18,12 @@ type webInvokeGRPCApi struct {
 	web_api.WebApi
 	cfg                 *config.WebAppConfig
 	logger              commons.Logger
-	postgres            connectors.PostgresConnector
+	postgres            connectors.SQLConnector
 	redis               connectors.RedisConnector
 	deployServiceClient endpoint_client.DeploymentServiceClient
 }
 
-func NewInvokeGRPC(config *config.WebAppConfig, logger commons.Logger, postgres connectors.PostgresConnector, redis connectors.RedisConnector) protos.DeploymentServer {
+func NewInvokeGRPC(config *config.WebAppConfig, logger commons.Logger, postgres connectors.SQLConnector, redis connectors.RedisConnector) protos.DeploymentServer {
 	return &webInvokeGRPCApi{
 		WebApi:              web_api.NewWebApi(config, logger, postgres, redis),
 		cfg:                 config,

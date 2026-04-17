@@ -13,7 +13,7 @@ import (
 	"github.com/rapidaai/pkg/connectors"
 )
 
-func HealthCheckRoutes(cfg *config.AssistantConfig, engine *gin.Engine, logger commons.Logger, postgres connectors.PostgresConnector) {
+func HealthCheckRoutes(cfg *config.AssistantConfig, engine *gin.Engine, logger commons.Logger, postgres connectors.SQLConnector) {
 	logger.Info("Internal HealthCheckRoutes and Connectors added to engine.")
 	apiv1 := engine.Group("")
 	hcApi := healthCheckApi.New(cfg, logger, postgres)

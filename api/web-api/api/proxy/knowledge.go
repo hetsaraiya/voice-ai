@@ -19,7 +19,7 @@ type webKnowledgeApi struct {
 	web_api.WebApi
 	cfg             *config.WebAppConfig
 	logger          commons.Logger
-	postgres        connectors.PostgresConnector
+	postgres        connectors.SQLConnector
 	redis           connectors.RedisConnector
 	knowledgeClient knowledge_client.KnowledgeServiceClient
 }
@@ -28,7 +28,7 @@ type webKnowledgeGRPCApi struct {
 	webKnowledgeApi
 }
 
-func NewKnowledgeGRPC(config *config.WebAppConfig, logger commons.Logger, postgres connectors.PostgresConnector, redis connectors.RedisConnector) protos.KnowledgeServiceServer {
+func NewKnowledgeGRPC(config *config.WebAppConfig, logger commons.Logger, postgres connectors.SQLConnector, redis connectors.RedisConnector) protos.KnowledgeServiceServer {
 	return &webKnowledgeGRPCApi{
 		webKnowledgeApi{
 			WebApi:          web_api.NewWebApi(config, logger, postgres, redis),

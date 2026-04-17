@@ -19,7 +19,7 @@ import (
 type assistantApi struct {
 	cfg                       *config.AssistantConfig
 	logger                    commons.Logger
-	postgres                  connectors.PostgresConnector
+	postgres                  connectors.SQLConnector
 	redis                     connectors.RedisConnector
 	opensearch                connectors.OpenSearchConnector
 	vectordb                  connectors.VectorConnector
@@ -38,7 +38,7 @@ type assistantGrpcApi struct {
 }
 
 func NewAssistantGRPCApi(config *config.AssistantConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	redis connectors.RedisConnector,
 	opensearch connectors.OpenSearchConnector,
 	vectordb connectors.VectorConnector,

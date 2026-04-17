@@ -47,7 +47,8 @@ type OAuth2Config struct {
 
 type WebAppConfig struct {
 	config.AppConfig `mapstructure:",squash"`
-	PostgresConfig   configs.PostgresConfig   `mapstructure:"postgres" validate:"required"`
+	PostgresConfig   *configs.PostgresConfig  `mapstructure:"postgres"`
+	SQLiteConfig     *configs.SQLiteConfig    `mapstructure:"sqlite"`
 	RedisConfig      configs.RedisConfig      `mapstructure:"redis" validate:"required"`
 	AssetStoreConfig configs.AssetStoreConfig `mapstructure:"asset_store" validate:"required"`
 	OAuthConfig      OAuth2Config             `mapstructure:"oauth2" validate:"required"`
@@ -89,10 +90,28 @@ func GetApplicationConfig(v *viper.Viper) (*WebAppConfig, error) {
 
 	// valdating the app config
 	validate := validator.New()
+	sqlConfig, err := configs.ResolveSQLConfig(v, validate, config.PostgresConfig, config.SQLiteConfig)
+	if err != nil {
+		log.Printf("%+v\n", err)
+		return nil, err
+	}
+	switch cfg := sqlConfig.(type) {
+	case *configs.PostgresConfig:
+		config.PostgresConfig = cfg
+		config.SQLiteConfig = nil
+	case *configs.SQLiteConfig:
+		config.SQLiteConfig = cfg
+		config.PostgresConfig = nil
+	}
+
 	err = validate.Struct(&config)
 	if err != nil {
 		log.Printf("%+v\n", err)
 		return nil, err
 	}
 	return &config, nil
+}
+
+func (c *WebAppConfig) SQLConfig() configs.SQLConfig {
+	return configs.SelectedSQLConfig(c.PostgresConfig, c.SQLiteConfig)
 }

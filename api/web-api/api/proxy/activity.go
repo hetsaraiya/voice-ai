@@ -21,7 +21,7 @@ type webActivityApi struct {
 	web_api.WebApi
 	cfg          *config.WebAppConfig
 	logger       commons.Logger
-	postgres     connectors.PostgresConnector
+	postgres     connectors.SQLConnector
 	redis        connectors.RedisConnector
 	auditClient  integration_client.AuditServiceClient
 	vaultService internal_service.VaultService
@@ -31,7 +31,7 @@ type webActivityGRPCApi struct {
 	webActivityApi
 }
 
-func NewActivityGRPC(config *config.WebAppConfig, logger commons.Logger, postgres connectors.PostgresConnector, redis connectors.RedisConnector) protos.AuditLoggingServiceServer {
+func NewActivityGRPC(config *config.WebAppConfig, logger commons.Logger, postgres connectors.SQLConnector, redis connectors.RedisConnector) protos.AuditLoggingServiceServer {
 	return &webActivityGRPCApi{
 		webActivityApi{
 			WebApi:       web_api.NewWebApi(config, logger, postgres, redis),

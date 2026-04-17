@@ -29,7 +29,7 @@ type webProjectApi struct {
 	cfg                 *config.WebAppConfig
 	logger              commons.Logger
 	redis               connectors.RedisConnector
-	postgres            connectors.PostgresConnector
+	postgres            connectors.SQLConnector
 	projectService      internal_service.ProjectService
 	emailerClient       external_clients.Emailer
 	userService         internal_service.UserService
@@ -44,7 +44,7 @@ type webProjectGRPCApi struct {
 	webProjectApi
 }
 
-func NewProjectRPC(config *config.WebAppConfig, logger commons.Logger, postgres connectors.PostgresConnector, redis connectors.RedisConnector) *webProjectRPCApi {
+func NewProjectRPC(config *config.WebAppConfig, logger commons.Logger, postgres connectors.SQLConnector, redis connectors.RedisConnector) *webProjectRPCApi {
 	return &webProjectRPCApi{
 		webProjectApi{
 			cfg:            config,
@@ -57,7 +57,7 @@ func NewProjectRPC(config *config.WebAppConfig, logger commons.Logger, postgres 
 	}
 }
 
-func NewProjectGRPC(config *config.WebAppConfig, logger commons.Logger, postgres connectors.PostgresConnector, redis connectors.RedisConnector) protos.ProjectServiceServer {
+func NewProjectGRPC(config *config.WebAppConfig, logger commons.Logger, postgres connectors.SQLConnector, redis connectors.RedisConnector) protos.ProjectServiceServer {
 	return &webProjectGRPCApi{
 		webProjectApi{
 			cfg:                 config,

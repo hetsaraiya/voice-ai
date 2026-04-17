@@ -26,7 +26,7 @@ import (
 type webOrganizationApi struct {
 	cfg                 *config.WebAppConfig
 	logger              commons.Logger
-	postgres            connectors.PostgresConnector
+	postgres            connectors.SQLConnector
 	redis               connectors.RedisConnector
 	organizationService internal_service.OrganizationService
 	userService         internal_service.UserService
@@ -44,7 +44,7 @@ type webOrganizationGRPCApi struct {
 }
 
 func NewOrganizationRPC(config *config.WebAppConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	redis connectors.RedisConnector,
 ) *webOrganizationRPCApi {
 	return &webOrganizationRPCApi{
@@ -61,7 +61,7 @@ func NewOrganizationRPC(config *config.WebAppConfig, logger commons.Logger,
 }
 
 func NewOrganizationGRPC(config *config.WebAppConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	redis connectors.RedisConnector) protos.OrganizationServiceServer {
 	return &webOrganizationGRPCApi{
 		webOrganizationApi{

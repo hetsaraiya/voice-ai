@@ -19,7 +19,7 @@ import (
 type indexerApi struct {
 	cfg                      *config.AssistantConfig
 	logger                   commons.Logger
-	postgres                 connectors.PostgresConnector
+	postgres                 connectors.SQLConnector
 	redis                    connectors.RedisConnector
 	knowledgeService         internal_services.KnowledgeService
 	indexerServiceClient     document_client.IndexerServiceClient
@@ -31,7 +31,7 @@ type indexerGrpcApi struct {
 }
 
 func NewDocumentGRPCApi(config *config.AssistantConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	redis connectors.RedisConnector,
 	opensearch connectors.OpenSearchConnector,
 ) knowledge_api.DocumentServiceServer {

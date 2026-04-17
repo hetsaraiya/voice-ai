@@ -17,7 +17,7 @@ import (
 type webNotificationApi struct {
 	cfg                 *config.WebAppConfig
 	logger              commons.Logger
-	postgres            connectors.PostgresConnector
+	postgres            connectors.SQLConnector
 	redis               connectors.RedisConnector
 	notificationService internal_service.NotificationService
 }
@@ -30,7 +30,7 @@ type webNotificationGRPCApi struct {
 	webNotificationApi
 }
 
-func NewNotificationGRPC(config *config.WebAppConfig, logger commons.Logger, postgres connectors.PostgresConnector, redis connectors.RedisConnector) protos.NotificationServiceServer {
+func NewNotificationGRPC(config *config.WebAppConfig, logger commons.Logger, postgres connectors.SQLConnector, redis connectors.RedisConnector) protos.NotificationServiceServer {
 	return &webNotificationGRPCApi{
 		webNotificationApi{
 			cfg:                 config,

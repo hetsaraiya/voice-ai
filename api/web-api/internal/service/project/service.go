@@ -21,17 +21,17 @@ import (
 
 type projectService struct {
 	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 }
 
-func NewProjectService(logger commons.Logger, postgres connectors.PostgresConnector) internal_services.ProjectService {
+func NewProjectService(logger commons.Logger, postgres connectors.SQLConnector) internal_services.ProjectService {
 	return &projectService{
 		logger:   logger,
 		postgres: postgres,
 	}
 }
 
-func NewProjectAuthenticator(logger commons.Logger, postgres connectors.PostgresConnector) types.ClaimAuthenticator[*types.ProjectScope] {
+func NewProjectAuthenticator(logger commons.Logger, postgres connectors.SQLConnector) types.ClaimAuthenticator[*types.ProjectScope] {
 	return &projectService{
 		logger:   logger,
 		postgres: postgres,

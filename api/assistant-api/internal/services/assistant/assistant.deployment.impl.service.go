@@ -25,13 +25,13 @@ import (
 
 type assistantDeploymentService struct {
 	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 	cfg      *config.AssistantConfig
 }
 
 func NewAssistantDeploymentService(cfg *config.AssistantConfig,
 	logger commons.Logger,
-	postgres connectors.PostgresConnector) internal_services.AssistantDeploymentService {
+	postgres connectors.SQLConnector) internal_services.AssistantDeploymentService {
 	return &assistantDeploymentService{
 		logger:   logger,
 		postgres: postgres,

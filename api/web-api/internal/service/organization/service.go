@@ -12,7 +12,7 @@ import (
 	type_enums "github.com/rapidaai/pkg/types/enums"
 )
 
-func NewOrganizationService(logger commons.Logger, postgres connectors.PostgresConnector) internal_services.OrganizationService {
+func NewOrganizationService(logger commons.Logger, postgres connectors.SQLConnector) internal_services.OrganizationService {
 	return &organizationService{
 		logger:   logger,
 		postgres: postgres,
@@ -21,7 +21,7 @@ func NewOrganizationService(logger commons.Logger, postgres connectors.PostgresC
 
 type organizationService struct {
 	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 }
 
 func (oS *organizationService) Create(ctx context.Context, auth types.Principle, name string, size string, industry string) (*internal_entity.Organization, error) {

@@ -34,7 +34,7 @@ import (
 type knowledgeDocumentService struct {
 	config     *config.AssistantConfig
 	logger     commons.Logger
-	postgres   connectors.PostgresConnector
+	postgres   connectors.SQLConnector
 	opensearch connectors.OpenSearchConnector
 	storage    storages.Storage
 }
@@ -43,7 +43,7 @@ var (
 	KNOWLEDGE_DOCUMENT_PREFIX = "knowledge-document__"
 )
 
-func NewKnowledgeDocumentService(config *config.AssistantConfig, logger commons.Logger, postgres connectors.PostgresConnector, opensearch connectors.OpenSearchConnector) internal_services.KnowledgeDocumentService {
+func NewKnowledgeDocumentService(config *config.AssistantConfig, logger commons.Logger, postgres connectors.SQLConnector, opensearch connectors.OpenSearchConnector) internal_services.KnowledgeDocumentService {
 	return &knowledgeDocumentService{
 		config:     config,
 		logger:     logger,

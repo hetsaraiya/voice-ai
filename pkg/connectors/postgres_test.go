@@ -21,12 +21,12 @@ import (
 
 // Local config struct for testing - removed since we can use configs package
 
-func TestNewPostgresConnector(t *testing.T) {
+func TestNewSQLConnector(t *testing.T) {
 	// Requires external config and logger packages
 	t.Skip("Requires external packages - integration test")
 }
 
-func TestPostgresConnector_Name(t *testing.T) {
+func TestSQLConnector_Name(t *testing.T) {
 	connector := &postgresConnector{
 		cfg: &configs.PostgresConfig{Host: "localhost", Port: 5432},
 	}
@@ -34,7 +34,7 @@ func TestPostgresConnector_Name(t *testing.T) {
 	assert.Equal(t, "PSQL psql://localhost:5432", result)
 }
 
-func TestPostgresConnector_DB(t *testing.T) {
+func TestSQLConnector_DB(t *testing.T) {
 	db, _, err := sqlmock.New()
 	if err != nil {
 		log.Fatalf("An error '%s' was not expected when opening a stub database connection", err)
@@ -58,7 +58,7 @@ func TestPostgresConnector_DB(t *testing.T) {
 	assert.NotNil(t, result)
 }
 
-func TestPostgresConnector_Disconnect(t *testing.T) {
+func TestSQLConnector_Disconnect(t *testing.T) {
 	db, _, err := sqlmock.New()
 	if err != nil {
 		log.Fatalf("An error '%s' was not expected when opening a stub database connection", err)
@@ -83,7 +83,7 @@ func TestPostgresConnector_Disconnect(t *testing.T) {
 	assert.Nil(t, connector.db)
 }
 
-func TestPostgresConnector_IsConnected(t *testing.T) {
+func TestSQLConnector_IsConnected(t *testing.T) {
 	logger, _ := commons.NewApplicationLogger()
 	connector := &postgresConnector{
 		cfg: &configs.PostgresConfig{
@@ -106,12 +106,12 @@ func TestPostgresConnector_IsConnected(t *testing.T) {
 // Note: Connect and Query methods require real PostgreSQL connection
 // and are tested as integration tests.
 
-func TestPostgresConnector_Connect_ErrorHandling(t *testing.T) {
+func TestSQLConnector_Connect_ErrorHandling(t *testing.T) {
 	// Test with invalid config
 	t.Skip("Requires external packages - integration test")
 }
 
-func TestPostgresConnector_Query_ErrorHandling(t *testing.T) {
+func TestSQLConnector_Query_ErrorHandling(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		log.Fatalf("An error '%s' was not expected when opening a stub database connection", err)
@@ -137,7 +137,7 @@ func TestPostgresConnector_Query_ErrorHandling(t *testing.T) {
 	assert.Error(t, err) // db is nil
 }
 
-func TestPostgresConnector_EdgeCases(t *testing.T) {
+func TestSQLConnector_EdgeCases(t *testing.T) {
 	db, _, err := sqlmock.New()
 	if err != nil {
 		log.Fatalf("An error '%s' was not expected when opening a stub database connection", err)

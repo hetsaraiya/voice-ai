@@ -136,8 +136,10 @@ func TestGetApplicationConfig(t *testing.T) {
 		t.Fatalf("appConfig is nil")
 	}
 
-	if appConfig.PostgresConfig.DBName != "assistant_db" {
-		t.Errorf("Expected PostgresConfig.DBName to be 'assistant_db', but got %v", appConfig.PostgresConfig.DBName)
+	if appConfig.PostgresConfig == nil {
+		t.Fatalf("Expected PostgresConfig to be populated, got nil")
+	} else if appConfig.PostgresConfig.DBName != "assistant_db" {
+		t.Errorf("Expected PostgresConfig.DBName to be 'assistant_db', but got %q", appConfig.PostgresConfig.DBName)
 	}
 	if appConfig.AssetStoreConfig.StorageType != "local" {
 		t.Errorf("Expected AssetStoreConfig.StorageType to be 'local', but got %v", appConfig.AssetStoreConfig.StorageType)
@@ -238,5 +240,87 @@ telemetry:
 
 	if _, err := GetApplicationConfig(v); err == nil {
 		t.Fatalf("expected incomplete telemetry opensearch config to fail validation")
+	}
+}
+
+func TestGetApplicationConfig_SQLite(t *testing.T) {
+	vConfig := viper.NewWithOptions(viper.KeyDelimiter("__"))
+	vConfig.Set("SERVICE_NAME", "workflow-api")
+	vConfig.Set("HOST", "0.0.0.0")
+	vConfig.Set("PORT", 9007)
+	vConfig.Set("LOG_LEVEL", "debug")
+	vConfig.Set("SECRET", "rpd_pks")
+	vConfig.Set("ENV", "development")
+
+	vConfig.Set("SQLITE__PATH", filepath.Join(t.TempDir(), "assistant.db"))
+	vConfig.Set("SQLITE__MAX_OPEN_CONNECTION", 1)
+	vConfig.Set("SQLITE__MAX_IDEAL_CONNECTION", 1)
+
+	vConfig.Set("REDIS__HOST", "127.0.0.1")
+	vConfig.Set("REDIS__PORT", 6379)
+	vConfig.Set("REDIS__MAX_CONNECTION", 10)
+	vConfig.Set("REDIS__MAX_DB", 0)
+
+	vConfig.Set("ASSET_STORE__STORAGE_TYPE", "local")
+	vConfig.Set("ASSET_STORE__STORAGE_PATH_PREFIX", os.Getenv("HOME")+"/rapida-data/assets/workflow")
+
+	vConfig.Set("INTEGRATION_HOST", "localhost:9004")
+	vConfig.Set("ENDPOINT_HOST", "localhost:9005")
+	vConfig.Set("ASSISTANT_HOST", "localhost:9007")
+	vConfig.Set("WEB_HOST", "localhost:9001")
+	vConfig.Set("DOCUMENT_HOST", "http://localhost:9010")
+	vConfig.Set("UI_HOST", "http://localhost:3000")
+
+	appConfig, err := GetApplicationConfig(vConfig)
+	if err != nil {
+		t.Fatalf("GetApplicationConfig returned an error: %v", err)
+	}
+	if appConfig.SQLiteConfig == nil || appConfig.SQLiteConfig.Path == "" {
+		t.Fatalf("expected SQLiteConfig to be populated, got %#v", appConfig.SQLiteConfig)
+	}
+	if appConfig.PostgresConfig != nil {
+		t.Fatalf("expected PostgresConfig to be nil when sqlite is selected")
+	}
+}
+
+func TestGetApplicationConfig_MultipleSQLConfigs(t *testing.T) {
+	vConfig := viper.NewWithOptions(viper.KeyDelimiter("__"))
+	vConfig.Set("SERVICE_NAME", "workflow-api")
+	vConfig.Set("HOST", "0.0.0.0")
+	vConfig.Set("PORT", 9007)
+	vConfig.Set("LOG_LEVEL", "debug")
+	vConfig.Set("SECRET", "rpd_pks")
+	vConfig.Set("ENV", "development")
+
+	vConfig.Set("POSTGRES__HOST", "localhost")
+	vConfig.Set("POSTGRES__DB_NAME", "assistant_db")
+	vConfig.Set("POSTGRES__AUTH__USER", "rapida_user")
+	vConfig.Set("POSTGRES__AUTH__PASSWORD", "rapida_db_password")
+	vConfig.Set("POSTGRES__PORT", 5432)
+	vConfig.Set("POSTGRES__MAX_OPEN_CONNECTION", 50)
+	vConfig.Set("POSTGRES__MAX_IDEAL_CONNECTION", 25)
+	vConfig.Set("POSTGRES__SSL_MODE", "disable")
+
+	vConfig.Set("SQLITE__PATH", filepath.Join(t.TempDir(), "assistant.db"))
+	vConfig.Set("SQLITE__MAX_OPEN_CONNECTION", 1)
+	vConfig.Set("SQLITE__MAX_IDEAL_CONNECTION", 1)
+
+	vConfig.Set("REDIS__HOST", "127.0.0.1")
+	vConfig.Set("REDIS__PORT", 6379)
+	vConfig.Set("REDIS__MAX_CONNECTION", 10)
+	vConfig.Set("REDIS__MAX_DB", 0)
+
+	vConfig.Set("ASSET_STORE__STORAGE_TYPE", "local")
+	vConfig.Set("ASSET_STORE__STORAGE_PATH_PREFIX", os.Getenv("HOME")+"/rapida-data/assets/workflow")
+	vConfig.Set("INTEGRATION_HOST", "localhost:9004")
+	vConfig.Set("ENDPOINT_HOST", "localhost:9005")
+	vConfig.Set("ASSISTANT_HOST", "localhost:9007")
+	vConfig.Set("WEB_HOST", "localhost:9001")
+	vConfig.Set("DOCUMENT_HOST", "http://localhost:9010")
+	vConfig.Set("UI_HOST", "http://localhost:3000")
+
+	_, err := GetApplicationConfig(vConfig)
+	if err == nil || !strings.Contains(err.Error(), "set only one") {
+		t.Fatalf("expected multi-sql validation error, got %v", err)
 	}
 }

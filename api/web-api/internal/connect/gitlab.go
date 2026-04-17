@@ -32,7 +32,7 @@ var (
 	GITLAB_ACTION_CONNECT = "/action/gitlab"
 )
 
-func NewGitlabAuthenticationConnect(cfg *config.WebAppConfig, auth2 *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) GitlabConnect {
+func NewGitlabAuthenticationConnect(cfg *config.WebAppConfig, auth2 *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) GitlabConnect {
 	return GitlabConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		gitlabOauthConfig: oauth2.Config{
@@ -46,7 +46,7 @@ func NewGitlabAuthenticationConnect(cfg *config.WebAppConfig, auth2 *config.OAut
 	}
 }
 
-func NewGitlabCodeConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) GitlabConnect {
+func NewGitlabCodeConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) GitlabConnect {
 	return GitlabConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		gitlabOauthConfig: oauth2.Config{
@@ -59,7 +59,7 @@ func NewGitlabCodeConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Confi
 		logger: logger,
 	}
 }
-func NewGitlabActionConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) GitlabConnect {
+func NewGitlabActionConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) GitlabConnect {
 	return GitlabConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		gitlabOauthConfig: oauth2.Config{

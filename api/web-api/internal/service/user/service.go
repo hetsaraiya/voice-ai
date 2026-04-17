@@ -26,17 +26,17 @@ var DEFAULT_USER_FEATURE_PERMISSION = []string{"/deployment/.*", "/knowledge/.*"
 
 type userService struct {
 	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 }
 
-func NewUserService(logger commons.Logger, postgres connectors.PostgresConnector) internal_services.UserService {
+func NewUserService(logger commons.Logger, postgres connectors.SQLConnector) internal_services.UserService {
 	return &userService{
 		logger:   logger,
 		postgres: postgres,
 	}
 }
 
-func NewAuthenticator(logger commons.Logger, postgres connectors.PostgresConnector) types.Authenticator {
+func NewAuthenticator(logger commons.Logger, postgres connectors.SQLConnector) types.Authenticator {
 	return &userService{
 		logger:   logger,
 		postgres: postgres,

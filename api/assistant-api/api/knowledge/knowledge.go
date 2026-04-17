@@ -19,7 +19,7 @@ import (
 type knowledgeApi struct {
 	cfg                      *config.AssistantConfig
 	logger                   commons.Logger
-	postgres                 connectors.PostgresConnector
+	postgres                 connectors.SQLConnector
 	redis                    connectors.RedisConnector
 	knowledgeService         internal_services.KnowledgeService
 	indexerServiceClient     document_client.IndexerServiceClient
@@ -31,7 +31,7 @@ type knowledgeGrpcApi struct {
 }
 
 func NewKnowledgeGRPCApi(config *config.AssistantConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	redis connectors.RedisConnector,
 	opensearch connectors.OpenSearchConnector,
 ) knowledge_api.KnowledgeServiceServer {

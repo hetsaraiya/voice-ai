@@ -21,10 +21,10 @@ import (
 
 type auditService struct {
 	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 }
 
-func NewAuditService(logger commons.Logger, postgres connectors.PostgresConnector) internal_services.AuditService {
+func NewAuditService(logger commons.Logger, postgres connectors.SQLConnector) internal_services.AuditService {
 	return &auditService{
 		logger:   logger,
 		postgres: postgres,

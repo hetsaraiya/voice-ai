@@ -29,12 +29,12 @@ import (
 type knowledgeService struct {
 	logger   commons.Logger
 	config   *config.AssistantConfig
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 	storage  storages.Storage
 }
 
 func NewKnowledgeService(config *config.AssistantConfig,
-	logger commons.Logger, postgres connectors.PostgresConnector, storage storages.Storage) internal_services.KnowledgeService {
+	logger commons.Logger, postgres connectors.SQLConnector, storage storages.Storage) internal_services.KnowledgeService {
 	return &knowledgeService{
 		logger:   logger,
 		config:   config,

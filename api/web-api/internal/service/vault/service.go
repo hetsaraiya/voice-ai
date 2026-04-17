@@ -18,10 +18,10 @@ import (
 
 type vaultService struct {
 	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 }
 
-func NewVaultService(logger commons.Logger, postgres connectors.PostgresConnector) internal_services.VaultService {
+func NewVaultService(logger commons.Logger, postgres connectors.SQLConnector) internal_services.VaultService {
 	return &vaultService{
 		logger:   logger,
 		postgres: postgres,

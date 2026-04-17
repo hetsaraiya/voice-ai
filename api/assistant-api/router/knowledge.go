@@ -18,7 +18,7 @@ func KnowledgeApiRoute(
 	Cfg *config.AssistantConfig,
 	S *grpc.Server,
 	Logger commons.Logger,
-	Postgres connectors.PostgresConnector,
+	Postgres connectors.SQLConnector,
 	Redis connectors.RedisConnector,
 	Opensearch connectors.OpenSearchConnector,
 ) {
@@ -35,7 +35,7 @@ func DocumentApiRoute(
 	Cfg *config.AssistantConfig,
 	S *grpc.Server,
 	Logger commons.Logger,
-	Postgres connectors.PostgresConnector,
+	Postgres connectors.SQLConnector,
 	Redis connectors.RedisConnector,
 	Opensearch connectors.OpenSearchConnector,
 

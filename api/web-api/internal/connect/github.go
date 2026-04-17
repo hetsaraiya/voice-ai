@@ -39,7 +39,7 @@ var (
 )
 
 func NewGithubAuthenticationConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger,
-	postgres connectors.PostgresConnector) GithubConnect {
+	postgres connectors.SQLConnector) GithubConnect {
 	return GithubConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		scope:           GITHUB_AUTHENTICATION_SCOPE,
@@ -49,7 +49,7 @@ func NewGithubAuthenticationConnect(cfg *config.WebAppConfig, oauthCfg *config.O
 	}
 }
 
-func NewGithubCodeConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) GithubConnect {
+func NewGithubCodeConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) GithubConnect {
 	return GithubConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		scope:           GITHUB_CODE_SCOPE,
@@ -58,7 +58,7 @@ func NewGithubCodeConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Confi
 		logger:          logger,
 	}
 }
-func NewGithubActionConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) GithubConnect {
+func NewGithubActionConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) GithubConnect {
 	return GithubConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		scope:           GITHUB_ACTION_SCOPE,

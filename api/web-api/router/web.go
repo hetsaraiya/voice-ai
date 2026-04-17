@@ -17,7 +17,7 @@ func WebApiRoute(
 	E *gin.Engine,
 	S *grpc.Server,
 	Logger commons.Logger,
-	Postgres connectors.PostgresConnector,
+	Postgres connectors.SQLConnector,
 	Redis connectors.RedisConnector,
 ) {
 	apiv1 := E.Group("/v1")
@@ -57,7 +57,7 @@ func WebApiRoute(
 func ProxyApiRoute(Cfg *config.WebAppConfig,
 	S *grpc.Server,
 	Logger commons.Logger,
-	Postgres connectors.PostgresConnector,
+	Postgres connectors.SQLConnector,
 	Redis connectors.RedisConnector) {
 	protos.RegisterDeploymentServer(S, webProxyApi.NewInvokeGRPC(Cfg, Logger, Postgres, Redis))
 	protos.RegisterAuditLoggingServiceServer(S, webProxyApi.NewActivityGRPC(Cfg, Logger, Postgres, Redis))

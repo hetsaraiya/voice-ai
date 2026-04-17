@@ -48,7 +48,7 @@ var (
 	GOOGLE_GMAIL_CONNECT_URL = "/connect-action/gmail"
 )
 
-func NewGoogleAuthenticationConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) GoogleConnect {
+func NewGoogleAuthenticationConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) GoogleConnect {
 	return GoogleConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		redirectUrl:     fmt.Sprintf("%s%s", cfg.BaseUrl(), GOOGLE_AUTHENTICATION_URL),
@@ -58,7 +58,7 @@ func NewGoogleAuthenticationConnect(cfg *config.WebAppConfig, oauthCfg *config.O
 	}
 }
 
-func NewGoogleDriveConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) GoogleConnect {
+func NewGoogleDriveConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) GoogleConnect {
 	return GoogleConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		redirectUrl:     fmt.Sprintf("%s%s", cfg.BaseUrl(), GOOGLE_DRIVE_CONNECT_URL),
@@ -68,7 +68,7 @@ func NewGoogleDriveConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Conf
 	}
 }
 
-func NewGmailConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) GoogleConnect {
+func NewGmailConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) GoogleConnect {
 	return GoogleConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		redirectUrl:     fmt.Sprintf("%s%s", cfg.BaseUrl(), GOOGLE_GMAIL_CONNECT_URL),

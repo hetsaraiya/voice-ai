@@ -22,7 +22,7 @@ import (
 type webConnectApi struct {
 	cfg      *config.WebAppConfig
 	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 	// code
 	githubCodeConnect internal_connects.GithubConnect
 	gitlabCodeConnect internal_connects.GitlabConnect
@@ -132,7 +132,7 @@ func (wConnectApi *webConnectGRPCApi) GeneralConnect(ctx context.Context, kcr *p
 	}, nil
 }
 
-func NewConnectRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) *webConnectRPCApi {
+func NewConnectRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) *webConnectRPCApi {
 	return &webConnectRPCApi{
 		webConnectApi{
 			cfg:                config,
@@ -160,7 +160,7 @@ func NewConnectRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, l
 
 func NewConnectGRPC(config *config.WebAppConfig,
 	oauthCfg *config.OAuth2Config,
-	logger commons.Logger, postgres connectors.PostgresConnector) protos.ConnectServiceServer {
+	logger commons.Logger, postgres connectors.SQLConnector) protos.ConnectServiceServer {
 	return &webConnectGRPCApi{
 		webConnectApi{
 			cfg:          config,

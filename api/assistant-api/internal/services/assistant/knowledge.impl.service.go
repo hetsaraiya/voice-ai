@@ -27,7 +27,7 @@ import (
 
 type assistantKnowledgeService struct {
 	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 	storage  storages.Storage
 }
 
@@ -230,7 +230,7 @@ func (eService *assistantKnowledgeService) Update(ctx context.Context, auth type
 }
 
 func NewAssistantKnowledgeService(logger commons.Logger,
-	postgres connectors.PostgresConnector, storage storages.Storage) internal_services.AssistantKnowledgeService {
+	postgres connectors.SQLConnector, storage storages.Storage) internal_services.AssistantKnowledgeService {
 	return &assistantKnowledgeService{
 		logger:   logger,
 		postgres: postgres,

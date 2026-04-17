@@ -27,7 +27,7 @@ var (
 	NOTION_WORKPLACE_CONNECT = "/connect-knowledge/notion"
 )
 
-func NewNotionWorkplaceConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) NotionConnect {
+func NewNotionWorkplaceConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) NotionConnect {
 	return NotionConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		notionOauthConfig: oauth2.Config{

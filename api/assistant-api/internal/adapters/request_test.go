@@ -219,8 +219,8 @@ func TestIdentifierFunctions_AllTypes(t *testing.T) {
 
 // Test expected constructor shape
 func TestNewTalkerFunction_Signature(t *testing.T) {
-	// New accepts functional options that populate TalkerOptions and returns:
-	// (internal_type.Talking, error)
+	// New accepts functional options that populate TalkerOptions (including SQLConnector)
+	// and returns (internal_type.Talking, error).
 
 	t.Run("New accepts functional options", func(t *testing.T) {
 		assert.True(t, true) // Function exists in package

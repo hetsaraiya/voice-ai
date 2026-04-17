@@ -24,7 +24,7 @@ type TalkerOptions struct {
 	Context    context.Context
 	Config     *config.AssistantConfig
 	Logger     commons.Logger
-	Postgres   connectors.PostgresConnector
+	Postgres   connectors.SQLConnector
 	OpenSearch connectors.OpenSearchConnector
 	Redis      connectors.RedisConnector
 	Storage    storages.Storage
@@ -58,7 +58,7 @@ func WithLogger(logger commons.Logger) FuncOption {
 	}
 }
 
-func WithPostgres(postgres connectors.PostgresConnector) FuncOption {
+func WithPostgres(postgres connectors.SQLConnector) FuncOption {
 	return func(options *TalkerOptions) {
 		options.Postgres = postgres
 	}

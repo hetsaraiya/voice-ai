@@ -28,12 +28,12 @@ import (
 
 type assistantService struct {
 	logger     commons.Logger
-	postgres   connectors.PostgresConnector
+	postgres   connectors.SQLConnector
 	opensearch connectors.OpenSearchConnector
 	cfg        *config.AssistantConfig
 }
 
-func NewAssistantService(cfg *config.AssistantConfig, logger commons.Logger, postgres connectors.PostgresConnector, opensearch connectors.OpenSearchConnector) internal_services.AssistantService {
+func NewAssistantService(cfg *config.AssistantConfig, logger commons.Logger, postgres connectors.SQLConnector, opensearch connectors.OpenSearchConnector) internal_services.AssistantService {
 	return &assistantService{
 		logger:     logger,
 		postgres:   postgres,

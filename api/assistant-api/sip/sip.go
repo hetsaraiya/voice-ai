@@ -37,7 +37,7 @@ type SIPEngine struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	postgres   connectors.PostgresConnector
+	postgres   connectors.SQLConnector
 	redis      connectors.RedisConnector
 	opensearch connectors.OpenSearchConnector
 	storage    storages.Storage
@@ -63,7 +63,7 @@ type SIPEngine struct {
 }
 
 func NewSIPEngine(config *config.AssistantConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	redis connectors.RedisConnector,
 	opensearch connectors.OpenSearchConnector,
 	vectordb connectors.VectorConnector) *SIPEngine {

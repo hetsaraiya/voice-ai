@@ -36,7 +36,7 @@ import (
 type ConversationApi struct {
 	cfg        *config.AssistantConfig
 	logger     commons.Logger
-	postgres   connectors.PostgresConnector
+	postgres   connectors.SQLConnector
 	redis      connectors.RedisConnector
 	opensearch connectors.OpenSearchConnector
 	storage    storages.Storage
@@ -82,7 +82,7 @@ func (cApi *ConversationApi) Observability(ctx context.Context, auth types.Simpl
 // newConversationApiCore builds the shared ConversationApi. All three public
 // constructors delegate to this so that deps are created exactly once.
 func newConversationApiCore(cfg *config.AssistantConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	redis connectors.RedisConnector,
 	opensearch connectors.OpenSearchConnector,
 	sipServer *sip_infra.Server,
@@ -147,7 +147,7 @@ func newConversationApiCore(cfg *config.AssistantConfig, logger commons.Logger,
 }
 
 func NewConversationGRPCApi(config *config.AssistantConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	redis connectors.RedisConnector,
 	opensearch connectors.OpenSearchConnector,
 	vectordb connectors.VectorConnector,
@@ -157,7 +157,7 @@ func NewConversationGRPCApi(config *config.AssistantConfig, logger commons.Logge
 }
 
 func NewWebRtcApi(config *config.AssistantConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	redis connectors.RedisConnector,
 	opensearch connectors.OpenSearchConnector,
 	vectordb connectors.VectorConnector,
@@ -172,7 +172,7 @@ func (cApi *ConversationApi) Pipeline() *channel_pipeline.Dispatcher {
 }
 
 func NewConversationApi(config *config.AssistantConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	redis connectors.RedisConnector,
 	opensearch connectors.OpenSearchConnector,
 	vectordb connectors.VectorConnector,

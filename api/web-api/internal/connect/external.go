@@ -27,10 +27,10 @@ type ExternalConnectToken interface {
 type ExternalConnect struct {
 	cfg      *config.WebAppConfig
 	log      commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 }
 
-func NewExternalConnect(cfg *config.WebAppConfig, logger commons.Logger, postgres connectors.PostgresConnector) ExternalConnect {
+func NewExternalConnect(cfg *config.WebAppConfig, logger commons.Logger, postgres connectors.SQLConnector) ExternalConnect {
 	return ExternalConnect{
 		cfg:      cfg,
 		log:      logger,

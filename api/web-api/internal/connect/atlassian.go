@@ -39,7 +39,7 @@ var (
 	JIRA_CONNECT_URL = "/connect-common/atlassian"
 )
 
-func NewConfluenceConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) AtlassianConnect {
+func NewConfluenceConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) AtlassianConnect {
 	return AtlassianConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		atlassianOauthConfig: oauth2.Config{
@@ -56,7 +56,7 @@ func NewConfluenceConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Confi
 	}
 }
 
-func NewJiraConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) AtlassianConnect {
+func NewJiraConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) AtlassianConnect {
 	return AtlassianConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		atlassianOauthConfig: oauth2.Config{

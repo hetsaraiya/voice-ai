@@ -25,7 +25,7 @@ var (
 	SLACK_SEND_MESSAGE_CONNECT = "/connect-action/slack"
 )
 
-func NewSlackActionConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) SlackConnect {
+func NewSlackActionConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) SlackConnect {
 	return SlackConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		slackOauthConfig: oauth2.Config{

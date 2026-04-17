@@ -17,13 +17,13 @@ import (
 type WebApi struct {
 	cfg         *config.WebAppConfig
 	logger      commons.Logger
-	postgres    connectors.PostgresConnector
+	postgres    connectors.SQLConnector
 	redis       connectors.RedisConnector
 	userService internal_service.UserService
 	orgService  internal_service.OrganizationService
 }
 
-func NewWebApi(cfg *config.WebAppConfig, logger commons.Logger, postgres connectors.PostgresConnector, redis connectors.RedisConnector) WebApi {
+func NewWebApi(cfg *config.WebAppConfig, logger commons.Logger, postgres connectors.SQLConnector, redis connectors.RedisConnector) WebApi {
 	return WebApi{
 		cfg: cfg, logger: logger, postgres: postgres, redis: redis,
 		userService: internal_user_service.NewUserService(logger, postgres),

@@ -18,7 +18,7 @@ import (
 type webVaultApi struct {
 	cfg               *config.WebAppConfig
 	logger            commons.Logger
-	postgres          connectors.PostgresConnector
+	postgres          connectors.SQLConnector
 	redis             connectors.RedisConnector
 	vaultService      internal_service.VaultService
 	integrationClient integration_client.IntegrationServiceClient
@@ -33,7 +33,7 @@ type webVaultGRPCApi struct {
 	webVaultApi
 }
 
-func NewVaultRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector, redis connectors.RedisConnector) *webVaultRPCApi {
+func NewVaultRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector, redis connectors.RedisConnector) *webVaultRPCApi {
 	return &webVaultRPCApi{
 		webVaultApi{
 			cfg:               config,
@@ -46,7 +46,7 @@ func NewVaultRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, log
 	}
 }
 
-func NewVaultGRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector, redis connectors.RedisConnector) protos.VaultServiceServer {
+func NewVaultGRPC(config *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector, redis connectors.RedisConnector) protos.VaultServiceServer {
 	return &webVaultGRPCApi{
 		webVaultApi{
 			cfg:               config,

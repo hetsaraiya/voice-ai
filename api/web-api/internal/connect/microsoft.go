@@ -56,7 +56,7 @@ var (
 	MICROSOFT_SHAREPOINT_CONNECT = "/connect-knowledge/share-point"
 )
 
-func NewMicrosoftAuthenticationConnect(cfg *config.WebAppConfig, auth2 *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) MicrosoftConnect {
+func NewMicrosoftAuthenticationConnect(cfg *config.WebAppConfig, auth2 *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) MicrosoftConnect {
 	return MicrosoftConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		microsoftOauthConfig: oauth2.Config{
@@ -70,7 +70,7 @@ func NewMicrosoftAuthenticationConnect(cfg *config.WebAppConfig, auth2 *config.O
 	}
 }
 
-func NewMicrosoftSharepointConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) MicrosoftConnect {
+func NewMicrosoftSharepointConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) MicrosoftConnect {
 	return MicrosoftConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		microsoftOauthConfig: oauth2.Config{
@@ -84,7 +84,7 @@ func NewMicrosoftSharepointConnect(cfg *config.WebAppConfig, oauthCfg *config.OA
 	}
 }
 
-func NewMicrosoftOnedriveConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.PostgresConnector) MicrosoftConnect {
+func NewMicrosoftOnedriveConnect(cfg *config.WebAppConfig, oauthCfg *config.OAuth2Config, logger commons.Logger, postgres connectors.SQLConnector) MicrosoftConnect {
 	return MicrosoftConnect{
 		ExternalConnect: NewExternalConnect(cfg, logger, postgres),
 		microsoftOauthConfig: oauth2.Config{

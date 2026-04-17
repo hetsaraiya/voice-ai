@@ -23,10 +23,10 @@ import (
 
 type endpointLogService struct {
 	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 }
 
-func NewEndpointLogService(logger commons.Logger, postgres connectors.PostgresConnector) internal_service.EndpointLogService {
+func NewEndpointLogService(logger commons.Logger, postgres connectors.SQLConnector) internal_service.EndpointLogService {
 	return &endpointLogService{
 		logger:   logger,
 		postgres: postgres,

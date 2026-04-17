@@ -27,13 +27,13 @@ import (
 
 type assistantConversationService struct {
 	logger   commons.Logger
-	postgres connectors.PostgresConnector
+	postgres connectors.SQLConnector
 	storage  storages.Storage
 }
 
 func NewAssistantConversationService(
 	logger commons.Logger,
-	postgres connectors.PostgresConnector,
+	postgres connectors.SQLConnector,
 	storage storages.Storage) internal_services.AssistantConversationService {
 	return &assistantConversationService{
 		logger:   logger,

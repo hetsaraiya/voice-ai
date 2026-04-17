@@ -29,7 +29,7 @@ import (
 type invokerApi struct {
 	cfg                *config.EndpointConfig
 	logger             commons.Logger
-	postgres           connectors.PostgresConnector
+	postgres           connectors.SQLConnector
 	endpointService    internal_services.EndpointService
 	endpointLogService internal_services.EndpointLogService
 	integrationClient  integration_client.IntegrationServiceClient
@@ -42,7 +42,7 @@ type invokerGRPCApi struct {
 }
 
 func NewInvokerGRPCApi(config *config.EndpointConfig, logger commons.Logger,
-	postgres connectors.PostgresConnector, redis connectors.RedisConnector,
+	postgres connectors.SQLConnector, redis connectors.RedisConnector,
 ) invoker_api.DeploymentServer {
 	return &invokerGRPCApi{
 		invokerApi{

@@ -182,6 +182,22 @@ go build -o bin/web ./cmd/web
 
 Requires PostgreSQL, Redis, OpenSearch running separately.
 
+SQLite is also supported for simpler single-node or demo setups in the Go services. Minimal example:
+
+```bash
+SQLITE__PATH=$PWD/.local/rapida/web.db
+SQLITE__MAX_OPEN_CONNECTION=1
+SQLITE__MAX_IDEAL_CONNECTION=1
+REDIS__HOST=localhost
+REDIS__PORT=6379
+REDIS__MAX_CONNECTION=5
+ASSET_STORE__STORAGE_TYPE=local
+ASSET_STORE__STORAGE_PATH_PREFIX=$HOME/rapida-data/assets/web
+go run ./cmd/web
+```
+
+Current caveat: the checked-in SQL migration files are still PostgreSQL-specific, so Go services skip automatic migrations when `SQLITE__*` is selected. SQLite is best suited for local demos, smoke runs, or single-node experiments against an existing compatible schema or with migration needs handled separately.
+
 ### React UI
 
 ```bash
