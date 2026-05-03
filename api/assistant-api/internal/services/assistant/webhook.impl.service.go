@@ -189,7 +189,7 @@ func (eService *assistantWebhookService) GetAll(ctx context.Context,
 		cnt      int64
 	)
 	qry := db.Model(internal_assistant_entity.AssistantWebhook{})
-	qry.
+	qry = qry.
 		Where(
 			"assistant_id = ? AND organization_id = ? AND project_id = ? AND status = ?",
 			assistantId,
@@ -198,7 +198,7 @@ func (eService *assistantWebhookService) GetAll(ctx context.Context,
 			type_enums.RECORD_ACTIVE,
 		)
 	for _, ct := range criterias {
-		qry.Where(fmt.Sprintf("%s %s ?", ct.GetKey(), ct.GetLogic()), ct.GetValue())
+		qry = qry.Where(fmt.Sprintf("%s %s ?", ct.GetKey(), ct.GetLogic()), ct.GetValue())
 	}
 	tx := qry.
 		Scopes(gorm_models.
@@ -313,10 +313,10 @@ func (eService *assistantWebhookService) GetAllLog(
 		cnt         int64
 	)
 	qry := db.Model(internal_assistant_entity.AssistantWebhookLog{})
-	qry.
+	qry = qry.
 		Where("organization_id = ? AND project_id = ? ", *auth.GetCurrentOrganizationId(), projectId)
 	for _, ct := range criterias {
-		qry.Where(fmt.Sprintf("%s %s ?", ct.GetKey(), ct.GetLogic()), ct.GetValue())
+		qry = qry.Where(fmt.Sprintf("%s %s ?", ct.GetKey(), ct.GetLogic()), ct.GetValue())
 	}
 	tx := qry.
 		Scopes(gorm_models.

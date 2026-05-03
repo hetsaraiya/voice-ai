@@ -19,6 +19,7 @@ import {
   AssistantMappingTable,
 } from '@/app/components/tools/common';
 import { SourceConditionRule } from '@/app/components/conditions/source-condition-rule';
+import { InputGroup } from '../../../../components/input-group/index';
 
 // ── Parameter types ──────────────────────────────────────────────────────────
 
@@ -187,8 +188,8 @@ export const CreateAssistantAnalysis: FC<{ assistantId: string }> = ({
               </ButtonSet>,
             ],
             body: (
-              <div className="px-8 pt-6 pb-8 max-w-4xl">
-                <Stack gap={7}>
+              <div>
+                <InputGroup title="Execution conditions (Optional)">
                   <SourceConditionRule
                     conditions={sourceConditions}
                     onChangeConditions={setSourceConditions}
@@ -198,6 +199,8 @@ export const CreateAssistantAnalysis: FC<{ assistantId: string }> = ({
                     valueOptionsByKey={ASSISTANT_CONDITION_VALUE_OPTIONS_BY_KEY}
                     keyTooltipText="The variable to evaluate before running this analysis."
                   />
+                </InputGroup>
+                <Stack gap={7} className="px-8 pt-6 pb-8 max-w-4xl">
                   <EndpointDropdown
                     currentEndpoint={endpointId}
                     onChangeEndpoint={(e: Endpoint) => {

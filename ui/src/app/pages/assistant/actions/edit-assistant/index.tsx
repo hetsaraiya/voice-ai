@@ -18,18 +18,11 @@ import { useParams } from 'react-router-dom';
 import { UpdateAssistantDetail } from '@rapidaai/react';
 import { connectionConfig } from '@/configs';
 import { Notification } from '@/app/components/carbon/notification';
-import {
-  Form,
-  Stack,
-  TextInput,
-  TextArea,
-} from '@/app/components/carbon/form';
-import {
-  PrimaryButton,
-  DangerButton,
-} from '@/app/components/carbon/button';
+import { Form, Stack, TextInput, TextArea } from '@/app/components/carbon/form';
+import { PrimaryButton, DangerButton } from '@/app/components/carbon/button';
 import { Breadcrumb, BreadcrumbItem } from '@carbon/react';
 import { WarningAlt } from '@carbon/icons-react';
+import { InputGroup } from '../../../../components/input-group/index';
 
 export function EditAssistantPage() {
   const { assistantId } = useParams();
@@ -170,71 +163,77 @@ export const EditAssistant: FC<{ assistantId: string }> = ({ assistantId }) => {
       {/* Page header */}
       <div className="px-4 pt-4 pb-6 border-b border-gray-200 dark:border-gray-800">
         <Breadcrumb noTrailingSlash className="mb-2">
-          <BreadcrumbItem href={`/deployment/assistant/${assistantId}/overview`}>
+          <BreadcrumbItem
+            href={`/deployment/assistant/${assistantId}/overview`}
+          >
             Assistant
           </BreadcrumbItem>
         </Breadcrumb>
         <h1 className="text-2xl font-light tracking-tight">General Settings</h1>
       </div>
 
-      <div className="px-4 pt-6 pb-12 flex flex-col gap-8 max-w-2xl">
-        {/* ── Identity ── */}
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-4">Identity</h2>
-          <div>
+      <InputGroup title="Identity">
+        <TextInput
+          id="assistant-id"
+          labelText="Assistant ID"
+          value={assistantId}
+          readOnly
+          helperText="Your assistant's unique identifier. This cannot be changed."
+        />
+      </InputGroup>
+      <InputGroup title="General Information">
+        <Form
+          className="flex flex-col gap-8 max-w-2xl"
+          onSubmit={e => {
+            e.preventDefault();
+            onUpdateAssistantDetail();
+          }}
+        >
+          <Stack gap={6}>
             <TextInput
-              id="assistant-id"
-              labelText="Assistant ID"
-              value={assistantId}
-              readOnly
-              helperText="Your assistant's unique identifier. This cannot be changed."
+              id="assistant-name"
+              labelText="Name"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. Customer support bot"
+              helperText="The display name shown across the platform."
             />
-          </div>
-        </div>
-
+            <TextArea
+              id="assistant-description"
+              labelText="Description"
+              value={description}
+              rows={4}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="What's the purpose of this assistant?"
+              helperText="Describe what this assistant does and its intended use case."
+            />
+            {errorMessage && (
+              <Notification
+                kind="error"
+                title="Error"
+                subtitle={errorMessage}
+              />
+            )}
+            <div>
+              <PrimaryButton
+                size="md"
+                isLoading={loading}
+                onClick={onUpdateAssistantDetail}
+              >
+                Save changes
+              </PrimaryButton>
+            </div>
+          </Stack>
+        </Form>
+      </InputGroup>
+      <div className="px-4 pt-6 pb-12 flex flex-col gap-8 max-w-2xl">
         {/* ── General Information ── */}
-        <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-4">General Information</h2>
-          <div>
-            <Form onSubmit={e => { e.preventDefault(); onUpdateAssistantDetail(); }}>
-              <Stack gap={6}>
-                <TextInput
-                  id="assistant-name"
-                  labelText="Name"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="e.g. Customer support bot"
-                  helperText="The display name shown across the platform."
-                />
-                <TextArea
-                  id="assistant-description"
-                  labelText="Description"
-                  value={description}
-                  rows={4}
-                  onChange={e => setDescription(e.target.value)}
-                  placeholder="What's the purpose of this assistant?"
-                  helperText="Describe what this assistant does and its intended use case."
-                />
-                {errorMessage && (
-                  <Notification kind="error" title="Error" subtitle={errorMessage} />
-                )}
-                <div>
-                  <PrimaryButton
-                    size="md"
-                    isLoading={loading}
-                    onClick={onUpdateAssistantDetail}
-                  >
-                    Save changes
-                  </PrimaryButton>
-                </div>
-              </Stack>
-            </Form>
-          </div>
-        </div>
 
         {/* ── Danger Zone ── */}
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-red-600 mb-4">Danger Zone</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-red-600 mb-4">
+            Danger Zone
+          </h2>
           <div>
             <div className="flex items-start justify-between gap-6">
               <div className="flex flex-col gap-1">

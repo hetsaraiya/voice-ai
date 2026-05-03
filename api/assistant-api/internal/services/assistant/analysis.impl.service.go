@@ -167,7 +167,7 @@ func (eService *assistantAnalysisService) GetAll(ctx context.Context,
 		cnt        int64
 	)
 	qry := db.Model(internal_assistant_entity.AssistantAnalysis{})
-	qry.
+	qry = qry.
 		Where(
 			"assistant_id = ? AND organization_id = ? AND project_id = ? AND status = ?",
 			assistantId,
@@ -176,7 +176,7 @@ func (eService *assistantAnalysisService) GetAll(ctx context.Context,
 			type_enums.RECORD_ACTIVE,
 		)
 	for _, ct := range criterias {
-		qry.Where(fmt.Sprintf("%s %s ?", ct.GetKey(), ct.GetLogic()), ct.GetValue())
+		qry = qry.Where(fmt.Sprintf("%s %s ?", ct.GetKey(), ct.GetLogic()), ct.GetValue())
 	}
 	tx := qry.
 		Scopes(gorm_models.
