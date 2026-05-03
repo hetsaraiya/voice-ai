@@ -47,10 +47,14 @@ func (s *assistantAuthenticationService) Get(
 
 	var out *internal_assistant_entity.AssistantAuthentication
 	tx := db.Preload("AssistantAuthenticationOption", "status = ?", type_enums.RECORD_ACTIVE).
-		Where("assistant_id = ? AND status IN ?", assistantId, []type_enums.RecordState{
-			type_enums.RECORD_ACTIVE,
-			type_enums.RECORD_INACTIVE,
-		}).
+		Where("assistant_id = ? AND organization_id = ? AND project_id = ? AND status IN ?",
+			assistantId,
+			*auth.GetCurrentOrganizationId(),
+			*auth.GetCurrentProjectId(),
+			[]type_enums.RecordState{
+				type_enums.RECORD_ACTIVE,
+				type_enums.RECORD_INACTIVE,
+			}).
 		Order(clause.OrderByColumn{
 			Column: clause.Column{Name: "created_date"},
 			Desc:   true,
@@ -110,6 +114,10 @@ func (s *assistantAuthenticationService) Create(
 			AssistantId:  assistantId,
 			FailBehavior: failBehavior,
 			TimeoutMs:    timeoutMs,
+			Organizational: gorm_models.Organizational{
+				ProjectId:      *auth.GetCurrentProjectId(),
+				OrganizationId: *auth.GetCurrentOrganizationId(),
+			},
 			Mutable: gorm_models.Mutable{
 				Status:    recordStatus,
 				CreatedBy: *auth.GetUserId(),
@@ -160,10 +168,14 @@ func (s *assistantAuthenticationService) Disable(
 		var current *internal_assistant_entity.AssistantAuthentication
 		_ = tx.WithContext(ctx).
 			Preload("AssistantAuthenticationOption", "status = ?", type_enums.RECORD_ACTIVE).
-			Where("assistant_id = ? AND status IN ?", assistantId, []type_enums.RecordState{
-				type_enums.RECORD_ACTIVE,
-				type_enums.RECORD_INACTIVE,
-			}).
+			Where("assistant_id = ? AND organization_id = ? AND project_id = ? AND status IN ?",
+				assistantId,
+				*auth.GetCurrentOrganizationId(),
+				*auth.GetCurrentProjectId(),
+				[]type_enums.RecordState{
+					type_enums.RECORD_ACTIVE,
+					type_enums.RECORD_INACTIVE,
+				}).
 			Order(clause.OrderByColumn{
 				Column: clause.Column{Name: "created_date"},
 				Desc:   true,
@@ -197,6 +209,10 @@ func (s *assistantAuthenticationService) Disable(
 			AssistantId:  assistantId,
 			FailBehavior: failBehavior,
 			TimeoutMs:    timeoutMs,
+			Organizational: gorm_models.Organizational{
+				ProjectId:      *auth.GetCurrentProjectId(),
+				OrganizationId: *auth.GetCurrentOrganizationId(),
+			},
 			Mutable: gorm_models.Mutable{
 				Status:    type_enums.RECORD_INACTIVE,
 				CreatedBy: *auth.GetUserId(),
@@ -231,10 +247,14 @@ func (s *assistantAuthenticationService) archiveCurrentConfigs(
 ) error {
 	var current []*internal_assistant_entity.AssistantAuthentication
 	if err := tx.WithContext(ctx).
-		Where("assistant_id = ? AND status IN ?", assistantId, []type_enums.RecordState{
-			type_enums.RECORD_ACTIVE,
-			type_enums.RECORD_INACTIVE,
-		}).
+		Where("assistant_id = ? AND organization_id = ? AND project_id = ? AND status IN ?",
+			assistantId,
+			*auth.GetCurrentOrganizationId(),
+			*auth.GetCurrentProjectId(),
+			[]type_enums.RecordState{
+				type_enums.RECORD_ACTIVE,
+				type_enums.RECORD_INACTIVE,
+			}).
 		Find(&current).Error; err != nil {
 		return err
 	}

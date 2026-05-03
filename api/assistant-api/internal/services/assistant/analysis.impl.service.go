@@ -39,6 +39,7 @@ func (eService *assistantAnalysisService) Get(ctx context.Context, auth types.Si
 	db := eService.postgres.DB(ctx)
 	var Analysis *internal_assistant_entity.AssistantAnalysis
 	tx := db.Where("id = ? AND assistant_id = ?", analysisId, assistantId).
+		Where("organization_id = ? AND project_id = ?", *auth.GetCurrentOrganizationId(), *auth.GetCurrentProjectId()).
 		First(&Analysis)
 	if tx.Error != nil {
 		eService.logger.Benchmark("AnalysisService.Get", time.Since(start))
@@ -69,6 +70,10 @@ func (eService *assistantAnalysisService) Create(ctx context.Context,
 		EndpointVersion:    endpointVersion,
 		EndpointParameters: endpointParameters,
 		ExecutionPriority:  executionPriority,
+		Organizational: gorm_models.Organizational{
+			ProjectId:      *auth.GetCurrentProjectId(),
+			OrganizationId: *auth.GetCurrentOrganizationId(),
+		},
 		Mutable: gorm_models.Mutable{
 			CreatedBy: *auth.GetUserId(),
 			Status:    type_enums.RECORD_ACTIVE,
@@ -110,7 +115,9 @@ func (eService *assistantAnalysisService) Update(ctx context.Context,
 	}
 	tx := db.Where("id = ? AND assistant_id = ? ",
 		analysisId,
-		assistantId).Updates(&analysis)
+		assistantId).
+		Where("organization_id = ? AND project_id = ?", *auth.GetCurrentOrganizationId(), *auth.GetCurrentProjectId()).
+		Updates(&analysis)
 	if tx.Error != nil {
 		eService.logger.Benchmark("assistantAnalysisService.Update", time.Since(start))
 		eService.logger.Errorf("error while creating webhook %v", tx.Error)
@@ -135,7 +142,9 @@ func (eService *assistantAnalysisService) Delete(ctx context.Context,
 	}
 	tx := db.Where("id = ? AND assistant_id = ? ",
 		analysisId,
-		assistantId).Updates(&analysis)
+		assistantId).
+		Where("organization_id = ? AND project_id = ?", *auth.GetCurrentOrganizationId(), *auth.GetCurrentProjectId()).
+		Updates(&analysis)
 	if tx.Error != nil {
 		eService.logger.Benchmark("assistantAnalysisService.Update", time.Since(start))
 		eService.logger.Errorf("error while creating webhook %v", tx.Error)
@@ -159,7 +168,13 @@ func (eService *assistantAnalysisService) GetAll(ctx context.Context,
 	)
 	qry := db.Model(internal_assistant_entity.AssistantAnalysis{})
 	qry.
-		Where("assistant_id = ? AND status = ?", assistantId, type_enums.RECORD_ACTIVE)
+		Where(
+			"assistant_id = ? AND organization_id = ? AND project_id = ? AND status = ?",
+			assistantId,
+			*auth.GetCurrentOrganizationId(),
+			*auth.GetCurrentProjectId(),
+			type_enums.RECORD_ACTIVE,
+		)
 	for _, ct := range criterias {
 		qry.Where(fmt.Sprintf("%s %s ?", ct.GetKey(), ct.GetLogic()), ct.GetValue())
 	}

@@ -47,6 +47,7 @@ func (eService *assistantWebhookService) Get(ctx context.Context, auth types.Sim
 	db := eService.postgres.DB(ctx)
 	var Webhook *internal_assistant_entity.AssistantWebhook
 	tx := db.Where("id = ? AND assistant_id = ?", webhookId, assistantId).
+		Where("organization_id = ? AND project_id = ?", *auth.GetCurrentOrganizationId(), *auth.GetCurrentProjectId()).
 		First(&Webhook)
 	if tx.Error != nil {
 		eService.logger.Benchmark("WebhookService.Get", time.Since(start))
@@ -84,6 +85,10 @@ func (eService *assistantWebhookService) Create(ctx context.Context,
 		MaxRetryCount:     maxRetryCount,
 		TimeoutSeconds:    timeoutSecond,
 		ExecutionPriority: executionPriority,
+		Organizational: gorm_models.Organizational{
+			ProjectId:      *auth.GetCurrentProjectId(),
+			OrganizationId: *auth.GetCurrentOrganizationId(),
+		},
 		Mutable: gorm_models.Mutable{
 			CreatedBy: *auth.GetUserId(),
 			Status:    type_enums.RECORD_ACTIVE,
@@ -132,7 +137,9 @@ func (eService *assistantWebhookService) Update(ctx context.Context,
 	}
 	tx := db.Where("id = ? AND assistant_id = ? ",
 		webhookId,
-		assistantId).Updates(&webhook)
+		assistantId).
+		Where("organization_id = ? AND project_id = ?", *auth.GetCurrentOrganizationId(), *auth.GetCurrentProjectId()).
+		Updates(&webhook)
 	if tx.Error != nil {
 		eService.logger.Benchmark("assistantWebhookService.Update", time.Since(start))
 		eService.logger.Errorf("error while creating webhook %v", tx.Error)
@@ -157,7 +164,9 @@ func (eService *assistantWebhookService) Delete(ctx context.Context,
 	}
 	tx := db.Where("id = ? AND assistant_id = ? ",
 		webhookId,
-		assistantId).Updates(&webhook)
+		assistantId).
+		Where("organization_id = ? AND project_id = ?", *auth.GetCurrentOrganizationId(), *auth.GetCurrentProjectId()).
+		Updates(&webhook)
 	if tx.Error != nil {
 		eService.logger.Benchmark("assistantWebhookService.Delete", time.Since(start))
 		eService.logger.Errorf("error while creating webhook %v", tx.Error)
@@ -181,7 +190,13 @@ func (eService *assistantWebhookService) GetAll(ctx context.Context,
 	)
 	qry := db.Model(internal_assistant_entity.AssistantWebhook{})
 	qry.
-		Where("assistant_id = ? AND status = ?", assistantId, type_enums.RECORD_ACTIVE)
+		Where(
+			"assistant_id = ? AND organization_id = ? AND project_id = ? AND status = ?",
+			assistantId,
+			*auth.GetCurrentOrganizationId(),
+			*auth.GetCurrentProjectId(),
+			type_enums.RECORD_ACTIVE,
+		)
 	for _, ct := range criterias {
 		qry.Where(fmt.Sprintf("%s %s ?", ct.GetKey(), ct.GetLogic()), ct.GetValue())
 	}
