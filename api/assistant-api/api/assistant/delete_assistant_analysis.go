@@ -16,7 +16,7 @@ import (
 
 func (assistantApi *assistantGrpcApi) DeleteAssistantAnalysis(ctx context.Context, cer *assistant_api.DeleteAssistantAnalysisRequest) (*assistant_api.GetAssistantAnalysisResponse, error) {
 	iAuth, isAuthenticated := types.GetSimplePrincipleGRPC(ctx)
-	if !isAuthenticated {
+	if !isAuthenticated || !iAuth.HasProject() {
 		assistantApi.logger.Errorf("unauthenticated request for DeleteAssistantAnalysisRequest")
 		return utils.Error[assistant_api.GetAssistantAnalysisResponse](
 			errors.New("unauthenticated request for DeleteAssistantAnalysisRequest"),

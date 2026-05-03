@@ -7,6 +7,7 @@ package internal_assistant_service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -123,6 +124,11 @@ func (eService *assistantAnalysisService) Update(ctx context.Context,
 		eService.logger.Errorf("error while creating webhook %v", tx.Error)
 		return nil, tx.Error
 	}
+	if tx.RowsAffected == 0 {
+		eService.logger.Benchmark("assistantAnalysisService.Update", time.Since(start))
+		eService.logger.Errorf("analysis not found for update id=%d assistant_id=%d", analysisId, assistantId)
+		return nil, errors.New("assistant analysis not found")
+	}
 	eService.logger.Benchmark("assistantAnalysisService.Update", time.Since(start))
 	return analysis, nil
 }
@@ -149,6 +155,11 @@ func (eService *assistantAnalysisService) Delete(ctx context.Context,
 		eService.logger.Benchmark("assistantAnalysisService.Update", time.Since(start))
 		eService.logger.Errorf("error while creating webhook %v", tx.Error)
 		return nil, tx.Error
+	}
+	if tx.RowsAffected == 0 {
+		eService.logger.Benchmark("assistantAnalysisService.Delete", time.Since(start))
+		eService.logger.Errorf("analysis not found for delete id=%d assistant_id=%d", analysisId, assistantId)
+		return nil, errors.New("assistant analysis not found")
 	}
 	eService.logger.Benchmark("assistantAnalysisService.Update", time.Since(start))
 	return analysis, nil
