@@ -29,7 +29,7 @@ export const ConfigureWebExperienceModalForm: FC<{
       <div>
         <p className="text-xs font-medium mb-2">Quick-start questions</p>
         <ConfigSelect
-          options={experienceConfig.suggestions}
+          options={experienceConfig.suggestions || []}
           label="Add question"
           placeholder="Enter a common user question."
           helperText="Appears as starter prompts in the web widget. Drag to reorder."
@@ -71,7 +71,6 @@ export const ConfigureWebExperienceModalForm: FC<{
               step={1}
               value={parseInt(experienceConfig.idealTimeout || '30')}
               onChange={({ value }: { value: number }) => update('idealTimeout', value.toString())}
-              helperText="Duration of silence after which Rapida will prompt the user (15–120 s)."
             />
 
             <Slider
@@ -82,7 +81,6 @@ export const ConfigureWebExperienceModalForm: FC<{
               step={1}
               value={parseInt(experienceConfig.idleTimeoutBackoffTimes || '2')}
               onChange={({ value }: { value: number }) => update('idleTimeoutBackoffTimes', value.toString())}
-              helperText="How many times the idle timeout multiplies before ending the session."
             />
 
             <TextInput
@@ -101,7 +99,6 @@ export const ConfigureWebExperienceModalForm: FC<{
               step={1}
               value={parseInt(experienceConfig.maxCallDuration || '300')}
               onChange={({ value }: { value: number }) => update('maxCallDuration', value.toString())}
-              helperText="Maximum session length before the call is automatically ended (180–600 s)."
             />
           </Stack>
         </div>

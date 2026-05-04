@@ -449,9 +449,10 @@ func (eService *assistantService) Get(ctx context.Context,
 				defer wg.Done()
 				var webhooks []*internal_assistant_entity.AssistantWebhook
 				tx := db.
+					Preload("AssistantWebhookOption", "status = ?", type_enums.RECORD_ACTIVE).
 					Where("assistant_id = ? AND status = ?", assistantId, type_enums.RECORD_ACTIVE.String()).
-					Find(&webhooks).
-					Order("execution_priority DESC")
+					Order("execution_priority DESC").
+					Find(&webhooks)
 				if tx.Error != nil {
 					return
 				}

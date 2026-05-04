@@ -6,8 +6,23 @@
 package internal_assistant_entity
 
 import (
+	"encoding/json"
+	"strings"
+
 	gorm_model "github.com/rapidaai/pkg/models/gorm"
 	gorm_types "github.com/rapidaai/pkg/models/gorm/types"
+	"github.com/rapidaai/pkg/utils"
+)
+
+const (
+	WebhookOptionAssistantEventsKey  = "assistant_events"
+	WebhookOptionHTTPMethodKey       = "http_method"
+	WebhookOptionHTTPURLKey          = "http_url"
+	WebhookOptionHTTPHeadersKey      = "http_headers"
+	WebhookOptionHTTPBodyKey         = "http_body"
+	WebhookOptionRetryStatusCodesKey = "retry_status_codes"
+	WebhookOptionMaxRetryCountKey    = "max_retry_count"
+	WebhookOptionTimeoutSecondsKey   = "timeout_seconds"
 )
 
 type AssistantWebhook struct {
@@ -15,52 +30,122 @@ type AssistantWebhook struct {
 	gorm_model.Mutable
 	gorm_model.Organizational
 
-	AssistantId     uint64                 `json:"assistantId" gorm:"type:bigint;not null"`
-	AssistantEvents gorm_types.StringArray `json:"assistantEvents" gorm:"type:string;not null;"`
-	Description     string                 `json:"description" gorm:"type:text"`
+	AssistantId            uint64                    `json:"assistantId" gorm:"type:bigint;not null"`
+	Description            string                    `json:"description" gorm:"type:text"`
+	ExecutionPriority      uint32                    `json:"executionPriority" gorm:"type:int"`
+	AssistantEvents        gorm_types.StringArray    `json:"assistantEvents" gorm:"type:text;not null;default:'[]'::text"`
+	AssistantWebhookOption []*AssistantWebhookOption `json:"options" gorm:"foreignKey:AssistantWebhookId"`
+}
 
-	HttpMethod  string               `json:"httpMethod" gorm:"type:text"`
-	HttpUrl     string               `json:"httpUrl" gorm:"type:text"`
-	HttpHeaders gorm_types.StringMap `json:"httpHeaders" gorm:"type:string;"`
-	HttpBody    gorm_types.StringMap `json:"httpBody" gorm:"type:string;"`
+type AssistantWebhookOption struct {
+	gorm_model.Audited
+	gorm_model.Mutable
+	gorm_model.Metadata
+	AssistantWebhookId uint64 `json:"assistantWebhookId" gorm:"type:bigint;size:20;not null"`
+}
 
-	//
-	RetryStatusCodes  gorm_types.StringArray `json:"retryStatusCodes" gorm:"type:string;not null;"`
-	MaxRetryCount     uint32                 `json:"maxRetryCount" gorm:"type:int"`
-	TimeoutSeconds    uint32                 `json:"timeoutSecond" gorm:"type:int"`
-	ExecutionPriority uint32                 `json:"executionPriority" gorm:"type:int"`
+func (AssistantWebhookOption) TableName() string {
+	return "assistant_webhook_options"
 }
 
 func (aa *AssistantWebhook) GetExecutionPriority() uint32 {
 	return aa.ExecutionPriority
 }
 
+func (aa *AssistantWebhook) GetOptions() utils.Option {
+	opts := make(utils.Option, len(aa.AssistantWebhookOption))
+	for _, v := range aa.AssistantWebhookOption {
+		opts[v.Key] = v.Value
+	}
+	return opts
+}
+
+func (aa *AssistantWebhook) GetAssistantEvents() []string {
+	if aa.AssistantEvents == nil {
+		return []string{}
+	}
+	return []string(aa.AssistantEvents)
+}
+
 func (aa *AssistantWebhook) GetHeaders() map[string]string {
-	return aa.HttpHeaders
+	opts, err := aa.GetOptions().GetStringMap(WebhookOptionHTTPHeadersKey)
+	if err != nil {
+		return map[string]string{}
+	}
+	return opts
 }
 
 func (aa *AssistantWebhook) GetBody() map[string]string {
-	return aa.HttpBody
+	opts, err := aa.GetOptions().GetStringMap(WebhookOptionHTTPBodyKey)
+	if err != nil {
+		return map[string]string{}
+	}
+	return opts
 }
 
 func (aa *AssistantWebhook) GetMethod() string {
-	return aa.HttpMethod
+	raw, err := aa.GetOptions().GetString(WebhookOptionHTTPMethodKey)
+	if err != nil {
+		return "POST"
+	}
+	return raw
 }
 
 func (aa *AssistantWebhook) GetUrl() string {
-	return aa.HttpUrl
+	raw, err := aa.GetOptions().GetString(WebhookOptionHTTPURLKey)
+	if err != nil {
+		return ""
+	}
+	return raw
 }
 
 func (aa *AssistantWebhook) GetRetryStatusCode() []string {
-	return aa.RetryStatusCodes
+	return aa.getStringSliceOption(WebhookOptionRetryStatusCodesKey)
 }
 
 func (aa *AssistantWebhook) GetMaxRetryCount() uint32 {
-	return aa.MaxRetryCount
+	raw, err := aa.GetOptions().GetUint32(WebhookOptionMaxRetryCountKey)
+	if err != nil {
+		return 0
+	}
+	return raw
 }
 
 func (aa *AssistantWebhook) GetTimeoutSecond() uint32 {
-	return aa.TimeoutSeconds
+	raw, err := aa.GetOptions().GetUint32(WebhookOptionTimeoutSecondsKey)
+	if err != nil {
+		return 0
+	}
+	return raw
+}
+
+func (aa *AssistantWebhook) getStringSliceOption(key string) []string {
+	raw, err := aa.GetOptions().GetString(key)
+	if err != nil {
+		return []string{}
+	}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return []string{}
+	}
+
+	parsed := []string{}
+	if json.Unmarshal([]byte(trimmed), &parsed) == nil {
+		return parsed
+	}
+
+	if strings.Contains(trimmed, ",") {
+		out := []string{}
+		for _, item := range strings.Split(trimmed, ",") {
+			part := strings.TrimSpace(item)
+			if part != "" {
+				out = append(out, part)
+			}
+		}
+		return out
+	}
+
+	return []string{trimmed}
 }
 
 type AssistantWebhookLog struct {

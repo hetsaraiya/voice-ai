@@ -172,13 +172,12 @@ const ConfigureAssistantAnalysis: FC<{ assistantId: string }> = ({
           totalSelected={selectedAnalysis ? 1 : 0}
           totalCount={filteredAnalyses.length}
           onCancel={() => setSelectedAnalysisId(null)}
-          className="[&_[class*=divider]]:hidden [&_.cds--btn]:transition-colors [&_.cds--btn:hover]:!bg-primary [&_.cds--btn:hover]:!text-white"
         >
           {selectedAnalysis && (
             <>
               <TableBatchAction
                 renderIcon={Edit}
-                kind="ghost"
+                
                 onClick={() => {
                   navigation.goToEditAssistantAnalysis(
                     assistantId,
@@ -191,7 +190,7 @@ const ConfigureAssistantAnalysis: FC<{ assistantId: string }> = ({
               </TableBatchAction>
               <TableBatchAction
                 renderIcon={TrashCan}
-                kind="ghost"
+                
                 onClick={() => {
                   deleteAssistantAnalysis(
                     assistantId,

@@ -34,7 +34,7 @@ export const ConfigureExperience: FC<{
         <div>
           <p className="text-xs font-medium mb-2">Quick-start questions</p>
           <ConfigSelect
-            options={experienceConfig.suggestions}
+            options={experienceConfig.suggestions || []}
             label="Add question"
             placeholder="Enter a common user question."
             helperText="Appears as starter prompts in the web widget. Drag to reorder."

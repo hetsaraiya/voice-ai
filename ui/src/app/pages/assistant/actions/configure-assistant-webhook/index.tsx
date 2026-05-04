@@ -33,6 +33,38 @@ import {
 } from '@carbon/react';
 import { TableSection } from '@/app/components/sections/table-section';
 
+const getWebhookOptionMap = (row: any): Map<string, string> => {
+  const map = new Map<string, string>();
+  const options = row?.getOptionsList?.() || [];
+  options.forEach((option: any) => {
+    const key = option?.getKey?.();
+    const value = option?.getValue?.();
+    if (key && typeof value === 'string') {
+      map.set(key, value);
+    }
+  });
+  return map;
+};
+
+const getWebhookMethod = (row: any): string =>
+  getWebhookOptionMap(row).get('http_method') || '';
+
+const getWebhookUrl = (row: any): string =>
+  getWebhookOptionMap(row).get('http_url') || '';
+
+const getWebhookEvents = (row: any): string[] =>
+  row?.getAssistanteventsList?.() || [];
+
+const getWebhookRetryCount = (row: any): number => {
+  const value = Number(getWebhookOptionMap(row).get('max_retry_count'));
+  return Number.isFinite(value) ? value : 0;
+};
+
+const getWebhookTimeoutSecond = (row: any): number => {
+  const value = Number(getWebhookOptionMap(row).get('timeout_seconds'));
+  return Number.isFinite(value) ? value : 0;
+};
+
 export function ConfigureAssistantWebhookPage() {
   const { assistantId } = useParams();
   return (
@@ -71,7 +103,7 @@ const ConfigureAssistantWebhook: FC<{ assistantId: string }> = ({
   useEffect(() => {
     showLoader('block');
     get();
-  }, []);
+  }, [assistantId, projectId, token, authId, axtion.page, axtion.pageSize]);
 
   const get = () => {
     axtion.getAssistantWebhook(
@@ -110,11 +142,11 @@ const ConfigureAssistantWebhook: FC<{ assistantId: string }> = ({
   const filteredWebhooks = searchTerm.trim()
     ? axtion.webhooks.filter(row =>
         [
-          row.getHttpmethod(),
-          row.getHttpurl(),
+          getWebhookMethod(row),
+          getWebhookUrl(row),
           row.getExecutionpriority(),
           row.getStatus(),
-          ...row.getAssistanteventsList(),
+          ...getWebhookEvents(row),
         ]
           .join(' ')
           .toLowerCase()
@@ -250,21 +282,21 @@ const ConfigureAssistantWebhook: FC<{ assistantId: string }> = ({
                       </TableCell>
                       <TableCell>
                         <span className="font-mono text-xs">
-                          {row.getHttpmethod()}
+                          {getWebhookMethod(row)}
                         </span>{' '}
-                        <span className="truncate">{row.getHttpurl()}</span>
+                        <span className="truncate">{getWebhookUrl(row)}</span>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          {row.getAssistanteventsList().map((event, index) => (
+                          {getWebhookEvents(row).map((event, index) => (
                             <Tag key={index} type="blue" size="sm">
                               {event}
                             </Tag>
                           ))}
                         </div>
                       </TableCell>
-                      <TableCell>{row.getRetrycount()}</TableCell>
-                      <TableCell>{row.getTimeoutsecond()}</TableCell>
+                      <TableCell>{getWebhookRetryCount(row)}</TableCell>
+                      <TableCell>{getWebhookTimeoutSecond(row)}</TableCell>
                       <TableCell>{row.getExecutionpriority()}</TableCell>
                       <TableCell>
                         {row.getCreateddate()
@@ -309,8 +341,11 @@ const ConfigureAssistantWebhook: FC<{ assistantId: string }> = ({
               pageSize={axtion.pageSize}
               pageSizes={[10, 20, 50]}
               onChange={({ page: newPage, pageSize: newSize }) => {
+                if (newSize !== axtion.pageSize) {
+                  axtion.setPageSize(newSize);
+                  return;
+                }
                 axtion.setPage(newPage);
-                if (newSize !== axtion.pageSize) axtion.setPageSize(newSize);
               }}
             />
           </>

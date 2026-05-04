@@ -68,8 +68,8 @@ func (e *runtimeExecutor) Execute(ctx context.Context, packet internal_type.RunW
 			if err := e.onPacket(ctx, internal_type.WebhookLogCreatePacket{
 				ContextID:       packet.ContextID,
 				WebhookID:       packet.Webhook.Id,
-				HTTPURL:         packet.Webhook.HttpUrl,
-				HTTPMethod:      packet.Webhook.HttpMethod,
+				HTTPURL:         packet.Webhook.GetUrl(),
+				HTTPMethod:      packet.Webhook.GetMethod(),
 				Event:           packet.Event.Get(),
 				ResponseStatus:  int64(response.StatusCode),
 				TimeTaken:       int64(time.Since(startTime)),
@@ -100,8 +100,8 @@ func (e *runtimeExecutor) Execute(ctx context.Context, packet internal_type.RunW
 			if err := e.onPacket(ctx, internal_type.WebhookLogCreatePacket{
 				ContextID:       packet.ContextID,
 				WebhookID:       packet.Webhook.Id,
-				HTTPURL:         packet.Webhook.HttpUrl,
-				HTTPMethod:      packet.Webhook.HttpMethod,
+				HTTPURL:         packet.Webhook.GetUrl(),
+				HTTPMethod:      packet.Webhook.GetMethod(),
 				Event:           packet.Event.Get(),
 				ResponseStatus:  int64(response.StatusCode),
 				TimeTaken:       int64(time.Since(startTime)),
@@ -132,8 +132,8 @@ func (e *runtimeExecutor) Execute(ctx context.Context, packet internal_type.RunW
 			if err := e.onPacket(ctx, internal_type.WebhookLogCreatePacket{
 				ContextID:       packet.ContextID,
 				WebhookID:       packet.Webhook.Id,
-				HTTPURL:         packet.Webhook.HttpUrl,
-				HTTPMethod:      packet.Webhook.HttpMethod,
+				HTTPURL:         packet.Webhook.GetUrl(),
+				HTTPMethod:      packet.Webhook.GetMethod(),
 				Event:           packet.Event.Get(),
 				ResponseStatus:  int64(response.StatusCode),
 				TimeTaken:       int64(time.Since(startTime)),
@@ -164,8 +164,8 @@ func (e *runtimeExecutor) Execute(ctx context.Context, packet internal_type.RunW
 			if err := e.onPacket(ctx, internal_type.WebhookLogCreatePacket{
 				ContextID:       packet.ContextID,
 				WebhookID:       packet.Webhook.Id,
-				HTTPURL:         packet.Webhook.HttpUrl,
-				HTTPMethod:      packet.Webhook.HttpMethod,
+				HTTPURL:         packet.Webhook.GetUrl(),
+				HTTPMethod:      packet.Webhook.GetMethod(),
 				Event:           packet.Event.Get(),
 				ResponseStatus:  int64(response.StatusCode),
 				TimeTaken:       int64(time.Since(startTime)),

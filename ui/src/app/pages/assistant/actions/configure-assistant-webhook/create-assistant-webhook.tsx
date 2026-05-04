@@ -17,12 +17,23 @@ import { Information } from '@carbon/icons-react';
 import { Slider } from '@/app/components/form/slider';
 import { APiHeader } from '@/app/components/external-api/api-header';
 import { AssistantMappingTable } from '@/app/components/tools/common';
-import { CreateWebhook } from '@rapidaai/react';
+import {
+  ASSISTANT_CONDITION_KEY_OPTIONS,
+  ASSISTANT_CONDITION_OPERATOR_OPTIONS,
+  ASSISTANT_CONDITION_SOURCE_OPTIONS,
+  ASSISTANT_CONDITION_VALUE_OPTIONS_BY_KEY,
+} from '@/app/components/tools/common';
+import {
+  CreateAssistantWebhookRequest,
+  CreateWebhook,
+  Metadata,
+} from '@rapidaai/react';
 import { useCurrentCredential } from '@/hooks/use-credential';
 import toast from 'react-hot-toast/headless';
 import { useRapidaStore } from '@/hooks';
 import { connectionConfig } from '@/configs';
 import { TabForm } from '@/app/components/form/tab-form';
+import { SourceConditionRule } from '@/app/components/conditions/source-condition-rule';
 
 const webhookEvents = [
   {
@@ -112,6 +123,93 @@ const getDefaultParameterKey = (type: WebhookParameterType): string => {
   }
 };
 
+const WEBHOOK_OPTION_KEYS = {
+  method: 'http_method',
+  url: 'http_url',
+  headers: 'http_headers',
+  body: 'http_body',
+  retryStatusCodes: 'retry_status_codes',
+  maxRetryCount: 'max_retry_count',
+  timeoutSeconds: 'timeout_seconds',
+};
+const WEBHOOK_CONDITION_HEADER = 'webhook.condition';
+const DEFAULT_SOURCE_CONDITIONS = [
+  {
+    key: 'source',
+    condition: '=',
+    value: 'all',
+  },
+];
+
+const toJsonMap = (rows: { key: string; value: string }[]) => {
+  return JSON.stringify(
+    rows.reduce<Record<string, string>>((acc, current) => {
+      if (!current.key) {
+        return acc;
+      }
+      acc[current.key] = current.value;
+      return acc;
+    }, {}),
+  );
+};
+
+const buildWebhookOptions = ({
+  method,
+  endpoint,
+  headers,
+  parameterKeyValuePairs,
+  retryOnStatus,
+  maxRetries,
+  requestTimeout,
+  sourceConditions,
+}: {
+  method: string;
+  endpoint: string;
+  headers: { key: string; value: string }[];
+  parameterKeyValuePairs: { key: string; value: string }[];
+  retryOnStatus: string[];
+  maxRetries: number;
+  requestTimeout: number;
+  sourceConditions: Array<{
+    key: string;
+    condition: string;
+    value: string;
+  }>;
+}): Metadata[] => {
+  const headerRows = [
+    ...headers.filter(
+      header => header.key.trim().toLowerCase() !== WEBHOOK_CONDITION_HEADER,
+    ),
+    {
+      key: WEBHOOK_CONDITION_HEADER,
+      value: JSON.stringify(sourceConditions),
+    },
+  ];
+  return [
+    { key: WEBHOOK_OPTION_KEYS.method, value: method || 'POST' },
+    { key: WEBHOOK_OPTION_KEYS.url, value: endpoint || '' },
+    { key: WEBHOOK_OPTION_KEYS.headers, value: toJsonMap(headerRows) },
+    {
+      key: WEBHOOK_OPTION_KEYS.body,
+      value: toJsonMap(parameterKeyValuePairs),
+    },
+    {
+      key: WEBHOOK_OPTION_KEYS.retryStatusCodes,
+      value: JSON.stringify(retryOnStatus || []),
+    },
+    { key: WEBHOOK_OPTION_KEYS.maxRetryCount, value: String(maxRetries || 0) },
+    {
+      key: WEBHOOK_OPTION_KEYS.timeoutSeconds,
+      value: String(requestTimeout || 0),
+    },
+  ].map(({ key, value }) => {
+    const option = new Metadata();
+    option.setKey(key);
+    option.setValue(value);
+    return option;
+  });
+};
+
 export const CreateAssistantWebhook: FC<{ assistantId: string }> = ({
   assistantId,
 }) => {
@@ -130,6 +228,13 @@ export const CreateAssistantWebhook: FC<{ assistantId: string }> = ({
   const [maxRetries, setMaxRetries] = useState(3);
   const [requestTimeout, setRequestTimeout] = useState(180);
   const [headers, setHeaders] = useState<{ key: string; value: string }[]>([]);
+  const [sourceConditions, setSourceConditions] = useState<
+    Array<{
+      key: string;
+      condition: string;
+      value: string;
+    }>
+  >(DEFAULT_SOURCE_CONDITIONS);
   const [priority, setPriority] = useState<number>(0);
   const [parameters, setParameters] = useState<
     {
@@ -195,7 +300,7 @@ export const CreateAssistantWebhook: FC<{ assistantId: string }> = ({
     return true;
   };
 
-  const onSubmit = () => {
+  const onSubmit = async () => {
     setErrorMessage('');
     if (events.length === 0) {
       setErrorMessage(
@@ -208,49 +313,53 @@ export const CreateAssistantWebhook: FC<{ assistantId: string }> = ({
       key: `${param.type}.${param.key}`,
       value: param.value,
     }));
-    CreateWebhook(
-      connectionConfig,
-      assistantId,
-      method,
-      endpoint,
-      headers,
-      parameterKeyValuePairs,
-      events,
-      retryOnStatus,
-      maxRetries,
-      requestTimeout,
-      priority,
-      (err, response) => {
-        hideLoader();
-        if (err) {
-          setErrorMessage(
-            'Unable to create assistant webhook, please check and try again.',
-          );
-          return;
-        }
-        if (response?.getSuccess()) {
-          toast.success(`Assistant's webhook created successfully`);
-          navigator.goToAssistantWebhook(assistantId);
-        } else {
-          if (response?.getError()) {
-            const message = response.getError()?.getHumanmessage();
-            if (message) {
-              setErrorMessage(message);
-              return;
-            }
-          }
-          setErrorMessage(
-            'Unable to create assistant webhook, please check and try again.',
-          );
-        }
-      },
-      {
+    const request = new CreateAssistantWebhookRequest();
+    request.setAssistantid(assistantId);
+    request.setAssistanteventsList(events);
+    request.setExecutionpriority(priority);
+    request.setDescription(description);
+    request.setOptionsList(
+      buildWebhookOptions({
+        method,
+        endpoint,
+        headers,
+        parameterKeyValuePairs,
+        retryOnStatus,
+        maxRetries,
+        requestTimeout,
+        sourceConditions,
+      }),
+    );
+
+    try {
+      const response = await CreateWebhook(connectionConfig, request, {
         'x-auth-id': authId,
         authorization: token,
         'x-project-id': projectId,
-      },
-      description,
-    );
+      });
+
+      hideLoader();
+      if (response?.getSuccess()) {
+        toast.success(`Assistant's webhook created successfully`);
+        navigator.goToAssistantWebhook(assistantId);
+        return;
+      }
+      if (response?.getError()) {
+        const message = response.getError()?.getHumanmessage();
+        if (message) {
+          setErrorMessage(message);
+          return;
+        }
+      }
+      setErrorMessage(
+        'Unable to create assistant webhook, please check and try again.',
+      );
+    } catch {
+      hideLoader();
+      setErrorMessage(
+        'Unable to create assistant webhook, please check and try again.',
+      );
+    }
   };
 
   return (
@@ -278,7 +387,8 @@ export const CreateAssistantWebhook: FC<{ assistantId: string }> = ({
                 <PrimaryButton
                   size="lg"
                   onClick={() => {
-                    if (validateDestination()) setActiveTab('payload');
+                    if (validateDestination() && validatePayload())
+                      setActiveTab('events');
                   }}
                 >
                   Continue
@@ -286,7 +396,19 @@ export const CreateAssistantWebhook: FC<{ assistantId: string }> = ({
               </ButtonSet>,
             ],
             body: (
-              <div className="pb-8">
+              <div className="pb-8 flex flex-col">
+                <InputGroup title="Condition">
+                  <SourceConditionRule
+                    conditions={sourceConditions}
+                    onChangeConditions={setSourceConditions}
+                    conditionOptions={ASSISTANT_CONDITION_OPERATOR_OPTIONS}
+                    sourceOptions={ASSISTANT_CONDITION_SOURCE_OPTIONS}
+                    keyOptions={ASSISTANT_CONDITION_KEY_OPTIONS}
+                    valueOptionsByKey={ASSISTANT_CONDITION_VALUE_OPTIONS_BY_KEY}
+                    keyTooltipText="The variable to evaluate before triggering this webhook."
+                  />
+                </InputGroup>
+
                 <InputGroup
                   title={renderLabelWithTooltip(
                     'Destination',
@@ -327,40 +449,11 @@ export const CreateAssistantWebhook: FC<{ assistantId: string }> = ({
                     />
                   </Stack>
                 </InputGroup>
-              </div>
-            ),
-          },
-          {
-            code: 'payload',
-            name: 'Payload',
-            description:
-              'Define the headers and data fields included in each webhook call.',
-            actions: [
-              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
-                <SecondaryButton
-                  size="lg"
-                  onClick={() => showDialog(navigator.goBack)}
-                >
-                  Cancel
-                </SecondaryButton>
-                <PrimaryButton
-                  size="lg"
-                  onClick={() => {
-                    if (validatePayload()) setActiveTab('events');
-                  }}
-                >
-                  Continue
-                </PrimaryButton>
-              </ButtonSet>,
-            ],
-            body: (
-              <div className="pb-8 flex flex-col">
                 <InputGroup
                   title={renderLabelWithTooltip(
                     `Headers (${headers.length})`,
                     'HTTP headers included with every webhook request.',
                   )}
-                  childClass="space-y-4"
                 >
                   <APiHeader headers={headers} setHeaders={setHeaders} />
                 </InputGroup>
@@ -370,7 +463,6 @@ export const CreateAssistantWebhook: FC<{ assistantId: string }> = ({
                     `Payload Mapping (${parameters.length})`,
                     'Map assistant, client, event, and conversation values into the webhook request body.',
                   )}
-                  childClass="space-y-4"
                 >
                   <AssistantMappingTable
                     parameters={parameters}

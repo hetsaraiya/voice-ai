@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import { initialPaginated } from '@/types/types.paginated';
-import { ServiceError } from '@rapidaai/react';
 import {
   AssistantWebhook,
-  GetAllAssistantWebhookResponse,
-  GetAssistantWebhookResponse,
+  Criteria,
+  DeleteAssistantWebhookRequest,
+  GetAllAssistantWebhookRequest,
+  Paginate,
 } from '@rapidaai/react';
 import {
   AssistantWebhookProperty,
@@ -80,7 +81,7 @@ export const useAssistantWebhookPageStore = create<AssistantWebhookType>(
      */
     addCriteria: (k: string, v: string, logic: string) => {
       let current = get().criteria.filter(
-        x => x.key !== k && x.logic !== logic,
+        x => !(x.key === k && x.logic === logic),
       );
       if (v) current.push({ key: k, value: v, logic: logic });
       set({
@@ -110,7 +111,7 @@ export const useAssistantWebhookPageStore = create<AssistantWebhookType>(
      * @param token
      * @param userId
      */
-    getAssistantWebhook: (
+    getAssistantWebhook: async (
       assistantId: string,
       projectId: string,
       token: string,
@@ -118,10 +119,29 @@ export const useAssistantWebhookPageStore = create<AssistantWebhookType>(
       onError: (err: string) => void,
       onSuccess: (e: AssistantWebhook[]) => void,
     ) => {
-      const afterGetAllAssistantWebhook = (
-        err: ServiceError | null,
-        gur: GetAllAssistantWebhookResponse | null,
-      ) => {
+      const req = new GetAllAssistantWebhookRequest();
+      req.setAssistantid(assistantId);
+
+      const paginate = new Paginate();
+      paginate.setPage(get().page);
+      paginate.setPagesize(get().pageSize);
+      req.setPaginate(paginate);
+
+      get().criteria.forEach(({ key, value, logic }) => {
+        const ctr = new Criteria();
+        ctr.setKey(key);
+        ctr.setValue(value);
+        ctr.setLogic(logic);
+        req.addCriterias(ctr);
+      });
+
+      try {
+        const gur = await GetAllAssistantWebhook(connectionConfig, req, {
+          authorization: token,
+          'x-project-id': projectId,
+          'x-auth-id': userId,
+        });
+
         if (gur?.getSuccess()) {
           get().onChangeAssistantWebhooks(gur.getDataList());
           let paginated = gur.getPaginated();
@@ -135,23 +155,11 @@ export const useAssistantWebhookPageStore = create<AssistantWebhookType>(
             onError(errorMessage.getHumanmessage());
             return;
           }
-          onError('Unable to get your activity log, please try again later.');
+          onError('Unable to get webhooks, please try again later.');
         }
-      };
-
-      GetAllAssistantWebhook(
-        connectionConfig,
-        assistantId,
-        get().page,
-        get().pageSize,
-        get().criteria,
-        afterGetAllAssistantWebhook,
-        {
-          authorization: token,
-          'x-project-id': projectId,
-          'x-auth-id': userId,
-        },
-      );
+      } catch {
+        onError('Unable to get webhooks, please try again later.');
+      }
     },
 
     /**
@@ -164,7 +172,7 @@ export const useAssistantWebhookPageStore = create<AssistantWebhookType>(
      * @param onError
      * @param onSuccess
      */
-    deleteAssistantWebhook: (
+    deleteAssistantWebhook: async (
       assistantId: string,
       webhookId: string,
       projectId: string,
@@ -173,10 +181,17 @@ export const useAssistantWebhookPageStore = create<AssistantWebhookType>(
       onError: (err: string) => void,
       onSuccess: (e: AssistantWebhook) => void,
     ) => {
-      const afterDeleteAssistantWebhook = (
-        err: ServiceError | null,
-        gur: GetAssistantWebhookResponse | null,
-      ) => {
+      const req = new DeleteAssistantWebhookRequest();
+      req.setAssistantid(assistantId);
+      req.setId(webhookId);
+
+      try {
+        const gur = await DeleteAssistantWebhook(connectionConfig, req, {
+          authorization: token,
+          'x-project-id': projectId,
+          'x-auth-id': userId,
+        });
+
         if (gur?.getSuccess() && gur.getData()) {
           onSuccess(gur.getData()!);
         } else {
@@ -189,19 +204,9 @@ export const useAssistantWebhookPageStore = create<AssistantWebhookType>(
             'Unable to delete assistant webhook, please try again later.',
           );
         }
-      };
-
-      DeleteAssistantWebhook(
-        connectionConfig,
-        assistantId,
-        webhookId,
-        afterDeleteAssistantWebhook,
-        {
-          authorization: token,
-          'x-project-id': projectId,
-          'x-auth-id': userId,
-        },
-      );
+      } catch {
+        onError('Unable to delete assistant webhook, please try again later.');
+      }
     },
     /**
      * columns

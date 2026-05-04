@@ -27,7 +27,7 @@ import app.bridges.artifacts.protos.common_pb2 as common__pb2
 from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17\x61ssistant-webhook.proto\x12\rassistant_api\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x0c\x63ommon.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xb3\x05\n\x10\x41ssistantWebhook\x12\x0e\n\x02id\x18\x01 \x01(\x04\x42\x02\x30\x01\x12\x17\n\x0f\x61ssistantEvents\x18\x02 \x03(\t\x12\x13\n\x0b\x64\x65scription\x18\x03 \x01(\t\x12\x12\n\nhttpMethod\x18\x04 \x01(\t\x12\x0f\n\x07httpUrl\x18\x05 \x01(\t\x12\x45\n\x0bhttpHeaders\x18\x06 \x03(\x0b\x32\x30.assistant_api.AssistantWebhook.HttpHeadersEntry\x12?\n\x08httpBody\x18\x07 \x03(\x0b\x32-.assistant_api.AssistantWebhook.HttpBodyEntry\x12\x15\n\rtimeoutSecond\x18\x13 \x01(\r\x12\x19\n\x11\x65xecutionPriority\x18\x14 \x01(\r\x12\x18\n\x10retryStatusCodes\x18\x08 \x03(\t\x12\x12\n\nretryCount\x18\t \x01(\r\x12\x17\n\x0b\x61ssistantId\x18\n \x01(\x04\x42\x02\x30\x01\x12\x0e\n\x06status\x18\x0c \x01(\t\x12\x15\n\tcreatedBy\x18\r \x01(\x04\x42\x02\x30\x01\x12\x1a\n\x0b\x63reatedUser\x18\x0e \x01(\x0b\x32\x05.User\x12\x15\n\tupdatedBy\x18\x0f \x01(\x04\x42\x02\x30\x01\x12\x1a\n\x0bupdatedUser\x18\x10 \x01(\x0b\x32\x05.User\x12/\n\x0b\x63reatedDate\x18\x11 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12/\n\x0bupdatedDate\x18\x12 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x1a\x32\n\x10HttpHeadersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\x1a/\n\rHttpBodyEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x84\x04\n\x13\x41ssistantWebhookLog\x12\x0e\n\x02id\x18\x01 \x01(\x04\x42\x02\x30\x01\x12\x15\n\twebhookId\x18\x02 \x01(\x04\x42\x02\x30\x01\x12(\n\x07request\x18\x03 \x01(\x0b\x32\x17.google.protobuf.Struct\x12)\n\x08response\x18\x04 \x01(\x0b\x32\x17.google.protobuf.Struct\x12\x0e\n\x06status\x18\x05 \x01(\t\x12/\n\x0b\x63reatedDate\x18\x06 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12/\n\x0bupdatedDate\x18\x07 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x17\n\x0b\x61ssistantId\x18\x08 \x01(\x04\x42\x02\x30\x01\x12\x15\n\tprojectId\x18\t \x01(\x04\x42\x02\x30\x01\x12\x1a\n\x0eorganizationId\x18\n \x01(\x04\x42\x02\x30\x01\x12#\n\x17\x61ssistantConversationId\x18\x0b \x01(\x04\x42\x02\x30\x01\x12\x13\n\x0b\x61ssetPrefix\x18\x0c \x01(\t\x12\r\n\x05\x65vent\x18\r \x01(\t\x12\x1a\n\x0eresponseStatus\x18\x0e \x01(\x04\x42\x02\x30\x01\x12\x15\n\ttimeTaken\x18\x0f \x01(\x04\x42\x02\x30\x01\x12\x12\n\nretryCount\x18\x10 \x01(\r\x12\x12\n\nhttpMethod\x18\x11 \x01(\t\x12\x0f\n\x07httpUrl\x18\x12 \x01(\t\"\xf5\x03\n\x1d\x43reateAssistantWebhookRequest\x12\x17\n\x0f\x61ssistantEvents\x18\x02 \x03(\t\x12\x13\n\x0b\x64\x65scription\x18\x03 \x01(\t\x12\x12\n\nhttpMethod\x18\x04 \x01(\t\x12\x0f\n\x07httpUrl\x18\x05 \x01(\t\x12R\n\x0bhttpHeaders\x18\x06 \x03(\x0b\x32=.assistant_api.CreateAssistantWebhookRequest.HttpHeadersEntry\x12L\n\x08httpBody\x18\x0b \x03(\x0b\x32:.assistant_api.CreateAssistantWebhookRequest.HttpBodyEntry\x12\x15\n\rtimeoutSecond\x18\x07 \x01(\r\x12\x18\n\x10retryStatusCodes\x18\x08 \x03(\t\x12\x15\n\rmaxRetryCount\x18\t \x01(\r\x12\x17\n\x0b\x61ssistantId\x18\n \x01(\x04\x42\x02\x30\x01\x12\x19\n\x11\x65xecutionPriority\x18\x14 \x01(\r\x1a\x32\n\x10HttpHeadersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\x1a/\n\rHttpBodyEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"\x85\x04\n\x1dUpdateAssistantWebhookRequest\x12\x0e\n\x02id\x18\x01 \x01(\x04\x42\x02\x30\x01\x12\x17\n\x0f\x61ssistantEvents\x18\x02 \x03(\t\x12\x13\n\x0b\x64\x65scription\x18\x03 \x01(\t\x12\x12\n\nhttpMethod\x18\x04 \x01(\t\x12\x0f\n\x07httpUrl\x18\x05 \x01(\t\x12R\n\x0bhttpHeaders\x18\x06 \x03(\x0b\x32=.assistant_api.UpdateAssistantWebhookRequest.HttpHeadersEntry\x12L\n\x08httpBody\x18\x0b \x03(\x0b\x32:.assistant_api.UpdateAssistantWebhookRequest.HttpBodyEntry\x12\x15\n\rtimeoutSecond\x18\x07 \x01(\r\x12\x18\n\x10retryStatusCodes\x18\x08 \x03(\t\x12\x15\n\rmaxRetryCount\x18\t \x01(\r\x12\x17\n\x0b\x61ssistantId\x18\n \x01(\x04\x42\x02\x30\x01\x12\x19\n\x11\x65xecutionPriority\x18\x14 \x01(\r\x1a\x32\n\x10HttpHeadersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\x1a/\n\rHttpBodyEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"E\n\x1aGetAssistantWebhookRequest\x12\x0e\n\x02id\x18\x01 \x01(\x04\x42\x02\x30\x01\x12\x17\n\x0b\x61ssistantId\x18\x02 \x01(\x04\x42\x02\x30\x01\"H\n\x1d\x44\x65leteAssistantWebhookRequest\x12\x0e\n\x02id\x18\x01 \x01(\x04\x42\x02\x30\x01\x12\x17\n\x0b\x61ssistantId\x18\x02 \x01(\x04\x42\x02\x30\x01\"\x82\x01\n\x1bGetAssistantWebhookResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12-\n\x04\x64\x61ta\x18\x03 \x01(\x0b\x32\x1f.assistant_api.AssistantWebhook\x12\x15\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x06.Error\"\x8a\x01\n\x1dGetAllAssistantWebhookRequest\x12\x15\n\twebhookId\x18\x01 \x01(\x04\x42\x02\x30\x01\x12\x17\n\x0b\x61ssistantId\x18\x04 \x01(\x04\x42\x02\x30\x01\x12\x1b\n\x08paginate\x18\x02 \x01(\x0b\x32\t.Paginate\x12\x1c\n\tcriterias\x18\x03 \x03(\x0b\x32\t.Criteria\"\xa4\x01\n\x1eGetAllAssistantWebhookResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12-\n\x04\x64\x61ta\x18\x03 \x03(\x0b\x32\x1f.assistant_api.AssistantWebhook\x12\x15\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x06.Error\x12\x1d\n\tpaginated\x18\x05 \x01(\x0b\x32\n.Paginated\"\x8e\x01\n GetAllAssistantWebhookLogRequest\x12\x15\n\tprojectId\x18\x02 \x01(\x04\x42\x02\x30\x01\x12\x1b\n\x08paginate\x18\x03 \x01(\x0b\x32\t.Paginate\x12\x1c\n\tcriterias\x18\x04 \x03(\x0b\x32\t.Criteria\x12\x18\n\x05order\x18\x05 \x01(\x0b\x32\t.Ordering\"F\n\x1dGetAssistantWebhookLogRequest\x12\x15\n\tprojectId\x18\x02 \x01(\x04\x42\x02\x30\x01\x12\x0e\n\x02id\x18\x03 \x01(\x04\x42\x02\x30\x01\"\x88\x01\n\x1eGetAssistantWebhookLogResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\x30\n\x04\x64\x61ta\x18\x03 \x01(\x0b\x32\".assistant_api.AssistantWebhookLog\x12\x15\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x06.Error\"\xaa\x01\n!GetAllAssistantWebhookLogResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\x30\n\x04\x64\x61ta\x18\x03 \x03(\x0b\x32\".assistant_api.AssistantWebhookLog\x12\x15\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x06.Error\x12\x1d\n\tpaginated\x18\x05 \x01(\x0b\x32\n.PaginatedB\x1cZ\x1agithub.com/rapidaai/protosb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17\x61ssistant-webhook.proto\x12\rassistant_api\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x0c\x63ommon.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xf8\x02\n\x10\x41ssistantWebhook\x12\x0e\n\x02id\x18\x01 \x01(\x04\x42\x02\x30\x01\x12\x17\n\x0f\x61ssistantEvents\x18\x02 \x03(\t\x12\x13\n\x0b\x64\x65scription\x18\x03 \x01(\t\x12\x1a\n\x07options\x18\x07 \x03(\x0b\x32\t.Metadata\x12\x19\n\x11\x65xecutionPriority\x18\x14 \x01(\r\x12\x17\n\x0b\x61ssistantId\x18\n \x01(\x04\x42\x02\x30\x01\x12\x0e\n\x06status\x18\x0c \x01(\t\x12\x15\n\tcreatedBy\x18\r \x01(\x04\x42\x02\x30\x01\x12\x1a\n\x0b\x63reatedUser\x18\x0e \x01(\x0b\x32\x05.User\x12\x15\n\tupdatedBy\x18\x0f \x01(\x04\x42\x02\x30\x01\x12\x1a\n\x0bupdatedUser\x18\x10 \x01(\x0b\x32\x05.User\x12/\n\x0b\x63reatedDate\x18\x11 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12/\n\x0bupdatedDate\x18\x12 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"\x84\x04\n\x13\x41ssistantWebhookLog\x12\x0e\n\x02id\x18\x01 \x01(\x04\x42\x02\x30\x01\x12\x15\n\twebhookId\x18\x02 \x01(\x04\x42\x02\x30\x01\x12(\n\x07request\x18\x03 \x01(\x0b\x32\x17.google.protobuf.Struct\x12)\n\x08response\x18\x04 \x01(\x0b\x32\x17.google.protobuf.Struct\x12\x0e\n\x06status\x18\x05 \x01(\t\x12/\n\x0b\x63reatedDate\x18\x06 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12/\n\x0bupdatedDate\x18\x07 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x17\n\x0b\x61ssistantId\x18\x08 \x01(\x04\x42\x02\x30\x01\x12\x15\n\tprojectId\x18\t \x01(\x04\x42\x02\x30\x01\x12\x1a\n\x0eorganizationId\x18\n \x01(\x04\x42\x02\x30\x01\x12#\n\x17\x61ssistantConversationId\x18\x0b \x01(\x04\x42\x02\x30\x01\x12\x13\n\x0b\x61ssetPrefix\x18\x0c \x01(\t\x12\r\n\x05\x65vent\x18\r \x01(\t\x12\x1a\n\x0eresponseStatus\x18\x0e \x01(\x04\x42\x02\x30\x01\x12\x15\n\ttimeTaken\x18\x0f \x01(\x04\x42\x02\x30\x01\x12\x12\n\nretryCount\x18\x10 \x01(\r\x12\x12\n\nhttpMethod\x18\x11 \x01(\t\x12\x0f\n\x07httpUrl\x18\x12 \x01(\t\"\x9d\x01\n\x1d\x43reateAssistantWebhookRequest\x12\x17\n\x0f\x61ssistantEvents\x18\x02 \x03(\t\x12\x13\n\x0b\x64\x65scription\x18\x03 \x01(\t\x12\x1a\n\x07options\x18\x07 \x03(\x0b\x32\t.Metadata\x12\x17\n\x0b\x61ssistantId\x18\n \x01(\x04\x42\x02\x30\x01\x12\x19\n\x11\x65xecutionPriority\x18\x14 \x01(\r\"\xad\x01\n\x1dUpdateAssistantWebhookRequest\x12\x0e\n\x02id\x18\x01 \x01(\x04\x42\x02\x30\x01\x12\x17\n\x0f\x61ssistantEvents\x18\x02 \x03(\t\x12\x13\n\x0b\x64\x65scription\x18\x03 \x01(\t\x12\x1a\n\x07options\x18\x07 \x03(\x0b\x32\t.Metadata\x12\x17\n\x0b\x61ssistantId\x18\n \x01(\x04\x42\x02\x30\x01\x12\x19\n\x11\x65xecutionPriority\x18\x14 \x01(\r\"E\n\x1aGetAssistantWebhookRequest\x12\x0e\n\x02id\x18\x01 \x01(\x04\x42\x02\x30\x01\x12\x17\n\x0b\x61ssistantId\x18\x02 \x01(\x04\x42\x02\x30\x01\"H\n\x1d\x44\x65leteAssistantWebhookRequest\x12\x0e\n\x02id\x18\x01 \x01(\x04\x42\x02\x30\x01\x12\x17\n\x0b\x61ssistantId\x18\x02 \x01(\x04\x42\x02\x30\x01\"\x82\x01\n\x1bGetAssistantWebhookResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12-\n\x04\x64\x61ta\x18\x03 \x01(\x0b\x32\x1f.assistant_api.AssistantWebhook\x12\x15\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x06.Error\"\x8a\x01\n\x1dGetAllAssistantWebhookRequest\x12\x15\n\twebhookId\x18\x01 \x01(\x04\x42\x02\x30\x01\x12\x17\n\x0b\x61ssistantId\x18\x04 \x01(\x04\x42\x02\x30\x01\x12\x1b\n\x08paginate\x18\x02 \x01(\x0b\x32\t.Paginate\x12\x1c\n\tcriterias\x18\x03 \x03(\x0b\x32\t.Criteria\"\xa4\x01\n\x1eGetAllAssistantWebhookResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12-\n\x04\x64\x61ta\x18\x03 \x03(\x0b\x32\x1f.assistant_api.AssistantWebhook\x12\x15\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x06.Error\x12\x1d\n\tpaginated\x18\x05 \x01(\x0b\x32\n.Paginated\"\x8e\x01\n GetAllAssistantWebhookLogRequest\x12\x15\n\tprojectId\x18\x02 \x01(\x04\x42\x02\x30\x01\x12\x1b\n\x08paginate\x18\x03 \x01(\x0b\x32\t.Paginate\x12\x1c\n\tcriterias\x18\x04 \x03(\x0b\x32\t.Criteria\x12\x18\n\x05order\x18\x05 \x01(\x0b\x32\t.Ordering\"F\n\x1dGetAssistantWebhookLogRequest\x12\x15\n\tprojectId\x18\x02 \x01(\x04\x42\x02\x30\x01\x12\x0e\n\x02id\x18\x03 \x01(\x04\x42\x02\x30\x01\"\x88\x01\n\x1eGetAssistantWebhookLogResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\x30\n\x04\x64\x61ta\x18\x03 \x01(\x0b\x32\".assistant_api.AssistantWebhookLog\x12\x15\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x06.Error\"\xaa\x01\n!GetAllAssistantWebhookLogResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\x30\n\x04\x64\x61ta\x18\x03 \x03(\x0b\x32\".assistant_api.AssistantWebhookLog\x12\x15\n\x05\x65rror\x18\x04 \x01(\x0b\x32\x06.Error\x12\x1d\n\tpaginated\x18\x05 \x01(\x0b\x32\n.PaginatedB\x1cZ\x1agithub.com/rapidaai/protosb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -35,10 +35,6 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'assistant_webhook_pb2', _gl
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z\032github.com/rapidaai/protos'
-  _globals['_ASSISTANTWEBHOOK_HTTPHEADERSENTRY']._loaded_options = None
-  _globals['_ASSISTANTWEBHOOK_HTTPHEADERSENTRY']._serialized_options = b'8\001'
-  _globals['_ASSISTANTWEBHOOK_HTTPBODYENTRY']._loaded_options = None
-  _globals['_ASSISTANTWEBHOOK_HTTPBODYENTRY']._serialized_options = b'8\001'
   _globals['_ASSISTANTWEBHOOK'].fields_by_name['id']._loaded_options = None
   _globals['_ASSISTANTWEBHOOK'].fields_by_name['id']._serialized_options = b'0\001'
   _globals['_ASSISTANTWEBHOOK'].fields_by_name['assistantId']._loaded_options = None
@@ -63,16 +59,8 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_ASSISTANTWEBHOOKLOG'].fields_by_name['responseStatus']._serialized_options = b'0\001'
   _globals['_ASSISTANTWEBHOOKLOG'].fields_by_name['timeTaken']._loaded_options = None
   _globals['_ASSISTANTWEBHOOKLOG'].fields_by_name['timeTaken']._serialized_options = b'0\001'
-  _globals['_CREATEASSISTANTWEBHOOKREQUEST_HTTPHEADERSENTRY']._loaded_options = None
-  _globals['_CREATEASSISTANTWEBHOOKREQUEST_HTTPHEADERSENTRY']._serialized_options = b'8\001'
-  _globals['_CREATEASSISTANTWEBHOOKREQUEST_HTTPBODYENTRY']._loaded_options = None
-  _globals['_CREATEASSISTANTWEBHOOKREQUEST_HTTPBODYENTRY']._serialized_options = b'8\001'
   _globals['_CREATEASSISTANTWEBHOOKREQUEST'].fields_by_name['assistantId']._loaded_options = None
   _globals['_CREATEASSISTANTWEBHOOKREQUEST'].fields_by_name['assistantId']._serialized_options = b'0\001'
-  _globals['_UPDATEASSISTANTWEBHOOKREQUEST_HTTPHEADERSENTRY']._loaded_options = None
-  _globals['_UPDATEASSISTANTWEBHOOKREQUEST_HTTPHEADERSENTRY']._serialized_options = b'8\001'
-  _globals['_UPDATEASSISTANTWEBHOOKREQUEST_HTTPBODYENTRY']._loaded_options = None
-  _globals['_UPDATEASSISTANTWEBHOOKREQUEST_HTTPBODYENTRY']._serialized_options = b'8\001'
   _globals['_UPDATEASSISTANTWEBHOOKREQUEST'].fields_by_name['id']._loaded_options = None
   _globals['_UPDATEASSISTANTWEBHOOKREQUEST'].fields_by_name['id']._serialized_options = b'0\001'
   _globals['_UPDATEASSISTANTWEBHOOKREQUEST'].fields_by_name['assistantId']._loaded_options = None
@@ -96,41 +84,29 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_GETASSISTANTWEBHOOKLOGREQUEST'].fields_by_name['id']._loaded_options = None
   _globals['_GETASSISTANTWEBHOOKLOGREQUEST'].fields_by_name['id']._serialized_options = b'0\001'
   _globals['_ASSISTANTWEBHOOK']._serialized_start=120
-  _globals['_ASSISTANTWEBHOOK']._serialized_end=811
-  _globals['_ASSISTANTWEBHOOK_HTTPHEADERSENTRY']._serialized_start=712
-  _globals['_ASSISTANTWEBHOOK_HTTPHEADERSENTRY']._serialized_end=762
-  _globals['_ASSISTANTWEBHOOK_HTTPBODYENTRY']._serialized_start=764
-  _globals['_ASSISTANTWEBHOOK_HTTPBODYENTRY']._serialized_end=811
-  _globals['_ASSISTANTWEBHOOKLOG']._serialized_start=814
-  _globals['_ASSISTANTWEBHOOKLOG']._serialized_end=1330
-  _globals['_CREATEASSISTANTWEBHOOKREQUEST']._serialized_start=1333
-  _globals['_CREATEASSISTANTWEBHOOKREQUEST']._serialized_end=1834
-  _globals['_CREATEASSISTANTWEBHOOKREQUEST_HTTPHEADERSENTRY']._serialized_start=712
-  _globals['_CREATEASSISTANTWEBHOOKREQUEST_HTTPHEADERSENTRY']._serialized_end=762
-  _globals['_CREATEASSISTANTWEBHOOKREQUEST_HTTPBODYENTRY']._serialized_start=764
-  _globals['_CREATEASSISTANTWEBHOOKREQUEST_HTTPBODYENTRY']._serialized_end=811
-  _globals['_UPDATEASSISTANTWEBHOOKREQUEST']._serialized_start=1837
-  _globals['_UPDATEASSISTANTWEBHOOKREQUEST']._serialized_end=2354
-  _globals['_UPDATEASSISTANTWEBHOOKREQUEST_HTTPHEADERSENTRY']._serialized_start=712
-  _globals['_UPDATEASSISTANTWEBHOOKREQUEST_HTTPHEADERSENTRY']._serialized_end=762
-  _globals['_UPDATEASSISTANTWEBHOOKREQUEST_HTTPBODYENTRY']._serialized_start=764
-  _globals['_UPDATEASSISTANTWEBHOOKREQUEST_HTTPBODYENTRY']._serialized_end=811
-  _globals['_GETASSISTANTWEBHOOKREQUEST']._serialized_start=2356
-  _globals['_GETASSISTANTWEBHOOKREQUEST']._serialized_end=2425
-  _globals['_DELETEASSISTANTWEBHOOKREQUEST']._serialized_start=2427
-  _globals['_DELETEASSISTANTWEBHOOKREQUEST']._serialized_end=2499
-  _globals['_GETASSISTANTWEBHOOKRESPONSE']._serialized_start=2502
-  _globals['_GETASSISTANTWEBHOOKRESPONSE']._serialized_end=2632
-  _globals['_GETALLASSISTANTWEBHOOKREQUEST']._serialized_start=2635
-  _globals['_GETALLASSISTANTWEBHOOKREQUEST']._serialized_end=2773
-  _globals['_GETALLASSISTANTWEBHOOKRESPONSE']._serialized_start=2776
-  _globals['_GETALLASSISTANTWEBHOOKRESPONSE']._serialized_end=2940
-  _globals['_GETALLASSISTANTWEBHOOKLOGREQUEST']._serialized_start=2943
-  _globals['_GETALLASSISTANTWEBHOOKLOGREQUEST']._serialized_end=3085
-  _globals['_GETASSISTANTWEBHOOKLOGREQUEST']._serialized_start=3087
-  _globals['_GETASSISTANTWEBHOOKLOGREQUEST']._serialized_end=3157
-  _globals['_GETASSISTANTWEBHOOKLOGRESPONSE']._serialized_start=3160
-  _globals['_GETASSISTANTWEBHOOKLOGRESPONSE']._serialized_end=3296
-  _globals['_GETALLASSISTANTWEBHOOKLOGRESPONSE']._serialized_start=3299
-  _globals['_GETALLASSISTANTWEBHOOKLOGRESPONSE']._serialized_end=3469
+  _globals['_ASSISTANTWEBHOOK']._serialized_end=496
+  _globals['_ASSISTANTWEBHOOKLOG']._serialized_start=499
+  _globals['_ASSISTANTWEBHOOKLOG']._serialized_end=1015
+  _globals['_CREATEASSISTANTWEBHOOKREQUEST']._serialized_start=1018
+  _globals['_CREATEASSISTANTWEBHOOKREQUEST']._serialized_end=1175
+  _globals['_UPDATEASSISTANTWEBHOOKREQUEST']._serialized_start=1178
+  _globals['_UPDATEASSISTANTWEBHOOKREQUEST']._serialized_end=1351
+  _globals['_GETASSISTANTWEBHOOKREQUEST']._serialized_start=1353
+  _globals['_GETASSISTANTWEBHOOKREQUEST']._serialized_end=1422
+  _globals['_DELETEASSISTANTWEBHOOKREQUEST']._serialized_start=1424
+  _globals['_DELETEASSISTANTWEBHOOKREQUEST']._serialized_end=1496
+  _globals['_GETASSISTANTWEBHOOKRESPONSE']._serialized_start=1499
+  _globals['_GETASSISTANTWEBHOOKRESPONSE']._serialized_end=1629
+  _globals['_GETALLASSISTANTWEBHOOKREQUEST']._serialized_start=1632
+  _globals['_GETALLASSISTANTWEBHOOKREQUEST']._serialized_end=1770
+  _globals['_GETALLASSISTANTWEBHOOKRESPONSE']._serialized_start=1773
+  _globals['_GETALLASSISTANTWEBHOOKRESPONSE']._serialized_end=1937
+  _globals['_GETALLASSISTANTWEBHOOKLOGREQUEST']._serialized_start=1940
+  _globals['_GETALLASSISTANTWEBHOOKLOGREQUEST']._serialized_end=2082
+  _globals['_GETASSISTANTWEBHOOKLOGREQUEST']._serialized_start=2084
+  _globals['_GETASSISTANTWEBHOOKLOGREQUEST']._serialized_end=2154
+  _globals['_GETASSISTANTWEBHOOKLOGRESPONSE']._serialized_start=2157
+  _globals['_GETASSISTANTWEBHOOKLOGRESPONSE']._serialized_end=2293
+  _globals['_GETALLASSISTANTWEBHOOKLOGRESPONSE']._serialized_start=2296
+  _globals['_GETALLASSISTANTWEBHOOKLOGRESPONSE']._serialized_end=2466
 # @@protoc_insertion_point(module_scope)

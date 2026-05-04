@@ -28,6 +28,119 @@ jest.mock('@rapidaai/react', () => ({
       return config;
     }
   },
+  Metadata: class {
+    key = '';
+    value = '';
+    setKey(value: string) {
+      this.key = value;
+    }
+    getKey() {
+      return this.key;
+    }
+    setValue(value: string) {
+      this.value = value;
+    }
+    getValue() {
+      return this.value;
+    }
+  },
+  CreateAssistantWebhookRequest: class {
+    assistantId = '';
+    assistantEventsList: string[] = [];
+    description = '';
+    executionPriority = 0;
+    optionsList: any[] = [];
+    setAssistantid(value: string) {
+      this.assistantId = value;
+    }
+    getAssistantid() {
+      return this.assistantId;
+    }
+    setAssistanteventsList(value: string[]) {
+      this.assistantEventsList = value;
+    }
+    getAssistanteventsList() {
+      return this.assistantEventsList;
+    }
+    setDescription(value: string) {
+      this.description = value;
+    }
+    getDescription() {
+      return this.description;
+    }
+    setExecutionpriority(value: number) {
+      this.executionPriority = value;
+    }
+    getExecutionpriority() {
+      return this.executionPriority;
+    }
+    setOptionsList(value: any[]) {
+      this.optionsList = value;
+    }
+    getOptionsList() {
+      return this.optionsList;
+    }
+  },
+  UpdateAssistantWebhookRequest: class {
+    id = '';
+    assistantId = '';
+    assistantEventsList: string[] = [];
+    description = '';
+    executionPriority = 0;
+    optionsList: any[] = [];
+    setId(value: string) {
+      this.id = value;
+    }
+    getId() {
+      return this.id;
+    }
+    setAssistantid(value: string) {
+      this.assistantId = value;
+    }
+    getAssistantid() {
+      return this.assistantId;
+    }
+    setAssistanteventsList(value: string[]) {
+      this.assistantEventsList = value;
+    }
+    getAssistanteventsList() {
+      return this.assistantEventsList;
+    }
+    setDescription(value: string) {
+      this.description = value;
+    }
+    getDescription() {
+      return this.description;
+    }
+    setExecutionpriority(value: number) {
+      this.executionPriority = value;
+    }
+    getExecutionpriority() {
+      return this.executionPriority;
+    }
+    setOptionsList(value: any[]) {
+      this.optionsList = value;
+    }
+    getOptionsList() {
+      return this.optionsList;
+    }
+  },
+  GetAssistantWebhookRequest: class {
+    id = '';
+    assistantId = '';
+    setId(value: string) {
+      this.id = value;
+    }
+    getId() {
+      return this.id;
+    }
+    setAssistantid(value: string) {
+      this.assistantId = value;
+    }
+    getAssistantid() {
+      return this.assistantId;
+    }
+  },
   CreateWebhook: jest.fn(),
   GetAssistantWebhook: jest.fn(),
   UpdateWebhook: jest.fn(),
@@ -313,63 +426,53 @@ describe('Assistant webhook flows', () => {
     jest.clearAllMocks();
     mockParams = { assistantId: 'assistant-1', webhookId: 'webhook-1' };
 
-    (CreateWebhook as jest.Mock).mockImplementation(
-      (
-        _cfg,
-        _assistantId,
-        _method,
-        _url,
-        _headers,
-        _params,
-        _events,
-        _retryStatus,
-        _maxRetry,
-        _timeout,
-        _priority,
-        cb,
-      ) => cb(null, { getSuccess: () => true }),
-    );
+    (CreateWebhook as jest.Mock).mockResolvedValue({
+      getSuccess: () => true,
+    });
 
-    (GetAssistantWebhook as jest.Mock).mockImplementation(
-      (_cfg, _assistantId, _webhookId, cb) =>
-        cb(null, {
-          getData: () => ({
-            getHttpmethod: () => 'POST',
-            getHttpurl: () => 'https://hooks.example.com/incoming',
-            getDescription: () => 'existing webhook',
-            getRetrystatuscodesList: () => ['50X'],
-            getRetrycount: () => 2,
-            getTimeoutsecond: () => 200,
-            getExecutionpriority: () => 1,
-            getHttpheadersMap: () =>
-              new Map([['Authorization', 'Bearer token']]),
-            getHttpbodyMap: () =>
-              new Map([
-                ['event.type', 'event'],
-                ['assistant.id', 'assistant_id'],
-              ]),
-            getAssistanteventsList: () => ['conversation.begin'],
-          }),
-        }),
-    );
+    (GetAssistantWebhook as jest.Mock).mockResolvedValue({
+      getData: () => ({
+        getDescription: () => 'existing webhook',
+        getExecutionpriority: () => 1,
+        getAssistanteventsList: () => ['conversation.begin'],
+        getOptionsList: () => [
+          {
+            getKey: () => 'http_method',
+            getValue: () => 'POST',
+          },
+          {
+            getKey: () => 'http_url',
+            getValue: () => 'https://hooks.example.com/incoming',
+          },
+          {
+            getKey: () => 'retry_status_codes',
+            getValue: () => '["50X"]',
+          },
+          {
+            getKey: () => 'max_retry_count',
+            getValue: () => '2',
+          },
+          {
+            getKey: () => 'timeout_seconds',
+            getValue: () => '200',
+          },
+          {
+            getKey: () => 'http_headers',
+            getValue: () =>
+              '{"Authorization":"Bearer token","webhook.condition":"[{\\"key\\":\\"source\\",\\"condition\\":\\"=\\",\\"value\\":\\"phone\\"}]"}',
+          },
+          {
+            getKey: () => 'http_body',
+            getValue: () =>
+              '{"event.type":"event","assistant.id":"assistant_id"}',
+          },
+        ],
+      }),
+    });
 
-    (UpdateWebhook as jest.Mock).mockImplementation(
-      (
-        _cfg,
-        _assistantId,
-        _webhookId,
-        _method,
-        _url,
-        _headers,
-        _params,
-        _events,
-        _retryStatus,
-        _maxRetry,
-        _timeout,
-        _priority,
-        cb,
-      ) => cb(null, { getSuccess: () => true }),
-    );
+    (UpdateWebhook as jest.Mock).mockResolvedValue({
+      getSuccess: () => true,
+    });
   });
 
   it('create webhook supports header/parameter add-delete and payload duplicate-key validation', () => {
@@ -378,12 +481,15 @@ describe('Assistant webhook flows', () => {
     fireEvent.change(screen.getByTestId('webhook-endpoint'), {
       target: { value: 'https://api.example.com/webhook' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     expect(screen.getByText('Headers (0)')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Add header' }));
     expect(screen.getByText('Headers (1)')).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0]);
+    const headerKeyInput = screen.getByTestId('api-header-key-0');
+    const headerRow = headerKeyInput.closest('tr');
+    const headerRemoveButton = headerRow?.querySelector('button');
+    expect(headerRemoveButton).toBeTruthy();
+    fireEvent.click(headerRemoveButton!);
     expect(screen.getByText('Headers (0)')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Add parameter' }));
@@ -409,7 +515,6 @@ describe('Assistant webhook flows', () => {
     fireEvent.change(screen.getByTestId('webhook-endpoint'), {
       target: { value: 'https://api.example.com/webhook' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Add parameter' }));
     fireEvent.change(screen.getByTestId('param-key-4'), {
@@ -432,7 +537,6 @@ describe('Assistant webhook flows', () => {
     fireEvent.change(screen.getByTestId('webhook-endpoint'), {
       target: { value: 'https://api.example.com/webhook' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Add header' }));
     fireEvent.change(screen.getByTestId('api-header-key-0'), {
@@ -452,7 +556,6 @@ describe('Assistant webhook flows', () => {
       target: { value: 'https://api.example.com/webhook' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     const eventSelect = screen.getByTestId(
       'webhook-events',
@@ -471,21 +574,31 @@ describe('Assistant webhook flows', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configure webhook' }));
 
     await waitFor(() => expect(CreateWebhook).toHaveBeenCalledTimes(1));
-    expect(CreateWebhook).toHaveBeenCalledWith(
-      expect.anything(),
-      'assistant-1',
-      'POST',
-      'https://api.example.com/webhook',
-      expect.any(Array),
-      expect.any(Array),
-      ['conversation.begin'],
-      expect.any(Array),
-      2,
-      220,
-      4,
-      expect.any(Function),
-      expect.any(Object),
-      '',
+    const req = (CreateWebhook as jest.Mock).mock.calls[0][1];
+    expect(req.getAssistantid()).toBe('assistant-1');
+    expect(req.getAssistanteventsList()).toEqual(['conversation.begin']);
+    expect(req.getExecutionpriority()).toBe(4);
+    expect(req.getDescription()).toBe('');
+
+    const optionMap = new Map(
+      req
+        .getOptionsList()
+        .map((option: any) => [option.getKey(), option.getValue()]),
+    );
+    expect(optionMap.get('http_method')).toBe('POST');
+    expect(optionMap.get('http_url')).toBe('https://api.example.com/webhook');
+    expect(optionMap.get('max_retry_count')).toBe('2');
+    expect(optionMap.get('timeout_seconds')).toBe('220');
+    const headers = JSON.parse(optionMap.get('http_headers'));
+    expect(headers['webhook.condition']).toBeDefined();
+    expect(JSON.parse(headers['webhook.condition'])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'source',
+          condition: '=',
+          value: 'all',
+        }),
+      ]),
     );
   });
 
@@ -517,7 +630,6 @@ describe('Assistant webhook flows', () => {
       );
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.change(screen.getByTestId('api-header-val-0'), {
       target: { value: '' },
     });
@@ -538,26 +650,29 @@ describe('Assistant webhook flows', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: 'Update webhook' }));
 
     await waitFor(() => expect(UpdateWebhook).toHaveBeenCalledTimes(1));
-    expect(UpdateWebhook).toHaveBeenCalledWith(
-      expect.anything(),
-      'assistant-1',
-      'webhook-1',
-      'POST',
-      'https://hooks.example.com/incoming',
-      expect.any(Array),
-      expect.any(Array),
-      ['conversation.begin'],
-      ['50X'],
-      2,
-      200,
-      1,
-      expect.any(Function),
-      expect.any(Object),
-      'existing webhook',
+    const req = (UpdateWebhook as jest.Mock).mock.calls[0][1];
+    expect(req.getAssistantid()).toBe('assistant-1');
+    expect(req.getId()).toBe('webhook-1');
+    expect(req.getAssistanteventsList()).toEqual(['conversation.begin']);
+    expect(req.getExecutionpriority()).toBe(1);
+    expect(req.getDescription()).toBe('existing webhook');
+    const optionMap = new Map(
+      req
+        .getOptionsList()
+        .map((option: any) => [option.getKey(), option.getValue()]),
+    );
+    const headers = JSON.parse(optionMap.get('http_headers'));
+    expect(JSON.parse(headers['webhook.condition'])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'source',
+          condition: '=',
+          value: 'phone',
+        }),
+      ]),
     );
   });
 
@@ -570,7 +685,6 @@ describe('Assistant webhook flows', () => {
       );
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.change(screen.getByTestId('param-key-0'), {
       target: { value: 'data' },
     });
@@ -592,12 +706,18 @@ describe('Assistant webhook flows', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Update webhook' }));
 
     await waitFor(() => expect(UpdateWebhook).toHaveBeenCalledTimes(1));
-    const payloadParams = (UpdateWebhook as jest.Mock).mock.calls[0][6];
+    const req = (UpdateWebhook as jest.Mock).mock.calls[0][1];
+    const optionMap = new Map(
+      req
+        .getOptionsList()
+        .map((option: any) => [option.getKey(), option.getValue()]),
+    );
+    const payloadParams = JSON.parse(optionMap.get('http_body'));
     expect(payloadParams).toEqual(
-      expect.arrayContaining([
-        { key: 'event.data', value: 'eventData' },
-        { key: 'conversation.id', value: 'conversationId' },
-      ]),
+      expect.objectContaining({
+        'event.data': 'eventData',
+        'conversation.id': 'conversationId',
+      }),
     );
   });
 });

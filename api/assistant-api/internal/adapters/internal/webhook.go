@@ -42,7 +42,7 @@ func (r *genericRequestor) onWebhookEvent(ctx context.Context, contextID string,
 	source := variable.NewCommunicationSource(r)
 	registry := variable.NewDefaultRegistry().With("event", &variable.EventNamespace{})
 	for _, webhook := range r.assistant.AssistantWebhooks {
-		if !slices.Contains(webhook.AssistantEvents, event.Get()) {
+		if !slices.Contains(webhook.GetAssistantEvents(), event.Get()) {
 			continue
 		}
 		if !r.isWebhookAllowed(webhook, r.Conversation().Direction.String()) {
@@ -68,7 +68,7 @@ func (r *genericRequestor) isWebhookAllowed(
 	if webhook == nil {
 		return false
 	}
-	rawCondition := strings.TrimSpace(webhook.HttpHeaders["webhook.condition"])
+	rawCondition := strings.TrimSpace(webhook.GetHeaders()["webhook.condition"])
 	if rawCondition == "" {
 		return true
 	}
