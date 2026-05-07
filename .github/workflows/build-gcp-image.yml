@@ -1,0 +1,97 @@
+name: Build GCE Image (GCP Marketplace)
+
+on:
+  # Disabled temporarily
+  # workflow_run:
+  #   workflows: ["Build and Push Docker Images"]
+  #   types:
+  #     - completed
+
+  # Manual trigger only
+  workflow_dispatch:
+    inputs:
+      rapida_version:
+        description: 'Rapida version tag (e.g. saas-abc1234)'
+        required: false
+        default: 'saas-latest'
+
+jobs:
+  build-gce-image:
+    runs-on: ubuntu-latest
+    # On auto-trigger, only run if docker-push succeeded
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.rapida_version }}" >> "$GITHUB_OUTPUT"
+          else
+            SHA=$(git rev-parse --short HEAD)
+            echo "version=saas-${SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: latest
+
+      - name: Packer init
+        run: packer init deploy/gcp/packer/rapida-gcp.pkr.hcl
+
+      - name: Packer validate
+        run: |
+          packer validate \
+            -var "gcp_project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var "rapida_version=${{ steps.vars.outputs.version }}" \
+            deploy/gcp/packer/rapida-gcp.pkr.hcl
+
+      - name: Packer build
+        run: |
+          packer build \
+            -var "gcp_project_id=${{ secrets.GCP_PROJECT_ID }}" \
+            -var "rapida_version=${{ steps.vars.outputs.version }}" \
+            deploy/gcp/packer/rapida-gcp.pkr.hcl
+
+      - name: Extract image name from manifest
+        id: image
+        run: |
+          IMAGE_NAME=$(jq -r '.builds[-1].artifact_id' deploy/gcp/packer/manifest.json)
+          echo "image_name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: packer-manifest-gcp-${{ steps.vars.outputs.version }}
+          path: deploy/gcp/packer/manifest.json
+          retention-days: 90
+
+      - name: Summary
+        run: |
+          {
+            echo "## GCE Image Built: \`${{ steps.vars.outputs.version }}\`"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Image Name | \`${{ steps.image.outputs.image_name }}\` |"
+            echo "| Image Family | \`rapida-voice-ai\` |"
+            echo "| Project | \`${{ secrets.GCP_PROJECT_ID }}\` |"
+            echo "| Version | \`${{ steps.vars.outputs.version }}\` |"
+            echo ""
+            echo "### Next steps"
+            echo "1. **Test** — Deploy with: \`gcloud deployment-manager deployments create test-rapida --config deploy/gcp/deployment-manager/test_config.yaml\`"
+            echo "2. **Verify** — SSH into the VM and run \`docker compose ps\` to confirm all services are healthy"
+            echo "3. **Submit** — Upload the image and Deployment Manager template to the [Google Cloud Partner Portal](https://console.cloud.google.com/partner)"
+          } >> "$GITHUB_STEP_SUMMARY"

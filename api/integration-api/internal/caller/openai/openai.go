@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/responses"
 
 	internal_callers "github.com/rapidaai/api/integration-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
@@ -73,6 +74,28 @@ func (openAI *OpenAI) GetComplitionUsages(usages openai.CompletionUsage) []*prot
 	metrics = append(metrics, &protos.Metric{
 		Name:        type_enums.INPUT_TOKEN.String(),
 		Value:       fmt.Sprintf("%d", usages.PromptTokens),
+		Description: "Output Token",
+	})
+
+	metrics = append(metrics, &protos.Metric{
+		Name:        type_enums.TOTAL_TOKEN.String(),
+		Value:       fmt.Sprintf("%d", usages.TotalTokens),
+		Description: "Total Token",
+	})
+	return metrics
+}
+
+func (openAI *OpenAI) GetResponseUsages(usages responses.ResponseUsage) []*protos.Metric {
+	metrics := make([]*protos.Metric, 0)
+	metrics = append(metrics, &protos.Metric{
+		Name:        type_enums.OUTPUT_TOKEN.String(),
+		Value:       fmt.Sprintf("%d", usages.OutputTokens),
+		Description: "Input token",
+	})
+
+	metrics = append(metrics, &protos.Metric{
+		Name:        type_enums.INPUT_TOKEN.String(),
+		Value:       fmt.Sprintf("%d", usages.InputTokens),
 		Description: "Output Token",
 	})
 

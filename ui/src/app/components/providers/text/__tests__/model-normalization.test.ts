@@ -22,6 +22,46 @@ describe('text model normalization', () => {
     expect(getValue(normalized, 'model.name')).toBe('gpt-4o');
   });
 
+  it('resolves gpt-5 model token to canonical openai model id/name', () => {
+    const normalized = NormalizeTextProviderModelSelection('openai', [
+      createMetadata('model.id', 'gpt-5.5'),
+      createMetadata('model.name', 'gpt-5.5'),
+    ]);
+
+    expect(getValue(normalized, 'model.id')).toBe('openai/gpt-5.5');
+    expect(getValue(normalized, 'model.name')).toBe('gpt-5.5');
+  });
+
+  it('resolves gpt-5.2 model token to canonical openai model id/name', () => {
+    const normalized = NormalizeTextProviderModelSelection('openai', [
+      createMetadata('model.id', 'gpt-5.2'),
+      createMetadata('model.name', 'gpt-5.2'),
+    ]);
+
+    expect(getValue(normalized, 'model.id')).toBe('openai/gpt-5.2');
+    expect(getValue(normalized, 'model.name')).toBe('gpt-5.2');
+  });
+
+  it('resolves gpt-5.1 model token to canonical openai model id/name', () => {
+    const normalized = NormalizeTextProviderModelSelection('openai', [
+      createMetadata('model.id', 'gpt-5.1'),
+      createMetadata('model.name', 'gpt-5.1'),
+    ]);
+
+    expect(getValue(normalized, 'model.id')).toBe('openai/gpt-5.1');
+    expect(getValue(normalized, 'model.name')).toBe('gpt-5.1');
+  });
+
+  it('resolves gpt-5.4-nano model token to canonical openai model id/name', () => {
+    const normalized = NormalizeTextProviderModelSelection('openai', [
+      createMetadata('model.id', 'gpt-5.4-nano'),
+      createMetadata('model.name', 'gpt-5.4-nano'),
+    ]);
+
+    expect(getValue(normalized, 'model.id')).toBe('openai/gpt-5.4-nano');
+    expect(getValue(normalized, 'model.name')).toBe('gpt-5.4-nano');
+  });
+
   it('resolves vertex short model name to full publisher model id', () => {
     const normalized = NormalizeTextProviderModelSelection('vertexai', [
       createMetadata('model.name', 'gemini-2.5-pro'),

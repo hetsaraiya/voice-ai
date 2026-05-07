@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/shared"
+	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 
 	internal_caller_metrics "github.com/rapidaai/api/integration-api/internal/caller/metrics"
 	internal_callers "github.com/rapidaai/api/integration-api/internal/type"
@@ -28,26 +29,24 @@ func NewLargeLanguageCaller(logger commons.Logger, credential *protos.Credential
 	}
 }
 
-func (llc *largeLanguageCaller) getChatCompletionOptions(
+func (llc *largeLanguageCaller) getResponseOptions(
 	opts *internal_callers.ChatCompletionOptions, streaming bool,
-) openai.ChatCompletionNewParams {
-	options := openai.ChatCompletionNewParams{}
-
-	if streaming {
-		options.StreamOptions = openai.ChatCompletionStreamOptionsParam{
-			IncludeUsage: openai.Bool(true),
-		}
+) responses.ResponseNewParams {
+	_ = streaming
+	options := responses.ResponseNewParams{
+		Store: openai.Bool(false),
 	}
 	if len(opts.ToolDefinitions) > 0 {
-		fns := make([]openai.ChatCompletionToolParam, len(opts.ToolDefinitions))
-		for idx, tl := range opts.ToolDefinitions {
+		fns := make([]responses.ToolUnionParam, 0, len(opts.ToolDefinitions))
+		for _, tl := range opts.ToolDefinitions {
 			switch tl.Type {
 			case "tool":
 			case "function":
 				fn := tl.Function
 				if fn != nil {
-					funcDef := openai.FunctionDefinitionParam{
-						Name: fn.Name,
+					funcDef := responses.FunctionToolParam{
+						Name:   fn.Name,
+						Strict: openai.Bool(false),
 					}
 					if fn.Description != "" {
 						funcDef.Description = openai.String(fn.Description)
@@ -62,9 +61,7 @@ func (llc *largeLanguageCaller) getChatCompletionOptions(
 							"properties": map[string]interface{}{},
 						}
 					}
-					fns[idx] = openai.ChatCompletionToolParam{
-						Function: funcDef,
-					}
+					fns = append(fns, responses.ToolUnionParam{OfFunction: &funcDef})
 				}
 			}
 		}
@@ -75,7 +72,7 @@ func (llc *largeLanguageCaller) getChatCompletionOptions(
 		switch key {
 		case "model.name":
 			if modelName, err := utils.AnyToString(value); err == nil {
-				options.Model = modelName
+				options.Model = shared.ResponsesModel(modelName)
 			}
 		case "model.user":
 			if user, err := utils.AnyToString(value); err == nil {
@@ -83,15 +80,13 @@ func (llc *largeLanguageCaller) getChatCompletionOptions(
 			}
 		case "model.reasoning_effort":
 			if re, err := utils.AnyToString(value); err == nil {
-				options.ReasoningEffort = shared.ReasoningEffort(re)
-			}
-		case "model.seed":
-			if seed, err := utils.AnyToInt64(value); err == nil {
-				options.Seed = openai.Int(seed)
+				options.Reasoning = shared.ReasoningParam{
+					Effort: shared.ReasoningEffort(re),
+				}
 			}
 		case "model.service_tier":
 			if st, err := utils.AnyToString(value); err == nil {
-				options.ServiceTier = openai.ChatCompletionNewParamsServiceTier(st)
+				options.ServiceTier = responses.ResponseNewParamsServiceTier(st)
 			}
 		case "model.top_logprobs":
 			if tl, err := utils.AnyToInt64(value); err == nil {
@@ -104,9 +99,7 @@ func (llc *largeLanguageCaller) getChatCompletionOptions(
 				options.Metadata = shared.Metadata(mtd)
 			}
 		case "model.frequency_penalty":
-			if fp, err := utils.AnyToFloat64(value); err == nil {
-				options.FrequencyPenalty = openai.Float(fp)
-			}
+			// responses API does not support frequency_penalty
 		case "model.temperature":
 			if temp, err := utils.AnyToFloat64(value); err == nil {
 				options.Temperature = openai.Float(temp)
@@ -116,39 +109,35 @@ func (llc *largeLanguageCaller) getChatCompletionOptions(
 				options.TopP = openai.Float(topP)
 			}
 		case "model.presence_penalty":
-			if pp, err := utils.AnyToFloat64(value); err == nil {
-				options.PresencePenalty = openai.Float(pp)
-			}
-		case "model.max_completion_tokens":
+			// responses API does not support presence_penalty
+		case "model.max_completion_tokens", "model.max_output_tokens":
 			if maxTokens, err := utils.AnyToInt64(value); err == nil {
-				options.MaxTokens = openai.Int(maxTokens)
+				options.MaxOutputTokens = openai.Int(maxTokens)
 			}
 		case "model.stop":
-			if stopStr, err := utils.AnyToString(value); err == nil {
-				for _, stopper := range strings.Split(stopStr, ",") {
-					if strings.TrimSpace(stopper) != "" {
-						options.Stop.OfStringArray = append(options.Stop.OfStringArray, stopper)
-					}
-				}
+			// responses API does not support stop
+		case "model.store":
+			if store, err := utils.AnyToBool(value); err == nil {
+				options.Store = openai.Bool(store)
 			}
 		case "model.tool_choice":
 			if choice, err := utils.AnyToString(value); err == nil {
 				switch choice {
 				case "auto":
-					options.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
-						OfAuto: openai.String("auto"),
+					options.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{
+						OfToolChoiceMode: openai.Opt(responses.ToolChoiceOptionsAuto),
 					}
 				case "required":
-					options.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
-						OfAuto: openai.String("required"),
+					options.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{
+						OfToolChoiceMode: openai.Opt(responses.ToolChoiceOptionsRequired),
 					}
 				case "none":
-					options.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
-						OfAuto: openai.String("none"),
+					options.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{
+						OfToolChoiceMode: openai.Opt(responses.ToolChoiceOptionsNone),
 					}
 				default:
-					options.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
-						OfAuto: openai.String("none"),
+					options.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{
+						OfToolChoiceMode: openai.Opt(responses.ToolChoiceOptionsNone),
 					}
 				}
 			}
@@ -156,22 +145,37 @@ func (llc *largeLanguageCaller) getChatCompletionOptions(
 			if format, err := utils.AnyToJSON(value); err == nil {
 				switch format["type"].(string) {
 				case "json_object":
-					options.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
-						OfJSONObject: &openai.ResponseFormatJSONObjectParam{},
+					options.Text.Format = responses.ResponseFormatTextConfigUnionParam{
+						OfJSONObject: &shared.ResponseFormatJSONObjectParam{},
 					}
 				case "text":
-					options.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{}
+					options.Text.Format = responses.ResponseFormatTextConfigUnionParam{
+						OfText: &shared.ResponseFormatTextParam{},
+					}
 				case "json_schema":
 					if schemaData, ok := format["json_schema"].(map[string]interface{}); ok {
-						jsonSchemaParam := shared.ResponseFormatJSONSchemaJSONSchemaParam{}
-						jsonData, err := json.Marshal(schemaData)
-						if err == nil {
-							json.Unmarshal(jsonData, &jsonSchemaParam)
+						cfg := responses.ResponseFormatTextJSONSchemaConfigParam{
+							Name: "response",
 						}
-						options.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
-							OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
-								JSONSchema: jsonSchemaParam,
-							},
+						if name, ok := schemaData["name"].(string); ok && strings.TrimSpace(name) != "" {
+							cfg.Name = name
+						}
+						if description, ok := schemaData["description"].(string); ok && description != "" {
+							cfg.Description = openai.String(description)
+						}
+						if strict, ok := schemaData["strict"].(bool); ok {
+							cfg.Strict = openai.Bool(strict)
+						}
+						if schema, ok := schemaData["schema"].(map[string]interface{}); ok {
+							cfg.Schema = schema
+						} else {
+							cfg.Schema = map[string]interface{}{
+								"type":       "object",
+								"properties": map[string]interface{}{},
+							}
+						}
+						options.Text.Format = responses.ResponseFormatTextConfigUnionParam{
+							OfJSONSchema: &cfg,
 						}
 					}
 				}
@@ -196,14 +200,15 @@ func (llc *largeLanguageCaller) GetChatCompletion(
 	}
 
 	// message and options
-	llmRequest := llc.getChatCompletionOptions(options, false)
-	llmRequest.Messages = llc.BuildHistory(allMessages)
+	llmRequest := llc.getResponseOptions(options, false)
+	llmRequest.Input = responses.ResponseNewParamsInputUnion{
+		OfInputItemList: llc.BuildHistory(allMessages),
+	}
 
 	// prehook
 	options.PreHook(utils.ToJson(llmRequest))
 
-	// chat complitions
-	resp, err := client.Chat.Completions.New(ctx, llmRequest)
+	resp, err := client.Responses.New(ctx, llmRequest)
 	if err != nil {
 		llc.logger.Errorf("chat completion failed to get response from openai %v", err)
 		options.PostHook(map[string]interface{}{
@@ -217,33 +222,31 @@ func (llc *largeLanguageCaller) GetChatCompletion(
 		Contents:  make([]string, 0),
 		ToolCalls: make([]*protos.ToolCall, 0),
 	}
-	metrics.OnSuccess()
 
-	for _, choice := range resp.Choices {
-		switch choice.FinishReason {
-		case "length", "content_filter":
-		case "stop":
-			assistantMsg.Contents = append(assistantMsg.Contents, choice.Message.Content)
-		case "function_call", "tool_calls":
-			if choice.Message.ToolCalls != nil {
-				for _, tool := range choice.Message.ToolCalls {
-					if tool.Type == "function" {
-						assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, &protos.ToolCall{
-							Id:   tool.ID,
-							Type: string(tool.Type),
-							Function: &protos.FunctionCall{
-								Name:      tool.Function.Name,
-								Arguments: tool.Function.Arguments,
-							},
-						})
-					}
-				}
+	if outputText := resp.OutputText(); outputText != "" {
+		assistantMsg.Contents = append(assistantMsg.Contents, outputText)
+	}
+	for _, item := range resp.Output {
+		if item.Type == "function_call" {
+			fnCall := item.AsFunctionCall()
+			id := fnCall.CallID
+			if id == "" {
+				id = fnCall.ID
 			}
+			assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, &protos.ToolCall{
+				Id:   id,
+				Type: "function",
+				Function: &protos.FunctionCall{
+					Name:      fnCall.Name,
+					Arguments: fnCall.Arguments,
+				},
+			})
 		}
 	}
+	metrics.OnSuccess()
 
 	// Add usage metrics from response
-	metrics.OnAddMetrics(llc.GetComplitionUsages(resp.Usage)...)
+	metrics.OnAddMetrics(llc.GetResponseUsages(resp.Usage)...)
 
 	options.PostHook(map[string]interface{}{
 		"result": resp,
@@ -279,15 +282,17 @@ func (llc *largeLanguageCaller) StreamChatCompletion(
 		return err
 	}
 
-	completionsOptions := llc.getChatCompletionOptions(options, true)
-	completionsOptions.Messages = llc.BuildHistory(allMessages)
+	completionsOptions := llc.getResponseOptions(options, true)
+	completionsOptions.Input = responses.ResponseNewParamsInputUnion{
+		OfInputItemList: llc.BuildHistory(allMessages),
+	}
 	options.PreHook(utils.ToJson(completionsOptions))
 	llc.logger.Benchmark("Openai.llm.GetChatCompletion.llmRequestPrepare", time.Since(start))
 
 	// Get streaming response
-	resp := client.Chat.Completions.NewStreaming(ctx, completionsOptions)
+	resp := client.Responses.NewStreaming(ctx, completionsOptions)
 	if resp.Err() != nil {
-		llc.logger.Errorf("Failed to get chat completions stream: %v", resp.Err())
+		llc.logger.Errorf("Failed to get responses stream: %v", resp.Err())
 		options.PostHook(map[string]interface{}{
 			"result": utils.ToJson(resp),
 			"error":  resp.Err(),
@@ -300,62 +305,57 @@ func (llc *largeLanguageCaller) StreamChatCompletion(
 		Contents:  make([]string, 0),
 		ToolCalls: make([]*protos.ToolCall, 0),
 	}
-	contentBuffer := make([]string, 0)
+	var contentBuffer strings.Builder
 	hasToolCalls := false
+	var finalResponse *responses.Response
 
-	accumulate := openai.ChatCompletionAccumulator{}
 	for resp.Next() {
-		chatCompletions := resp.Current()
-		accumulate.AddChunk(chatCompletions)
-
-		if tool, ok := accumulate.JustFinishedToolCall(); ok {
+		event := resp.Current()
+		switch e := event.AsAny().(type) {
+		case responses.ResponseTextDeltaEvent:
+			if e.Delta == "" {
+				continue
+			}
+			contentBuffer.WriteString(e.Delta)
+			if !hasToolCalls {
+				if firstTokenTime == nil {
+					now := time.Now()
+					firstTokenTime = &now
+				}
+				tokenMsg := &protos.Message{
+					Role: "assistant",
+					Message: &protos.Message_Assistant{
+						Assistant: &protos.AssistantMessage{
+							Contents: []string{e.Delta},
+						},
+					},
+				}
+				if err := onStream(options.Request.GetRequestId(), tokenMsg); err != nil {
+					llc.logger.Warnf("error streaming token: %v", err)
+				}
+			}
+		case responses.ResponseFunctionCallArgumentsDeltaEvent:
 			hasToolCalls = true
-			assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, &protos.ToolCall{
-				Id: tool.ID,
-				Function: &protos.FunctionCall{
-					Name:      tool.Name,
-					Arguments: tool.Arguments,
-				},
-			})
-		}
-
-		// Accumulate content and stream deltas while no tool call is present.
-		for i, choice := range chatCompletions.Choices {
-			if len(choice.Delta.ToolCalls) > 0 {
+		case responses.ResponseFunctionCallArgumentsDoneEvent:
+			hasToolCalls = true
+		case responses.ResponseOutputItemAddedEvent:
+			if e.Item.Type == "function_call" {
 				hasToolCalls = true
 			}
-
-			content := choice.Delta.Content
-			if content != "" {
-				if len(contentBuffer) <= i {
-					contentBuffer = append(contentBuffer, content)
-				} else {
-					contentBuffer[i] += content
-				}
-
-				if !hasToolCalls {
-					if firstTokenTime == nil {
-						now := time.Now()
-						firstTokenTime = &now
-					}
-					tokenMsg := &protos.Message{
-						Role: "assistant",
-						Message: &protos.Message_Assistant{
-							Assistant: &protos.AssistantMessage{
-								Contents: []string{content},
-							},
-						},
-					}
-					if err := onStream(options.Request.GetRequestId(), tokenMsg); err != nil {
-						llc.logger.Warnf("error streaming token: %v", err)
-					}
-				}
+		case responses.ResponseOutputItemDoneEvent:
+			if e.Item.Type == "function_call" {
+				hasToolCalls = true
+			}
+		case responses.ResponseCompletedEvent:
+			finalResponse = &e.Response
+			if llc.hasFunctionCall(e.Response.Output) {
+				hasToolCalls = true
 			}
 		}
 	}
 
 	if resp.Err() != nil {
-		llc.logger.Errorf("Failed while reading chat completions stream: %v", resp.Err())
+		llc.logger.Errorf("Failed while reading responses stream: %v", resp.Err())
 		options.PostHook(map[string]interface{}{
 			"result": utils.ToJson(resp),
 			"error":  resp.Err(),
@@ -364,15 +364,38 @@ func (llc *largeLanguageCaller) StreamChatCompletion(
 		return resp.Err()
 	}
 
-	assistantMsg.Contents = contentBuffer
+	if finalResponse != nil {
+		if outputText := finalResponse.OutputText(); outputText != "" {
+			assistantMsg.Contents = append(assistantMsg.Contents, outputText)
+		}
+		for _, item := range finalResponse.Output {
+			if item.Type == "function_call" {
+				fnCall := item.AsFunctionCall()
+				id := fnCall.CallID
+				if id == "" {
+					id = fnCall.ID
+				}
+				assistantMsg.ToolCalls = append(assistantMsg.ToolCalls, &protos.ToolCall{
+					Id:   id,
+					Type: "function",
+					Function: &protos.FunctionCall{
+						Name:      fnCall.Name,
+						Arguments: fnCall.Arguments,
+					},
+				})
+			}
+		}
+		metrics.OnAddMetrics(llc.GetResponseUsages(finalResponse.Usage)...)
+	} else if contentBuffer.Len() > 0 {
+		assistantMsg.Contents = append(assistantMsg.Contents, contentBuffer.String())
+	}
+
 	protoMsg := &protos.Message{
 		Role: "assistant",
 		Message: &protos.Message_Assistant{
 			Assistant: assistantMsg,
 		},
 	}
-
-	metrics.OnAddMetrics(llc.GetComplitionUsages(accumulate.Usage)...)
 
 	if firstTokenTime != nil {
 		metrics.OnAddMetrics(&protos.Metric{
@@ -384,54 +407,54 @@ func (llc *largeLanguageCaller) StreamChatCompletion(
 	metrics.OnSuccess()
 
 	onMetrics(options.Request.GetRequestId(), protoMsg, metrics.Build())
+	result := utils.ToJson(resp)
+	if finalResponse != nil {
+		result = utils.ToJson(finalResponse)
+	}
 	options.PostHook(map[string]interface{}{
-		"result": utils.ToJson(accumulate),
+		"result": result,
 	}, metrics.Build())
 
 	return nil
 }
 
-func (llc *largeLanguageCaller) BuildHistory(allMessages []*protos.Message) []openai.ChatCompletionMessageParamUnion {
-	msg := make([]openai.ChatCompletionMessageParamUnion, 0)
+func (llc *largeLanguageCaller) hasFunctionCall(items []responses.ResponseOutputItemUnion) bool {
+	for _, item := range items {
+		if item.Type == "function_call" {
+			return true
+		}
+	}
+	return false
+}
+
+func (llc *largeLanguageCaller) BuildHistory(allMessages []*protos.Message) []responses.ResponseInputItemUnionParam {
+	msg := make([]responses.ResponseInputItemUnionParam, 0)
 	for _, cntn := range allMessages {
 		switch cntn.GetRole() {
 		case ChatRoleUser:
 			if user := cntn.GetUser(); user != nil {
-				var messageContent []openai.ChatCompletionContentPartUnionParam
-				messageContent = append(messageContent, openai.ChatCompletionContentPartUnionParam{
-					OfText: &openai.ChatCompletionContentPartTextParam{
-						Text: user.GetContent(),
-					},
-				})
-				msg = append(msg, openai.UserMessage(messageContent))
+				msg = append(msg, responses.ResponseInputItemParamOfMessage(user.GetContent(), responses.EasyInputMessageRoleUser))
 			}
 		case ChatRoleAssistant:
 			if assistant := cntn.GetAssistant(); assistant != nil {
 				txtContent := strings.Join(assistant.GetContents(), "")
-				toolCalls := assistant.GetToolCalls()
-				assistantMessage := openai.ChatCompletionAssistantMessageParam{}
-				if len(txtContent) > 0 || len(toolCalls) > 0 {
-					if len(txtContent) > 0 {
-						assistantMessage.Content = openai.ChatCompletionAssistantMessageParamContentUnion{
-							OfString: openai.String(txtContent),
-						}
+				if txtContent != "" {
+					msg = append(msg, responses.ResponseInputItemParamOfMessage(txtContent, responses.EasyInputMessageRoleAssistant))
+				}
+
+				for _, ttc := range assistant.GetToolCalls() {
+					if ttc.GetFunction() == nil {
+						continue
 					}
-					if len(toolCalls) > 0 {
-						fctCall := make([]openai.ChatCompletionMessageToolCallParam, 0)
-						for _, ttc := range toolCalls {
-							fctCall = append(fctCall, openai.ChatCompletionMessageToolCallParam{
-								ID: ttc.GetId(),
-								Function: openai.ChatCompletionMessageToolCallFunctionParam{
-									Name:      ttc.GetFunction().GetName(),
-									Arguments: ttc.GetFunction().GetArguments(),
-								},
-							})
-						}
-						assistantMessage.ToolCalls = fctCall
+					callID := ttc.GetId()
+					if callID == "" {
+						continue
 					}
-					msg = append(msg, openai.ChatCompletionMessageParamUnion{
-						OfAssistant: &assistantMessage,
-					})
+					msg = append(msg, responses.ResponseInputItemParamOfFunctionCall(
+						ttc.GetFunction().GetArguments(),
+						callID,
+						ttc.GetFunction().GetName(),
+					))
 				}
 			}
 
@@ -439,14 +462,17 @@ func (llc *largeLanguageCaller) BuildHistory(allMessages []*protos.Message) []op
 			if system := cntn.GetSystem(); system != nil {
 				txtContent := system.GetContent()
 				if len(txtContent) > 0 {
-					msg = append(msg, openai.SystemMessage(txtContent))
+					msg = append(msg, responses.ResponseInputItemParamOfMessage(txtContent, responses.EasyInputMessageRoleSystem))
 				}
 			}
 
 		case ChatRoleTool:
 			if tool := cntn.GetTool(); tool != nil {
 				for _, t := range tool.GetTools() {
-					msg = append(msg, openai.ToolMessage(t.GetContent(), t.GetId()))
+					if t.GetId() == "" {
+						continue
+					}
+					msg = append(msg, responses.ResponseInputItemParamOfFunctionCallOutput(t.GetId(), t.GetContent()))
 				}
 			}
 		}

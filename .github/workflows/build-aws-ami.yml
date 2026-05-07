@@ -1,0 +1,103 @@
+name: Build AMI (AWS Marketplace)
+
+on:
+  # Auto-trigger after Docker images are published to Docker Hub
+  workflow_run:
+    workflows: ["Build and Push Docker Images"]
+    types:
+      - completed
+
+  # Manual trigger — allows choosing version and whether to share with Marketplace
+  workflow_dispatch:
+    inputs:
+      rapida_version:
+        description: 'Rapida version tag (e.g. saas-abc1234)'
+        required: false
+        default: 'saas-latest'
+      share_with_marketplace:
+        description: 'Share AMI with AWS Marketplace account (679593333241)'
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  build-ami:
+    runs-on: ubuntu-latest
+    # On auto-trigger, only run if ecr-publish succeeded
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve version and options
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.rapida_version }}" >> "$GITHUB_OUTPUT"
+            echo "share=${{ inputs.share_with_marketplace }}" >> "$GITHUB_OUTPUT"
+          else
+            SHA=$(git rev-parse --short HEAD)
+            echo "version=saas-${SHA}" >> "$GITHUB_OUTPUT"
+            echo "share=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: latest
+
+      - name: Packer init
+        run: packer init deploy/aws/packer/rapida.pkr.hcl
+
+      - name: Packer validate
+        run: |
+          packer validate \
+            -var "rapida_version=${{ steps.vars.outputs.version }}" \
+            -var "share_with_marketplace=${{ steps.vars.outputs.share }}" \
+            deploy/aws/packer/rapida.pkr.hcl
+
+      - name: Packer build
+        run: |
+          packer build \
+            -var "rapida_version=${{ steps.vars.outputs.version }}" \
+            -var "share_with_marketplace=${{ steps.vars.outputs.share }}" \
+            deploy/aws/packer/rapida.pkr.hcl
+
+      - name: Extract AMI ID from manifest
+        id: ami
+        run: |
+          AMI_ID=$(jq -r '.builds[-1].artifact_id' deploy/aws/packer/manifest.json | cut -d: -f2)
+          echo "ami_id=${AMI_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: packer-manifest-${{ steps.vars.outputs.version }}
+          path: deploy/aws/packer/manifest.json
+          retention-days: 90
+
+      - name: Summary
+        run: |
+          {
+            echo "## AMI Built: \`${{ steps.vars.outputs.version }}\`"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| AMI ID | \`${{ steps.ami.outputs.ami_id }}\` |"
+            echo "| Region | \`us-east-1\` |"
+            echo "| Version | \`${{ steps.vars.outputs.version }}\` |"
+            echo "| Shared with Marketplace | \`${{ steps.vars.outputs.share }}\` |"
+            echo ""
+            echo "### Next steps"
+            echo "1. **Test** — Launch the CloudFormation stack with \`AmiId=${{ steps.ami.outputs.ami_id }}\` and verify it reaches CREATE_COMPLETE"
+            echo "2. **Submit** — Re-run this workflow with _Share with Marketplace_ enabled, then submit the AMI ID in the [AWS Marketplace Management Portal](https://aws.amazon.com/marketplace/management/)"
+            echo "3. **CloudFormation** — Update \`deploy/aws/cloudformation.yml\` \`AmiId\` default to \`${{ steps.ami.outputs.ami_id }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

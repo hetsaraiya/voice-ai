@@ -36,6 +36,7 @@ require (
 	github.com/mark3labs/mcp-go v0.43.2
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/openai/openai-go v1.12.0
+	github.com/openai/openai-go/v3 v3.34.0
 	github.com/opensearch-project/opensearch-go/v2 v2.3.0
 	github.com/pemistahl/lingua-go v1.4.0
 	github.com/pion/interceptor v0.1.43
@@ -193,7 +194,7 @@ require (
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/subosito/gotenv v1.4.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
-	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tphakala/simd v1.0.14 // indirect
