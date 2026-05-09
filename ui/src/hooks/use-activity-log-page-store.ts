@@ -154,7 +154,8 @@ export const useActivityLogPage = create<ActivityLogType>((set, get) => ({
     { name: 'Created Date', key: 'Created Date', visible: true },
     { name: 'Action', key: 'Action', visible: true },
     { name: 'Status', key: 'Status', visible: true },
-    { name: 'Time Taken', key: 'Time_Taken', visible: true },
+    { name: 'TTFT', key: 'TTFT', visible: true },
+    { name: 'TRT', key: 'TRT', visible: true },
     { name: 'Http status', key: 'Http_status', visible: true },
   ],
 

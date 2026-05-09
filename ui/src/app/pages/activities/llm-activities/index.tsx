@@ -12,7 +12,7 @@ import {
   toDateString,
   toHumanReadableDateTime,
 } from '@/utils/date';
-import { getMetadataValue } from '@/utils/metadata';
+import { getMetadataValue, getMetricValueOrDefault } from '@/utils/metadata';
 import { LLMLogDialog } from '@/app/components/base/modal/llm-log-modal';
 import { HttpStatusSpanIndicator } from '@/app/components/indicators/http-status';
 import { PageTitleWithCount } from '@/app/components/blocks/page-title-with-count';
@@ -23,7 +23,6 @@ import { IconOnlyButton } from '@/app/components/carbon/button';
 import { Renew, View, Launch, Ai } from '@carbon/icons-react';
 import { ProviderTag } from '@/app/components/carbon/provider-tag';
 import { EmptyState } from '@/app/components/carbon/empty-state';
-
 import {
   Table,
   TableHead,
@@ -55,7 +54,6 @@ export function ListingPage() {
     pageSize,
     visibleColumn,
     setPageSize,
-    setColumns,
   } = useActivityLogPage();
 
   const onDateSelect = (to: Date, from: Date) => {
@@ -202,11 +200,22 @@ export function ListingPage() {
                       <CarbonStatusIndicator state={at.getStatus()} />
                     </TableCell>
                   )}
-                  {visibleColumn('Time_Taken') && (
-                    <TableCell className="!font-mono !text-xs">
+                    {visibleColumn('TTFT') && (
+                    <TableCell className="font-mono text-xs">
+                      {formatNanoToReadableMilli(
+                        getMetricValueOrDefault(
+                        at.getMetricsList(),
+                        'time_to_first_token',
+                        "0",
+                      )) }
+                    </TableCell>
+                  )}
+                  {visibleColumn('TRT') && (
+                    <TableCell className="font-mono text-xs">
                       {formatNanoToReadableMilli(at.getTimetaken())}
                     </TableCell>
                   )}
+
                   {visibleColumn('Http_status') && (
                     <TableCell>
                       <HttpStatusSpanIndicator
