@@ -7,7 +7,6 @@ package adapter_internal
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -17,8 +16,6 @@ import (
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
-
-var errDeploymentNotEnabled = errors.New("deployment is not enabled for source")
 
 // GetBehavior retrieves the deployment behavior configuration based on the source type.
 func (r *genericRequestor) GetBehavior() (*internal_assistant_entity.AssistantDeploymentBehavior, error) {
@@ -71,13 +68,10 @@ func (r *genericRequestor) initializeGreeting(ctx context.Context, behavior *int
 	if behavior.Greeting == nil {
 		return
 	}
-
 	greetingContent := *behavior.Greeting
 	if strings.TrimSpace(greetingContent) == "" {
 		return
 	}
-
-	// r.Transition(Interrupted)
 	if err := r.OnPacket(ctx,
 		internal_type.InjectMessagePacket{ContextID: r.GetID(), Text: greetingContent},
 		internal_type.ConversationEventPacket{

@@ -190,7 +190,7 @@
         "code": "aws",
         "name": "AWS",
         "description": "Amazon Web Services (AWS) offers a broad set of global cloud-based products including compute, storage, databases, analytics, and AI services.",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/1254821443460603620.png",
+        "image": "https://cdn-01.rapida.ai/providers/1254821443460603620.png",
         "featureList": [
             "stt",
             "tts",
@@ -219,7 +219,7 @@
         "code": "azure-speech-service",
         "name": "Azure Cognitive Services",
         "description": "Azure Cognitive Service enables to access all the cognitive apis like stt, tts",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/198796716894742122.png",
+        "image": "https://cdn-01.rapida.ai/providers/198796716894742122.png",
         "url": "/integration/models/azure-speech-service",
         "featureList": [
             "stt",
@@ -269,7 +269,7 @@
         "code": "anthropic",
         "name": "Anthropic",
         "description": "A faster, cheaper yet still very capable version of Claude, which can handle a range of tasks including casual dialogue, text analysis, summarization, and document comprehension.",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/1987967168347635712.jpg",
+        "image": "https://cdn-01.rapida.ai/providers/1987967168347635712.jpg",
         "featureList": [
             "text",
             "external"
@@ -288,7 +288,7 @@
         "code": "cohere",
         "name": "Cohere",
         "description": "A smaller and faster version of Cohere's command model with almost as much capability but improved speed.",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/1987967168435716096.png",
+        "image": "https://cdn-01.rapida.ai/providers/1987967168435716096.png",
         "featureList": [
             "text",
             "embedding",
@@ -309,7 +309,7 @@
         "code": "openai",
         "name": "OpenAI",
         "description": "GPT-4 from OpenAI has broad general knowledge and domain expertise allowing it to follow complex instructions in natural language and solve difficult problems accurately.",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/1987967168452493312.svg",
+        "image": "https://cdn-01.rapida.ai/providers/1987967168452493312.svg",
         "featureList": [
             "text",
             "embedding",
@@ -329,7 +329,7 @@
         "code": "mistral",
         "name": "Mistral",
         "description": "Mistral specializes in creating fast, secure, open-source large language models (LLMs).",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/198796716894742119.jpeg",
+        "image": "https://cdn-01.rapida.ai/providers/198796716894742119.jpeg",
         "featureList": [
             "external"
         ],
@@ -347,7 +347,7 @@
         "code": "huggingface",
         "name": "Hugging Face",
         "description": "Hugging Face is a machine learning (ML) and data science platform and community that helps users build, deploy and train machine learning models.",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/198796716894742120.jpeg",
+        "image": "https://cdn-01.rapida.ai/providers/198796716894742120.jpeg",
         "featureList": [
             "external"
         ],
@@ -365,7 +365,7 @@
         "code": "google-speech-service",
         "name": "Google Speech Service",
         "description": "Google Speech service offers state-of-the-art speech-to-text and text-to-speech capabilities with high accuracy and support for multiple languages.",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/198796716894742118.jpg",
+        "image": "https://cdn-01.rapida.ai/providers/198796716894742118.jpg",
         "featureList": [
             "stt",
             "tts",
@@ -473,7 +473,7 @@
         "code": "deepgram",
         "name": "Deepgram",
         "description": "Deepgram provides cutting-edge speech recognition services using advanced AI technology. Known for high accuracy and speed in transcribing spoken language into text.",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/2123891723608588082.jpg",
+        "image": "https://cdn-01.rapida.ai/providers/2123891723608588082.jpg",
         "featureList": [
             "stt",
             "tts",
@@ -493,7 +493,7 @@
         "code": "cartesia",
         "name": "Cartesia",
         "description": "Advanced Text-to-Speech and Speech-to-Text solutions",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/cartesia.jpg",
+        "image": "https://cdn-01.rapida.ai/providers/cartesia.jpg",
         "url": "/integration/models/cartesia",
         "featureList": [
             "stt",
@@ -513,7 +513,7 @@
         "code": "elevenlabs",
         "name": "ElevenLabs",
         "description": "ElevenLabs offers state-of-the-art AI voice technology, providing high-quality text-to-speech synthesis with natural-sounding voices and customization options.",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/11labs.png",
+        "image": "https://cdn-01.rapida.ai/providers/11labs.png",
         "url": "/integration/models/elevenlabs",
         "featureList": [
             "tts",
@@ -531,7 +531,7 @@
     {
         "code": "rime",
         "name": "Rime",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/rime.jpeg",
+        "image": "https://cdn-01.rapida.ai/providers/rime.jpeg",
         "description": "Rime offers ultra-low-latency text-to-speech with natural-sounding voices via WebSocket streaming.",
         "featureList": [
             "tts",
@@ -550,7 +550,7 @@
         "code": "assemblyai",
         "name": "AssemblyAI",
         "description": "AssemblyAI offers state-of-the-art speech recognition and audio intelligence APIs. Known for high accuracy and advanced features like speaker diarization and sentiment analysis.",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/assemblyai.png",
+        "image": "https://cdn-01.rapida.ai/providers/assemblyai.png",
         "featureList": [
             "stt",
             "external"
@@ -568,7 +568,7 @@
         "code": "sarvamai",
         "name": "Sarvam Ai",
         "description": "Sarvam AI is an Indian startup that develops large language models (LLMs) and AI platforms specifically for India.",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/sarvam-ai.jpg",
+        "image": "https://cdn-01.rapida.ai/providers/sarvam-ai.jpg",
         "featureList": [
             "stt",
             "tts",
@@ -586,7 +586,7 @@
     {
         "code": "resembleai",
         "name": "Resemble AI",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/resemble.png",
+        "image": "https://cdn-01.rapida.ai/providers/resemble.png",
         "description": "Resemble AI provides high-quality voice cloning and text-to-speech synthesis with real-time WebSocket streaming.",
         "featureList": [
             "tts",
@@ -604,7 +604,7 @@
     {
         "code": "neuphonic",
         "name": "Neuphonic",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/neuphonic.png",
+        "image": "https://cdn-01.rapida.ai/providers/neuphonic.png",
         "description": "Neuphonic offers ultra-low-latency text-to-speech with natural-sounding voices and multilingual support.",
         "featureList": [
             "tts",
@@ -622,7 +622,7 @@
     {
         "code": "minimax",
         "name": "MiniMax",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/minimax.png",
+        "image": "https://cdn-01.rapida.ai/providers/minimax.png",
         "description": "MiniMax provides advanced text-to-speech synthesis with streaming SSE support and multiple voice options.",
         "featureList": [
             "tts",
@@ -645,7 +645,7 @@
     {
         "code": "groq",
         "name": "Groq",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/gorq.png",
+        "image": "https://cdn-01.rapida.ai/providers/gorq.png",
         "description": "Groq provides ultra-fast AI inference with OpenAI-compatible speech-to-text and text-to-speech APIs.",
         "featureList": [
             "stt",
@@ -664,7 +664,7 @@
     {
         "code": "speechmatics",
         "name": "Speechmatics",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/speechmatics.png",
+        "image": "https://cdn-01.rapida.ai/providers/speechmatics.png",
         "description": "Speechmatics offers enterprise-grade speech recognition and text-to-speech with high accuracy and multilingual support.",
         "featureList": [
             "stt",
@@ -683,7 +683,7 @@
     {
         "code": "nvidia",
         "name": "NVIDIA",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/nvidia.png",
+        "image": "https://cdn-01.rapida.ai/providers/nvidia.png",
         "description": "NVIDIA Riva provides GPU-accelerated speech AI with real-time speech recognition and text-to-speech synthesis.",
         "featureList": [
             "stt",
@@ -803,7 +803,7 @@
         "code": "custom-llm",
         "name": "Custom LLM",
         "description": "Connect to any LLM server. Choose an API compatibility (OpenAI-compatible, Anthropic-compatible, or custom), provide a base URL and optional headers. Useful for self-hosted runtimes such as vLLM, Ollama, LM Studio, or Text Generation Inference.",
-        "image": "https://rapida-assets-01.s3.ap-south-1.amazonaws.com/providers/1987967168452493312.svg",
+        "image": "https://cdn-01.rapida.ai/providers/1987967168452493312.svg",
         "featureList": [
             "text",
             "external"

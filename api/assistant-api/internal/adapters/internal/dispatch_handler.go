@@ -193,6 +193,7 @@ func (h requestorDispatchHandler) HandleUserInput(ctx context.Context, p interna
 
 	if h.r.assistantExecutor != nil {
 		utils.Go(ctx, func() {
+			h.r.logger.Debugf("HandleEndOfSpeech esneding execution to assistant executor for contextID == 2 %s", contextID)
 			if err := h.r.assistantExecutor.Execute(ctx, h.r, p); err != nil {
 				h.r.OnPacket(ctx, internal_type.LLMErrorPacket{ContextID: contextID, Error: err})
 			}
@@ -1040,6 +1041,11 @@ func (h requestorDispatchHandler) HandleSessionAuthenticationSucceeded(ctx conte
 	switch p.Initialization.StreamMode {
 	case protos.StreamMode_STREAM_MODE_TEXT:
 		h.r.SwitchMode(type_enums.TextMode)
+		h.r.OnPacket(ctx,
+			internal_type.InitializeAssistantExecutorPacket{
+				ContextID: p.ContextID,
+				Config:    p.Initialization,
+			})
 	case protos.StreamMode_STREAM_MODE_AUDIO:
 		h.r.OnPacket(ctx,
 			internal_type.InitializeSpeechToTextPacket{
@@ -1047,6 +1053,10 @@ func (h requestorDispatchHandler) HandleSessionAuthenticationSucceeded(ctx conte
 				Config:    p.Initialization,
 			},
 			internal_type.InitializeTextToSpeechPacket{
+				ContextID: p.ContextID,
+				Config:    p.Initialization,
+			},
+			internal_type.InitializeAssistantExecutorPacket{
 				ContextID: p.ContextID,
 				Config:    p.Initialization,
 			},
@@ -1065,22 +1075,12 @@ func (h requestorDispatchHandler) HandleSessionAuthenticationSucceeded(ctx conte
 		)
 		h.r.SwitchMode(type_enums.AudioMode)
 	}
-	h.r.OnPacket(ctx,
-		internal_type.InitializeAssistantExecutorPacket{
-			ContextID: p.ContextID,
-			Config:    p.Initialization,
-		},
-		internal_type.InitializeBehaviorPacket{
-			ContextID: p.ContextID,
-			Config:    p.Initialization,
-		})
 
 }
 
 func (h requestorDispatchHandler) HandleInitializeAssistantExecutorPacket(ctx context.Context, p internal_type.InitializeAssistantExecutorPacket) {
 	assistantExec, err := internal_llm.NewExecutor(h.r.logger, ctx, h.r, p.Config)
 	if err != nil {
-		h.r.logger.Tracef(ctx, "failed to initialize executor: %+v", err)
 		h.r.OnPacket(ctx, internal_type.InitializationFailedPacket{
 			ContextID: p.ContextID,
 			Stage:     internal_type.InitializationStageService,
@@ -1089,6 +1089,10 @@ func (h requestorDispatchHandler) HandleInitializeAssistantExecutorPacket(ctx co
 		return
 	}
 	h.r.assistantExecutor = assistantExec
+	h.r.OnPacket(ctx, internal_type.InitializeBehaviorPacket{
+		ContextID: p.ContextID,
+		Config:    p.Config,
+	})
 }
 
 func (h requestorDispatchHandler) HandleInitializeSpeechToText(ctx context.Context, p internal_type.InitializeSpeechToTextPacket) {
@@ -1598,11 +1602,11 @@ func (h requestorDispatchHandler) HandleModeSwitchFinalizeVoiceActivityDetection
 }
 
 func (h requestorDispatchHandler) HandleModeSwitchFinalizeEndOfSpeech(ctx context.Context, p internal_type.ModeSwitchFinalizeEndOfSpeechPacket) {
-
 	if h.r.endOfSpeech != nil {
 		if err := h.r.endOfSpeech.Close(); err != nil {
 			h.r.logger.Warnf("cancel end of speech with error %v", err)
 		}
+		h.r.endOfSpeech = nil
 	}
 }
 
@@ -1705,6 +1709,7 @@ func (h requestorDispatchHandler) HandleFinalizeEndOfSpeech(ctx context.Context,
 		if err := h.r.endOfSpeech.Close(); err != nil {
 			h.r.logger.Tracef(ctx, "failed to close end of speech: %+v", err)
 		}
+		h.r.endOfSpeech = nil
 	}
 	h.r.OnPacket(ctx, internal_type.FinalizeVoiceActivityDetectionPacket{ContextID: p.ContextID})
 }

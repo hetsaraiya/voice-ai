@@ -19,13 +19,6 @@ import (
 	"github.com/rapidaai/protos"
 )
 
-const (
-	dbWriteTimeout        = 5 * time.Second
-	collectorWriteTimeout = 10 * time.Second
-	connectDeadline       = 30 * time.Second
-	disconnectDeadline    = 30 * time.Second
-)
-
 // =============================================================================
 // Talk - Main Entry Point
 // =============================================================================

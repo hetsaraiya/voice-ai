@@ -7,6 +7,7 @@ package adapter_internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -48,14 +49,20 @@ import (
 // InteractionState — conversation turn state machine
 // =============================================================================
 
-type InteractionState = adapter_lifecycle.MessageState
-
 const (
-	Unknown       = adapter_lifecycle.Unknown
-	Interrupt     = adapter_lifecycle.Interrupt
-	Interrupted   = adapter_lifecycle.Interrupted
-	LLMGenerating = adapter_lifecycle.LLMGenerating
-	LLMGenerated  = adapter_lifecycle.LLMGenerated
+	Unknown               = adapter_lifecycle.Unknown
+	Interrupt             = adapter_lifecycle.Interrupt
+	Interrupted           = adapter_lifecycle.Interrupted
+	LLMGenerating         = adapter_lifecycle.LLMGenerating
+	LLMGenerated          = adapter_lifecycle.LLMGenerated
+	dbWriteTimeout        = 5 * time.Second
+	collectorWriteTimeout = 10 * time.Second
+	connectDeadline       = 30 * time.Second
+	disconnectDeadline    = 30 * time.Second
+)
+
+var (
+	errDeploymentNotEnabled = errors.New("deployment is not enabled for source")
 )
 
 type genericRequestor struct {
@@ -194,7 +201,6 @@ func NewGenericRequestor(
 	go gr.runCriticalDispatcher(sessionCtx)
 	go gr.runOutputDispatcher(sessionCtx)
 	go gr.runDataDispatcher(sessionCtx)
-
 	return gr
 }
 
@@ -215,14 +221,11 @@ func (gr *genericRequestor) GetAssistantConversation(ctx context.Context, auth t
 
 func (talking *genericRequestor) BeginConversation(ctx context.Context, assistant *internal_assistant_entity.Assistant, direction type_enums.ConversationDirection, config *protos.ConversationInitialization) error {
 	talking.assistant = assistant
-
 	conversation, err := talking.conversationService.CreateConversation(ctx, talking.Auth(), talking.identifier(config), assistant.Id, assistant.AssistantProviderId, direction, talking.GetSource())
 	if err != nil {
 		return err
 	}
-
 	talking.assistantConversation = conversation
-
 	if arguments, err := utils.AnyMapToInterfaceMap(config.GetArgs()); err == nil {
 		talking.applyArguments(arguments)
 	}
@@ -331,7 +334,7 @@ func (r *genericRequestor) SwitchMode(mm type_enums.MessageMode) {
 //     Unknown     → Interrupt | Interrupted (nothing active — no LLM, no TTS)
 //     Interrupted → Interrupted             (already interrupted)
 //     Interrupt   → Interrupt               (already soft-interrupted)
-func (r *genericRequestor) Transition(newState InteractionState) error {
+func (r *genericRequestor) Transition(newState adapter_lifecycle.MessageState) error {
 	oldCtxID := r.GetID()
 	if err := r.messageLifecycle.Transition(newState); err != nil {
 		return err
@@ -368,11 +371,11 @@ func (r *genericRequestor) canSwitchSession() bool {
 	return r.sessionLifecycle.CanBe(adapter_lifecycle.EventSwitchRequested)
 }
 
-func (r *genericRequestor) getInteractionState() InteractionState {
+func (r *genericRequestor) getInteractionState() adapter_lifecycle.MessageState {
 	return r.messageLifecycle.Current()
 }
 
-func (r *genericRequestor) setInteractionStateForTest(state InteractionState) {
+func (r *genericRequestor) setInteractionStateForTest(state adapter_lifecycle.MessageState) {
 	r.messageLifecycle = adapter_lifecycle.NewMessageLifecycleWithState(state, r.GetID(), r.GetMode(), nil)
 }
 

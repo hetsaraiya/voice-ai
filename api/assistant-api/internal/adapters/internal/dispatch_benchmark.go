@@ -10,6 +10,7 @@
 package adapter_internal
 
 import (
+	"fmt"
 	"time"
 
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
@@ -21,7 +22,7 @@ func (r *genericRequestor) benchmarkDispatch(p internal_type.Packet) func() {
 	start := time.Now()
 	return func() {
 		if elapsed := time.Since(start); elapsed > slowDispatchThreshold {
-			r.logger.Warnf("slow dispatch %T took %v", p, elapsed)
+			r.logger.Benchmark(fmt.Sprintf("Dispatch %T", p), time.Since(start))
 		}
 	}
 }
