@@ -1028,6 +1028,7 @@ func (s *webrtcStreamer) Send(response internal_type.Stream) error {
 		if disc := s.Disconnect(data.GetType()); disc != nil {
 			s.Input(disc)
 		}
+		s.Close()
 	case *protos.ConversationMetric:
 		s.Output(data)
 	default:

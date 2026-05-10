@@ -165,7 +165,6 @@ func (d *deepgramSttCallback) Close(cr *msginterfaces.CloseResponse) error {
 
 // Handle errors from Deepgram
 func (d *deepgramSttCallback) Error(er *msginterfaces.ErrorResponse) error {
-	d.logger.Errorf("Error %+v", er)
 	ctxID := d.contextID()
 	d.onPacket(internal_type.ConversationEventPacket{
 		ContextID: ctxID,

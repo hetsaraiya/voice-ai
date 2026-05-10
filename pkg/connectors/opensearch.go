@@ -508,9 +508,7 @@ func (openSearch *openSearchConnector) Name() string {
 
 // call info and check if the connection can be establish for any opensearch operation
 func (openSearch *openSearchConnector) IsConnected(ctx context.Context) bool {
-	openSearch.logger.Debugf("Calling info for opensearch.")
 	if openSearch.Connection == nil {
-		openSearch.logger.Debugf("Connection is not yet established")
 		return false
 	}
 	infoQuery := opensearchapi.InfoRequest{
@@ -534,7 +532,6 @@ func (openSearch *openSearchConnector) IsConnected(ctx context.Context) bool {
 // return searchresponse from search query on given index and body with overall count
 func (openSearch *openSearchConnector) SearchWithCount(ctx context.Context, index []string, body string) *SearchResponseWithCount {
 	searchResponse := &SearchResponseWithCount{}
-	openSearch.logger.Debugf("searching with count query on index %s and query body %s", index, body)
 	err := openSearch.search(ctx, index, body, true, searchResponse)
 	if err != nil {
 		searchResponse.Err = err
@@ -547,7 +544,6 @@ func (openSearch *openSearchConnector) SearchWithCount(ctx context.Context, inde
 // return searchresponse from search query on given index and body
 func (openSearch *openSearchConnector) Search(ctx context.Context, index []string, body string) *SearchResponse {
 	searchResponse := &SearchResponse{}
-	openSearch.logger.Debugf("searching query on index %s with query %s", index, body)
 	err := openSearch.search(ctx, index, body, false, searchResponse)
 	if err != nil {
 		openSearch.logger.Errorf("error while searching the document at opensearch %v", err)
