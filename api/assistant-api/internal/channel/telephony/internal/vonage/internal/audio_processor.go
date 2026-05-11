@@ -8,13 +8,16 @@ package internal_vonage
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"time"
 
 	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
 	internal_ambient "github.com/rapidaai/api/assistant-api/internal/audio/ambient"
+	internal_audio_resampler "github.com/rapidaai/api/assistant-api/internal/audio/resampler"
 	internal_channel_input "github.com/rapidaai/api/assistant-api/internal/channel/input"
 	internal_telephony_output "github.com/rapidaai/api/assistant-api/internal/channel/output"
+	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/protos"
 )
@@ -44,6 +47,9 @@ type AudioChunk struct {
 type AudioProcessor struct {
 	logger commons.Logger
 
+	// Resampler for ambient asset conversion when target format differs
+	resampler internal_type.AudioResampler
+
 	// Audio config (same for Vonage and downstream)
 	audioConfig *protos.AudioConfig // linear16 16kHz
 
@@ -71,8 +77,14 @@ type AudioProcessor struct {
 
 // NewAudioProcessor creates a new Vonage audio processor
 func NewAudioProcessor(logger commons.Logger) (*AudioProcessor, error) {
+	resampler, err := internal_audio_resampler.GetResampler(logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create resampler: %w", err)
+	}
+
 	p := &AudioProcessor{
 		logger:       logger,
+		resampler:    resampler,
 		audioConfig:  internal_audio.NewLinear16khzMonoAudioConfig(),
 		inputBuffer:  internal_channel_input.NewBytesInputBuffer(InputBufferThreshold * 2),
 		outputBuffer: internal_telephony_output.NewBytesFrameBuffer(OutputChunkSize * 8),
@@ -83,7 +95,7 @@ func NewAudioProcessor(logger commons.Logger) (*AudioProcessor, error) {
 	// Pre-create silence chunk (all zeros for linear16)
 	p.silenceChunk = p.createSilenceChunk()
 	ambientMixer, err := internal_ambient.NewLoopMixer(internal_ambient.MixerSpec{
-		Resampler:         nil,
+		Resampler:         p.resampler,
 		TargetAudioConfig: p.audioConfig,
 		FrameBytes:        OutputChunkSize,
 	})

@@ -212,7 +212,7 @@
     --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     --default-font-family: var(--font-sans);
     --default-mono-font-family: var(--font-mono);
-    --color-primary: #1e40af;
+    --color-primary: #0353e9;
     --color-light-background: #f4f4f4;
     --animate-spin3s: spin 3s linear infinite;
   }
@@ -3932,13 +3932,13 @@
     background-color: var(--color-primary);
   }
   .bg-primary\/5 {
-    background-color: color-mix(in srgb, #1e40af 5%, transparent);
+    background-color: color-mix(in srgb, #0353e9 5%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-primary) 5%, transparent);
     }
   }
   .bg-primary\/10 {
-    background-color: color-mix(in srgb, #1e40af 10%, transparent);
+    background-color: color-mix(in srgb, #0353e9 10%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-primary) 10%, transparent);
     }
@@ -5032,7 +5032,7 @@
     --tw-ring-color: var(--color-orange-200);
   }
   .ring-primary\/10 {
-    --tw-ring-color: color-mix(in srgb, #1e40af 10%, transparent);
+    --tw-ring-color: color-mix(in srgb, #0353e9 10%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       --tw-ring-color: color-mix(in oklab, var(--color-primary) 10%, transparent);
     }
@@ -5971,7 +5971,7 @@
   .hover\:bg-primary\/5 {
     &:hover {
       @media (hover: hover) {
-        background-color: color-mix(in srgb, #1e40af 5%, transparent);
+        background-color: color-mix(in srgb, #0353e9 5%, transparent);
         @supports (color: color-mix(in lab, red, red)) {
           background-color: color-mix(in oklab, var(--color-primary) 5%, transparent);
         }
@@ -5981,7 +5981,7 @@
   .hover\:bg-primary\/10 {
     &:hover {
       @media (hover: hover) {
-        background-color: color-mix(in srgb, #1e40af 10%, transparent);
+        background-color: color-mix(in srgb, #0353e9 10%, transparent);
         @supports (color: color-mix(in lab, red, red)) {
           background-color: color-mix(in oklab, var(--color-primary) 10%, transparent);
         }
@@ -5991,7 +5991,7 @@
   .hover\:bg-primary\/90 {
     &:hover {
       @media (hover: hover) {
-        background-color: color-mix(in srgb, #1e40af 90%, transparent);
+        background-color: color-mix(in srgb, #0353e9 90%, transparent);
         @supports (color: color-mix(in lab, red, red)) {
           background-color: color-mix(in oklab, var(--color-primary) 90%, transparent);
         }
@@ -7616,14 +7616,14 @@
   .dark\:bg-primary\/10 {
     @media (prefers-color-scheme: dark) {
       &:not(.light *) {
-        background-color: color-mix(in srgb, #1e40af 10%, transparent);
+        background-color: color-mix(in srgb, #0353e9 10%, transparent);
         @supports (color: color-mix(in lab, red, red)) {
           background-color: color-mix(in oklab, var(--color-primary) 10%, transparent);
         }
       }
     }
     &:is(.dark *) {
-      background-color: color-mix(in srgb, #1e40af 10%, transparent);
+      background-color: color-mix(in srgb, #0353e9 10%, transparent);
       @supports (color: color-mix(in lab, red, red)) {
         background-color: color-mix(in oklab, var(--color-primary) 10%, transparent);
       }

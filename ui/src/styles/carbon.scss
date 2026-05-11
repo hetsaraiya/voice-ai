@@ -112,7 +112,7 @@
   @include carbon-theme.theme(themes.$white);
 
   // Custom primary overrides
-  --cds-background-brand: var(--color-primary);
+  --cds-background-brand: #0353e9;
   --cds-interactive: var(--color-primary);
   --cds-button-primary: var(--color-primary);
   --cds-button-primary-hover: color-mix(in oklab, var(--color-primary) 85%, black);
@@ -133,19 +133,19 @@
 
   // Background — use page bg color, not transparent
   --cds-background: #0a0a0a;
-  --cds-background-brand: var(--color-primary);
+  --cds-background-brand: #0353e9;
   --cds-layer-01: #161616;
 
   // Focus / interactive — use primary instead of g100 default white
-  --cds-focus: #4589ff;
-  --cds-border-interactive: #4589ff;
-  --cds-interactive: #4589ff;
-  --cds-link-primary: #4589ff;
-  --cds-link-primary-hover: color-mix(in oklab, #4589ff 80%, white);
+  --cds-focus: #0353e9;
+  --cds-border-interactive: #0353e9;
+  --cds-interactive: #0353e9;
+  --cds-link-primary: #0353e9;
+  --cds-link-primary-hover: color-mix(in oklab, #0353e9 80%, white);
   --cds-button-primary: #0f62fe;
   --cds-button-primary-hover: #0353e9;
-  --cds-button-tertiary: #4589ff;
-  --cds-button-tertiary-hover: #4589ff;
+  --cds-button-tertiary: #0353e9;
+  --cds-button-tertiary-hover: #0353e9;
 }
 
 // ─── System preference dark (when no .dark class) ────────────────────────────
@@ -154,17 +154,17 @@
     @include carbon-theme.theme(themes.$g100);
 
     --cds-background: #0a0a0a;
-    --cds-background-brand: var(--color-primary);
+    --cds-background-brand: #0353e9;
     --cds-layer-01: #161616;
-    --cds-focus: #4589ff;
-    --cds-border-interactive: #4589ff;
-    --cds-interactive: #4589ff;
-    --cds-link-primary: #4589ff;
-    --cds-link-primary-hover: color-mix(in oklab, #4589ff 80%, white);
+    --cds-focus: #0353e9;
+    --cds-border-interactive: #0353e9;
+    --cds-interactive: #0353e9;
+    --cds-link-primary: #0353e9;
+    --cds-link-primary-hover: color-mix(in oklab, #0353e9 80%, white);
     --cds-button-primary: #0f62fe;
     --cds-button-primary-hover: #0353e9;
-    --cds-button-tertiary: #4589ff;
-    --cds-button-tertiary-hover: #4589ff;
+    --cds-button-tertiary: #0353e9;
+    --cds-button-tertiary-hover: #0353e9;
   }
 }
 
