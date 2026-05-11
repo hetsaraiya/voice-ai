@@ -27,9 +27,10 @@ const (
 	OptionHTTPHeadersKey = "http_headers"
 	OptionHTTPBodyKey    = "http_body"
 
-	ResponseArgumentsKey = "arguments"
-	ResponseMetadataKey  = "metadata"
-	ResponseOptionsKey   = "options"
+	ResponseArgumentsKey   = "arguments"
+	ResponseArgumentsKeyV1 = "args"
+	ResponseMetadataKey    = "metadata"
+	ResponseOptionsKey     = "options"
 
 	FailBehaviorBlock = "block"
 	FailBehaviorAllow = "allow"
@@ -148,6 +149,9 @@ func (e *runtimeExecutor) Execute(ctx context.Context, packet internal_type.Exec
 	e.onCreateLog(ctx, packet.ContextID, url, method, sourceRefID, startTime, type_enums.RECORD_COMPLETE, int64(response.StatusCode), nil, requestPayload, response.Body)
 	result := &Result{Authenticated: true}
 	if parsed, err := response.ToMap(); err == nil {
+		if args, ok := parsed[ResponseArgumentsKeyV1].(map[string]interface{}); ok {
+			result.Arguments = args
+		}
 		if args, ok := parsed[ResponseArgumentsKey].(map[string]interface{}); ok {
 			result.Arguments = args
 		}

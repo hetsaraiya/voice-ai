@@ -61,17 +61,28 @@ func NewStreamer(ctx context.Context,
 		),
 	}
 
+	// Client disconnect detection (SIP BYE from peer): push disc to Input,
+	// let the talker drive Close via Notify → Send.
 	go func() {
 		select {
 		case <-sipSession.ByeReceived():
 			s.Logger.Infow("SIP streamer: user BYE received")
 			s.emitChannelEvent("disconnected", map[string]string{"reason": "bye_received"})
+			if msg := s.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER); msg != nil {
+				s.Input(msg)
+			}
+		case <-s.Ctx.Done():
+		}
+	}()
+
+	// Server watches client context: safety net that forces Close if the
+	// talker cannot drive it (mirrors watchCallerContext in the webrtc streamer).
+	go func() {
+		select {
 		case <-sipSession.Context().Done():
-			s.Logger.Infow("SIP streamer: session context cancelled")
-			s.emitChannelEvent("disconnected", map[string]string{"reason": "session_context_cancelled"})
+			s.Logger.Infow("SIP streamer: session context cancelled, closing")
 		case <-ctx.Done():
-			s.Logger.Infow("SIP streamer: caller context cancelled")
-			s.emitChannelEvent("disconnected", map[string]string{"reason": "caller_context_cancelled"})
+			s.Logger.Infow("SIP streamer: caller context cancelled, closing")
 		case <-s.Ctx.Done():
 			return
 		}
@@ -202,12 +213,8 @@ func (s *Streamer) Send(response internal_type.Stream) error {
 			}
 		}
 	case *protos.ConversationDisconnection:
-		s.Logger.Infow("SIP streamer: Send(ConversationDisconnection)", "type", data.GetType().String())
 		s.emitChannelEvent("disconnected", map[string]string{"reason": data.GetType().String()})
-		if disc := s.Disconnect(data.GetType()); disc != nil {
-			s.Input(disc)
-		}
-		s.endSession()
+		s.endSession() // notify SIP peer via BYE (equivalent of Output(data) in webrtc)
 		s.Close()
 	case *protos.ConversationToolCall:
 		switch data.GetAction() {
