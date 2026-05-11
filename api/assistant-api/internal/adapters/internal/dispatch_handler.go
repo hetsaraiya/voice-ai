@@ -1819,7 +1819,6 @@ func (h requestorDispatchHandler) HandleFinalizeAuthentication(ctx context.Conte
 	h.r.OnPacket(ctx, internal_type.FinalizeSessionRuntimePacket{ContextID: p.ContextID})
 }
 func (h requestorDispatchHandler) HandleFinalizeSessionRuntime(ctx context.Context, p internal_type.FinalizeSessionRuntimePacket) {
-
 	if h.r.outputNormalizer != nil {
 		h.r.outputNormalizer.Close(ctx)
 		h.r.outputNormalizer = nil
@@ -1881,16 +1880,18 @@ func (h requestorDispatchHandler) HandleFinalizationCompleted(ctx context.Contex
 }
 
 func (h requestorDispatchHandler) HandleAnalysisStart(ctx context.Context, p internal_type.AnalysisStartPacket) {
-	h.r.OnPacket(ctx, internal_type.ExecuteAnalysisPacket{
-		ContextID:      p.ContextID,
-		ConversationID: h.r.assistantConversation.Id,
-		Auth:           h.r.auth,
-	})
-	h.r.OnPacket(ctx, internal_type.AnalysisDonePacket{
-		ContextID: p.ContextID,
-		Event:     utils.ConversationCompleted,
-		Done:      p.Done,
-	})
+	h.r.OnPacket(ctx,
+		internal_type.ExecuteAnalysisPacket{
+			ContextID:      p.ContextID,
+			ConversationID: h.r.assistantConversation.Id,
+			Auth:           h.r.auth,
+		},
+		internal_type.AnalysisDonePacket{
+			ContextID: p.ContextID,
+			Event:     utils.ConversationCompleted,
+			Done:      p.Done,
+		},
+	)
 }
 
 func (h requestorDispatchHandler) HandleExecuteAnalysis(ctx context.Context, p internal_type.ExecuteAnalysisPacket) {

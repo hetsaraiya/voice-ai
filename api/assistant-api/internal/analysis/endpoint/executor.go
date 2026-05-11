@@ -82,7 +82,6 @@ func (e *runtimeExecutor) Execute(ctx context.Context, packet internal_type.Exec
 	if err != nil {
 		return fmt.Errorf("failed to get endpoint version: %w", err)
 	}
-
 	response, err := e.caller.DeploymentCaller().Invoke(
 		ctx,
 		packet.Auth,
