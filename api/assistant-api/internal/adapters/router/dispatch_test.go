@@ -159,15 +159,11 @@ func (s *dispatchHandlerStub) HandleFinalizeAssistant(context.Context, internal_
 }
 func (s *dispatchHandlerStub) HandleFinalizationCompleted(context.Context, internal_type.FinalizationCompletedPacket) {
 }
-func (s *dispatchHandlerStub) HandleAnalysisStart(context.Context, internal_type.AnalysisStartPacket) {
-}
 func (s *dispatchHandlerStub) HandleExecuteAnalysis(context.Context, internal_type.ExecuteAnalysisPacket) {
 }
-func (s *dispatchHandlerStub) HandleAnalysisDone(context.Context, internal_type.AnalysisDonePacket) {}
-func (s *dispatchHandlerStub) HandleWebhookStart(context.Context, internal_type.WebhookStartPacket) {}
+
 func (s *dispatchHandlerStub) HandleExecuteWebhook(context.Context, internal_type.ExecuteWebhookPacket) {
 }
-func (s *dispatchHandlerStub) HandleWebhookDone(context.Context, internal_type.WebhookDonePacket) {}
 
 func TestDispatchPacket_DispatchesKnownPacket(t *testing.T) {
 	handler := &dispatchHandlerStub{}

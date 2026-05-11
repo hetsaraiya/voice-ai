@@ -93,12 +93,8 @@ type DispatchHandler interface {
 	HandleFinalizeConversation(context.Context, internal_type.FinalizeConversationPacket)
 	HandleFinalizeAssistant(context.Context, internal_type.FinalizeAssistantPacket)
 	HandleFinalizationCompleted(context.Context, internal_type.FinalizationCompletedPacket)
-	HandleAnalysisStart(context.Context, internal_type.AnalysisStartPacket)
 	HandleExecuteAnalysis(context.Context, internal_type.ExecuteAnalysisPacket)
-	HandleAnalysisDone(context.Context, internal_type.AnalysisDonePacket)
-	HandleWebhookStart(context.Context, internal_type.WebhookStartPacket)
 	HandleExecuteWebhook(context.Context, internal_type.ExecuteWebhookPacket)
-	HandleWebhookDone(context.Context, internal_type.WebhookDonePacket)
 }
 
 // DispatchPacket routes a packet to the matching typed method on handler.
@@ -261,18 +257,11 @@ func DispatchPacket(ctx context.Context, p internal_type.Packet, handler Dispatc
 		handler.HandleFinalizeAssistant(ctx, vl)
 	case internal_type.FinalizationCompletedPacket:
 		handler.HandleFinalizationCompleted(ctx, vl)
-	case internal_type.AnalysisStartPacket:
-		handler.HandleAnalysisStart(ctx, vl)
 	case internal_type.ExecuteAnalysisPacket:
 		handler.HandleExecuteAnalysis(ctx, vl)
-	case internal_type.AnalysisDonePacket:
-		handler.HandleAnalysisDone(ctx, vl)
-	case internal_type.WebhookStartPacket:
-		handler.HandleWebhookStart(ctx, vl)
 	case internal_type.ExecuteWebhookPacket:
 		handler.HandleExecuteWebhook(ctx, vl)
-	case internal_type.WebhookDonePacket:
-		handler.HandleWebhookDone(ctx, vl)
+
 	default:
 		return errors.New("unknown packet")
 	}

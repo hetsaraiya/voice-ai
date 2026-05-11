@@ -704,15 +704,6 @@ type FinalizationCompletedPacket struct {
 
 func (f FinalizationCompletedPacket) ContextId() string { return f.ContextID }
 
-// AnalysisStartPacket fans out ExecuteAnalysisPacket for each eligible analysis,
-// then enqueues WebhookStartPacket as a continuation.
-type AnalysisStartPacket struct {
-	ContextID string
-	Done      chan struct{}
-}
-
-func (f AnalysisStartPacket) ContextId() string { return f.ContextID }
-
 // ExecuteAnalysisPacket triggers a single analysis execution.
 type ExecuteAnalysisPacket struct {
 	ContextID      string
@@ -723,29 +714,6 @@ type ExecuteAnalysisPacket struct {
 
 func (f ExecuteAnalysisPacket) ContextId() string { return f.ContextID }
 
-// AnalysisDonePacket is a marker enqueued after all ExecuteAnalysisPackets.
-// By the time the low dispatcher reaches it, all analysis metadata packets
-// (pushed by executors during ExecuteAnalysis processing) are already in
-// the queue ahead of what this handler enqueues. This guarantees metadata
-// is applied before webhooks run.
-type AnalysisDonePacket struct {
-	ContextID string
-	Event     utils.AssistantWebhookEvent
-	Done      chan struct{}
-}
-
-func (f AnalysisDonePacket) ContextId() string { return f.ContextID }
-
-// WebhookStartPacket fans out ExecuteWebhookPacket for each eligible webhook,
-// then enqueues WebhookDonePacket.
-type WebhookStartPacket struct {
-	ContextID string
-	Event     utils.AssistantWebhookEvent
-	Done      chan struct{}
-}
-
-func (f WebhookStartPacket) ContextId() string { return f.ContextID }
-
 // ExecuteWebhookPacket triggers a single webhook execution.
 type ExecuteWebhookPacket struct {
 	ContextID string
@@ -754,18 +722,6 @@ type ExecuteWebhookPacket struct {
 }
 
 func (f ExecuteWebhookPacket) ContextId() string { return f.ContextID }
-func (f ExecuteWebhookPacket) IsAsync() bool     { return true }
-
-// WebhookDonePacket marks that all webhooks have been processed.
-// If Done is non-nil, the handler closes it to signal the waiting goroutine
-// (e.g. the finalization chain continuation in handleFinalizeSessionRuntime).
-// If Done is nil, this is a terminal no-op (fire-and-forget begin/resume/failed webhooks).
-type WebhookDonePacket struct {
-	ContextID string
-	Done      chan struct{}
-}
-
-func (f WebhookDonePacket) ContextId() string { return f.ContextID }
 
 // StartIdleTimeoutPacket explicitly (re)starts the idle timeout timer.
 // Routed on outputCh so producers can order it relative to InjectMessagePacket

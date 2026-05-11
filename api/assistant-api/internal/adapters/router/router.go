@@ -115,12 +115,8 @@ func Classify(p internal_type.Packet) Route {
 		internal_type.FinalizeConversationPacket,
 		internal_type.FinalizeAssistantPacket,
 		internal_type.FinalizationCompletedPacket,
-		internal_type.AnalysisStartPacket,
 		internal_type.ExecuteAnalysisPacket,
-		internal_type.AnalysisDonePacket,
-		internal_type.WebhookStartPacket,
-		internal_type.ExecuteWebhookPacket,
-		internal_type.WebhookDonePacket:
+		internal_type.ExecuteWebhookPacket:
 		return RouteData
 
 	// Background — observer-touching telemetry. Dispatcher starts after telemetry init.

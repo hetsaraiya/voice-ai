@@ -434,7 +434,7 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 			conversationId = h.r.Conversation().Id
 		}
 		h.r.OnPacket(ctx,
-			internal_type.WebhookStartPacket{
+			internal_type.ExecuteWebhookPacket{
 				ContextID: p.ContextId(),
 				Event:     utils.ConversationFailed,
 			},
@@ -1746,7 +1746,7 @@ func (h requestorDispatchHandler) HandleInitializationCompleted(ctx context.Cont
 			observe.DataMode: h.r.GetMode().String(),
 		},
 		Time: time.Now(),
-	}, internal_type.WebhookStartPacket{
+	}, internal_type.ExecuteWebhookPacket{
 		ContextID: p.ContextID,
 		Event:     p.Event,
 	})
@@ -1843,13 +1843,19 @@ func (h requestorDispatchHandler) HandleFinalizeSessionRuntime(ctx context.Conte
 			}
 		})
 	}
+	// analysis -> webhooks -> finalize conversation
+	h.r.OnPacket(ctx,
+		internal_type.ExecuteAnalysisPacket{
+			ContextID:      p.ContextID,
+			ConversationID: h.r.assistantConversation.Id,
+			Auth:           h.r.auth,
+		},
+		internal_type.ExecuteWebhookPacket{
+			ContextID: p.ContextID,
+			Event:     utils.ConversationCompleted,
+		},
+		internal_type.FinalizeConversationPacket{ContextID: p.ContextID})
 
-	done := make(chan struct{}, 1)
-	h.r.OnPacket(ctx, internal_type.AnalysisStartPacket{ContextID: p.ContextID, Done: done})
-	utils.Go(ctx, func() {
-		<-done
-		h.r.OnPacket(ctx, internal_type.FinalizeConversationPacket{ContextID: p.ContextID})
-	})
 }
 func (h requestorDispatchHandler) HandleFinalizeConversation(ctx context.Context, p internal_type.FinalizeConversationPacket) {
 	if h.r.observer != nil {
@@ -1879,22 +1885,10 @@ func (h requestorDispatchHandler) HandleFinalizationCompleted(ctx context.Contex
 	h.r.cancelSession()
 }
 
-func (h requestorDispatchHandler) HandleAnalysisStart(ctx context.Context, p internal_type.AnalysisStartPacket) {
-	h.r.OnPacket(ctx,
-		internal_type.ExecuteAnalysisPacket{
-			ContextID:      p.ContextID,
-			ConversationID: h.r.assistantConversation.Id,
-			Auth:           h.r.auth,
-		},
-		internal_type.AnalysisDonePacket{
-			ContextID: p.ContextID,
-			Event:     utils.ConversationCompleted,
-			Done:      p.Done,
-		},
-	)
-}
-
 func (h requestorDispatchHandler) HandleExecuteAnalysis(ctx context.Context, p internal_type.ExecuteAnalysisPacket) {
+	if len(h.r.assistantAnalyses) == 0 {
+		return
+	}
 	source := variable.NewCommunicationSource(h.r)
 	registry := internal_namespace.NewDefaultRegistry().With("event", &internal_namespace.EventNamespace{})
 	for _, initializedAnalysis := range h.r.assistantAnalyses {
@@ -1910,24 +1904,6 @@ func (h requestorDispatchHandler) HandleExecuteAnalysis(ctx context.Context, p i
 	}
 }
 
-func (h requestorDispatchHandler) HandleAnalysisDone(ctx context.Context, p internal_type.AnalysisDonePacket) {
-	h.r.OnPacket(ctx, internal_type.WebhookStartPacket{
-		ContextID: p.ContextID,
-		Event:     p.Event,
-		Done:      p.Done,
-	})
-}
-
-func (h requestorDispatchHandler) HandleWebhookStart(ctx context.Context, p internal_type.WebhookStartPacket) {
-	h.r.OnPacket(ctx, internal_type.ExecuteWebhookPacket{
-		ContextID: p.ContextID,
-		Event:     p.Event,
-	})
-	h.r.OnPacket(ctx, internal_type.WebhookDonePacket{
-		ContextID: p.ContextID,
-		Done:      p.Done,
-	})
-}
 func (h requestorDispatchHandler) HandleExecuteWebhook(ctx context.Context, p internal_type.ExecuteWebhookPacket) {
 	if len(h.r.assistantWebhooks) == 0 {
 		return
@@ -1944,11 +1920,6 @@ func (h requestorDispatchHandler) HandleExecuteWebhook(ctx context.Context, p in
 		if err := initializedWebhook.Execute(ctx, p); err != nil {
 			h.r.logger.Warnw("webhook execution failed", "webhookID", initializedWebhook.Name(), "error", err)
 		}
-	}
-}
-func (h requestorDispatchHandler) HandleWebhookDone(ctx context.Context, p internal_type.WebhookDonePacket) {
-	if p.Done != nil {
-		close(p.Done)
 	}
 }
 
