@@ -2566,6 +2566,9 @@
   .h-\[140px\] {
     height: 140px;
   }
+  .h-\[180px\] {
+    height: 180px;
+  }
   .h-\[200px\] {
     height: 200px;
   }
@@ -3003,6 +3006,9 @@
   }
   .min-w-\[160px\] {
     min-width: 160px;
+  }
+  .min-w-\[180px\] {
+    min-width: 180px;
   }
   .min-w-\[240px\] {
     min-width: 240px;

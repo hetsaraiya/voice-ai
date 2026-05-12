@@ -251,3 +251,41 @@ func TestFireRedVAD_Process_80msChunk(t *testing.T) {
 	err := vad.Process(context.Background(), generateSilence(1280))
 	require.NoError(t, err)
 }
+
+func TestFireRedVAD_Process_PartialFrameCarry_NoDrop(t *testing.T) {
+	callback := func(context.Context, ...internal_type.Packet) error { return nil }
+	vad := newFireRedOrSkip(t, 0.5, callback)
+
+	err := vad.Process(context.Background(), generateSilence(128))
+	require.NoError(t, err)
+	assert.Equal(t, 128, len(vad.audioBuf))
+
+	err = vad.Process(context.Background(), generateSilence(200))
+	require.NoError(t, err)
+	assert.Equal(t, 328, len(vad.audioBuf))
+
+	err = vad.Process(context.Background(), generateSilence(100))
+	require.NoError(t, err)
+	// 428 total samples buffered -> one frame processed, shift by 160 samples -> 268 retained.
+	assert.Equal(t, 268, len(vad.audioBuf))
+}
+
+func TestFireRedVAD_NotifyInterruption_SetsEvent(t *testing.T) {
+	var got internal_type.InterruptionDetectedPacket
+	callback := func(_ context.Context, pkts ...internal_type.Packet) error {
+		for _, p := range pkts {
+			if ip, ok := p.(internal_type.InterruptionDetectedPacket); ok {
+				got = ip
+			}
+		}
+		return nil
+	}
+
+	v := &FireRedVAD{onPacket: callback}
+	v.notifyInterruption(context.Background(), internal_type.InterruptionEventEnd, 1.75)
+
+	assert.Equal(t, internal_type.InterruptionSourceVad, got.Source)
+	assert.Equal(t, internal_type.InterruptionEventEnd, got.Event)
+	assert.Equal(t, 1.75, got.StartAt)
+	assert.Equal(t, 1.75, got.EndAt)
+}

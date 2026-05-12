@@ -15,6 +15,7 @@ import (
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
+	"github.com/rapidaai/protos"
 )
 
 const (
@@ -444,6 +445,13 @@ func (eos *LivekitEOS) fire(ctx context.Context, seg SpeechSegment) {
 			Speech:    speech,
 			ContextID: seg.ContextID,
 			Speechs:   append([]internal_type.SpeechToTextPacket(nil), seg.Chunks...),
+		},
+		internal_type.UserMessageMetricPacket{
+			ContextID: seg.ContextID,
+			Metrics: []*protos.Metric{{
+				Name:  "eos_latency_ms",
+				Value: fmt.Sprintf("%d", triggerAt.Sub(seg.Timestamp).Milliseconds()),
+			}},
 		},
 		internal_type.ConversationEventPacket{
 			Name: "eos",

@@ -161,13 +161,10 @@ const ConfigureAssistantAuthentication: FC<{ assistantId: string }> = ({
   });
 
   const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState('');
   const [authentication, setAuthentication] = useState<AssistantAuthentication | null>(null);
 
   const load = () => {
     setLoading(true);
-    setErrorMessage('');
-
     const request = new GetAssistantAuthenticationRequest();
     request.setAssistantid(assistantId);
 
@@ -183,13 +180,12 @@ const ConfigureAssistantAuthentication: FC<{ assistantId: string }> = ({
           return;
         }
         const data = response.getData();
-        setAuthentication(data || null);
+        if (data) {
+          setAuthentication(data);
+        }
         setLoading(false);
       })
       .catch(() => {
-        setErrorMessage(
-          'Unable to load assistant authentication. Please try again.',
-        );
         setAuthentication(null);
         setLoading(false);
       });
@@ -279,9 +275,6 @@ const ConfigureAssistantAuthentication: FC<{ assistantId: string }> = ({
       </TableToolbar>
 
       <TableSection>
-        {errorMessage && (
-          <Notification kind="error" title="Error" subtitle={errorMessage} />
-        )}
         {authentication ? (
           <Table>
             <TableHead>

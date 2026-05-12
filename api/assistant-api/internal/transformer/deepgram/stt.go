@@ -121,9 +121,7 @@ func (dg *deepgramSTT) Transform(ctx context.Context, in internal_type.Packet) e
 		return nil
 	case internal_type.SpeechToTextInterruptPacket:
 		dg.mu.Lock()
-		if dg.startedAt.IsZero() {
-			dg.startedAt = time.Now()
-		}
+		dg.startedAt = time.Now()
 		dg.mu.Unlock()
 		return nil
 	case internal_type.SpeechToTextAudioPacket:

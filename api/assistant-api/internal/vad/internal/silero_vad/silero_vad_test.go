@@ -270,3 +270,67 @@ func TestSileroVAD_StatefulProcessing(t *testing.T) {
 
 	assert.GreaterOrEqual(t, calls, 0)
 }
+
+func TestSileroVAD_Process_ExactWindow_512Samples(t *testing.T) {
+	callback := func(context.Context, ...internal_type.Packet) error { return nil }
+	vad := newSileroOrSkip(t, 0.5, callback)
+
+	err := vad.Process(context.Background(), generateSilence(512))
+	require.NoError(t, err)
+	assert.Equal(t, 512, vad.detector.currSample, "exact 512-sample chunk should process one full window")
+}
+
+func TestSileroVAD_Process_ExactMultiple_1024Samples(t *testing.T) {
+	callback := func(context.Context, ...internal_type.Packet) error { return nil }
+	vad := newSileroOrSkip(t, 0.5, callback)
+
+	err := vad.Process(context.Background(), generateSilence(1024))
+	require.NoError(t, err)
+	assert.Equal(t, 1024, vad.detector.currSample, "exact 1024-sample chunk should process two full windows")
+}
+
+func TestSileroVAD_Process_CrossCallWindowCarry(t *testing.T) {
+	callback := func(context.Context, ...internal_type.Packet) error { return nil }
+	vad := newSileroOrSkip(t, 0.5, callback)
+
+	err := vad.Process(context.Background(), generateSilence(320))
+	require.NoError(t, err)
+	assert.Equal(t, 0, vad.detector.currSample, "320 samples alone should not process a full 512-sample window")
+
+	err = vad.Process(context.Background(), generateSilence(192))
+	require.NoError(t, err)
+	assert.Equal(t, 512, vad.detector.currSample, "320+192 samples across calls should process one full window")
+}
+
+func TestSileroVAD_Process_RemainderCarry(t *testing.T) {
+	callback := func(context.Context, ...internal_type.Packet) error { return nil }
+	vad := newSileroOrSkip(t, 0.5, callback)
+
+	err := vad.Process(context.Background(), generateSilence(1600))
+	require.NoError(t, err)
+	assert.Equal(t, 1536, vad.detector.currSample, "1600 samples should process three windows and carry 64")
+
+	err = vad.Process(context.Background(), generateSilence(448))
+	require.NoError(t, err)
+	assert.Equal(t, 2048, vad.detector.currSample, "64 carry + 448 samples should process one more window")
+}
+
+func TestSileroVAD_NotifyInterruption_SetsEvent(t *testing.T) {
+	var got internal_type.InterruptionDetectedPacket
+	callback := func(_ context.Context, pkts ...internal_type.Packet) error {
+		for _, p := range pkts {
+			if ip, ok := p.(internal_type.InterruptionDetectedPacket); ok {
+				got = ip
+			}
+		}
+		return nil
+	}
+
+	s := &SileroVAD{onPacket: callback}
+	s.notifyInterruption(context.Background(), internal_type.InterruptionEventEnd, 2.75, 1)
+
+	assert.Equal(t, internal_type.InterruptionSourceVad, got.Source)
+	assert.Equal(t, internal_type.InterruptionEventEnd, got.Event)
+	assert.Equal(t, 2.75, got.StartAt)
+	assert.Equal(t, 2.75, got.EndAt)
+}

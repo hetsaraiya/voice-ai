@@ -241,3 +241,38 @@ func TestTenVAD_Process_80msChunk(t *testing.T) {
 	err := vad.Process(context.Background(), generateSilence(1280))
 	require.NoError(t, err)
 }
+
+func TestTenVAD_Process_PartialFrameCarry_NoDrop(t *testing.T) {
+	callback := func(context.Context, ...internal_type.Packet) error { return nil }
+	vad := newTenVADOrSkip(t, 0.5, callback)
+
+	err := vad.Process(context.Background(), generateSilence(128))
+	require.NoError(t, err)
+	assert.Equal(t, 0, vad.currSample)
+	assert.Equal(t, 128, len(vad.pending))
+
+	err = vad.Process(context.Background(), generateSilence(200))
+	require.NoError(t, err)
+	assert.Equal(t, 256, vad.currSample)
+	assert.Equal(t, 72, len(vad.pending))
+}
+
+func TestTenVAD_NotifyInterruption_SetsEvent(t *testing.T) {
+	var got internal_type.InterruptionDetectedPacket
+	callback := func(_ context.Context, pkts ...internal_type.Packet) error {
+		for _, p := range pkts {
+			if ip, ok := p.(internal_type.InterruptionDetectedPacket); ok {
+				got = ip
+			}
+		}
+		return nil
+	}
+
+	v := &TenVAD{onPacket: callback}
+	v.notifyInterruption(context.Background(), internal_type.InterruptionEventEnd, 3.25, 1)
+
+	assert.Equal(t, internal_type.InterruptionSourceVad, got.Source)
+	assert.Equal(t, internal_type.InterruptionEventEnd, got.Event)
+	assert.Equal(t, 3.25, got.StartAt)
+	assert.Equal(t, 3.25, got.EndAt)
+}

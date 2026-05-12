@@ -215,9 +215,6 @@ func (h requestorDispatchHandler) HandleInterruptionDetected(ctx context.Context
 			internal_type.StopIdleTimeoutPacket{ContextID: p.ContextID},
 			internal_type.EndOfSpeechInterruptionPacket{ContextID: p.ContextID, Source: internal_type.InterruptionSourceWord},
 		)
-		// if err := h.callEndOfSpeech(ctx, p); err != nil {
-		// 	h.r.logger.Errorf("end of speech error: %v", err)
-		// }
 		if err := h.r.Transition(Interrupted); err != nil {
 			return
 		}
@@ -234,22 +231,24 @@ func (h requestorDispatchHandler) HandleInterruptionDetected(ctx context.Context
 		})
 
 	default:
-		if p.StartAt < 5 {
-			return
-		}
-		h.r.OnPacket(ctx,
-			internal_type.SpeechToTextInterruptPacket{ContextID: p.ContextID},
-			internal_type.EndOfSpeechInterruptionPacket{ContextID: p.ContextID, Source: internal_type.InterruptionSourceVad})
-
-		if err := h.r.Transition(Interrupt); err != nil {
-			return
-		}
-		utils.Go(ctx, func() {
-			h.r.Notify(ctx, &protos.ConversationInterruption{
-				Type: protos.ConversationInterruption_INTERRUPTION_TYPE_VAD,
-				Time: timestamppb.Now(),
+		switch p.Event {
+		case internal_type.InterruptionEventStart:
+			if p.StartAt < 5 {
+				return
+			}
+			if err := h.r.Transition(Interrupt); err != nil {
+				return
+			}
+			h.r.OnPacket(ctx, internal_type.EndOfSpeechInterruptionPacket{ContextID: p.ContextID, Source: internal_type.InterruptionSourceVad})
+			utils.Go(ctx, func() {
+				h.r.Notify(ctx, &protos.ConversationInterruption{
+					Type: protos.ConversationInterruption_INTERRUPTION_TYPE_VAD,
+					Time: timestamppb.Now(),
+				})
 			})
-		})
+		case internal_type.InterruptionEventEnd:
+			h.r.OnPacket(ctx, internal_type.SpeechToTextInterruptPacket{ContextID: p.ContextID})
+		}
 	}
 }
 

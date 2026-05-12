@@ -37,6 +37,7 @@ func (assistantApi *assistantGrpcApi) GetAllAssistantHTTPLog(ctx context.Context
 		req.GetOrder(),
 	)
 	if err != nil {
+		assistantApi.logger.Errorf("failed to get assistant HTTP logs: %v", err)
 		return exceptions.BadRequestError[protos.GetAllAssistantHTTPLogResponse]("Unable to get assistant HTTP logs.")
 	}
 

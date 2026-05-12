@@ -7,7 +7,6 @@ package internal_firered_vad
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
@@ -81,7 +81,10 @@ func NewFireRedVAD(
 		isTerminated:  false,
 	}
 
-	vad.startLifecycleManager(ctx)
+	go func() {
+		<-ctx.Done()
+		_ = vad.Close()
+	}()
 
 	if onPacket != nil {
 		_ = onPacket(ctx, internal_type.ConversationEventPacket{
@@ -114,7 +117,7 @@ func (v *FireRedVAD) Process(ctx context.Context, pkt internal_type.UserAudioRec
 	}
 
 	// Convert LINEAR16 bytes to int16 samples
-	samples := linear16ToInt16(pkt.Audio)
+	samples := internal_audio.Linear16ToInt16(pkt.Audio)
 
 	// Append to buffer
 	v.mu.Lock()
@@ -123,6 +126,8 @@ func (v *FireRedVAD) Process(ctx context.Context, pkt internal_type.UserAudioRec
 	// Process complete frames (400 samples each, 160-sample shift)
 	hasSpeech := false
 	var speechStartAt, speechEndAt float64
+	hasSpeechStart := false
+	hasSpeechEnd := false
 
 	for len(v.audioBuf) >= frameLenSample {
 		frame := v.audioBuf[:frameLenSample]
@@ -149,13 +154,24 @@ func (v *FireRedVAD) Process(ctx context.Context, pkt internal_type.UserAudioRec
 		result := v.postprocessor.ProcessFrame(prob)
 
 		if result.IsSpeechStart {
-			speechStartAt = float64(result.SpeechStartFrame-1) / float64(framesPerSecond)
-			if speechStartAt < 0 {
-				speechStartAt = 0
+			startAt := float64(result.SpeechStartFrame-1) / float64(framesPerSecond)
+			if startAt < 0 {
+				startAt = 0
 			}
+			if !hasSpeechStart || startAt < speechStartAt {
+				speechStartAt = startAt
+			}
+			hasSpeechStart = true
 		}
 		if result.IsSpeechEnd {
-			speechEndAt = float64(result.SpeechEndFrame-1) / float64(framesPerSecond)
+			endAt := float64(result.SpeechEndFrame-1) / float64(framesPerSecond)
+			if endAt < 0 {
+				endAt = 0
+			}
+			if !hasSpeechEnd || endAt > speechEndAt {
+				speechEndAt = endAt
+			}
+			hasSpeechEnd = true
 		}
 
 		// Only treat as speech when the postprocessor has confirmed onset
@@ -170,25 +186,20 @@ func (v *FireRedVAD) Process(ctx context.Context, pkt internal_type.UserAudioRec
 	}
 	v.mu.Unlock()
 
-	// Emit InterruptionDetectedPacket only on confirmed speech onset — this is the
-	// signal to interrupt assistant TTS/LLM. Speech end and sustained speech
-	// don't need interruption; the heartbeat handles EOS extension.
-	if speechStartAt > 0 {
-		v.notifyActivity(ctx, speechStartAt, speechEndAt)
-	}
-
 	// Emit a heartbeat while in confirmed speech so the EOS silence
 	// timer keeps extending during sustained speech.
 	if hasSpeech && v.onPacket != nil {
 		_ = v.onPacket(ctx,
 			internal_type.VadSpeechActivityPacket{},
-			// internal_type.ConversationEventPacket{
-			// 	Name: "vad",
-			// 	Data: map[string]string{
-			// 		"type": "heartbeat",
-			// 	},
-			// },
 		)
+	}
+
+	// Emit explicit interruption lifecycle events from VAD transitions.
+	if hasSpeechStart {
+		v.notifyInterruption(ctx, internal_type.InterruptionEventStart, speechStartAt)
+	}
+	if hasSpeechEnd {
+		v.notifyInterruption(ctx, internal_type.InterruptionEventEnd, speechEndAt)
 	}
 
 	return nil
@@ -241,46 +252,30 @@ func resolvePostprocessorConfig(options utils.Option) PostprocessorConfig {
 	return cfg
 }
 
-func (v *FireRedVAD) startLifecycleManager(ctx context.Context) {
-	go func() {
-		<-ctx.Done()
-		v.Close()
-	}()
-}
-
 func (v *FireRedVAD) isActive() bool {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	return !v.isTerminated && v.detector != nil
 }
 
-// linear16ToInt16 converts signed 16-bit little-endian PCM bytes to int16 samples.
-func linear16ToInt16(data []byte) []int16 {
-	numSamples := len(data) / 2
-	samples := make([]int16, numSamples)
-	for i := 0; i < numSamples; i++ {
-		samples[i] = int16(binary.LittleEndian.Uint16(data[i*2 : i*2+2]))
-	}
-	return samples
-}
-
-func (v *FireRedVAD) notifyActivity(ctx context.Context, startAt, endAt float64) {
+func (v *FireRedVAD) notifyInterruption(ctx context.Context, event internal_type.InterruptionEvent, at float64) {
 	if v.onPacket == nil {
 		return
 	}
-
 	v.onPacket(ctx,
 		internal_type.InterruptionDetectedPacket{
 			Source:  internal_type.InterruptionSourceVad,
-			StartAt: startAt,
-			EndAt:   endAt,
+			Event:   event,
+			StartAt: at,
+			EndAt:   at,
 		},
 		internal_type.ConversationEventPacket{
 			Name: "vad",
 			Data: map[string]string{
 				"type":     "detected",
-				"start_at": fmt.Sprintf("%f", startAt),
-				"end_at":   fmt.Sprintf("%f", endAt),
+				"event":    string(event),
+				"start_at": fmt.Sprintf("%f", at),
+				"end_at":   fmt.Sprintf("%f", at),
 			},
 		},
 	)

@@ -6,12 +6,24 @@
 package internal_audio
 
 import (
+	"encoding/binary"
 	"math"
 
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/protos"
 	"github.com/zaf/g711"
 )
+
+// Linear16ToInt16 converts signed 16-bit little-endian PCM bytes to int16 samples.
+// If data length is odd, the trailing byte is ignored.
+func Linear16ToInt16(data []byte) []int16 {
+	numSamples := len(data) / 2
+	samples := make([]int16, numSamples)
+	for i := 0; i < numSamples; i++ {
+		samples[i] = int16(binary.LittleEndian.Uint16(data[i*2 : i*2+2]))
+	}
+	return samples
+}
 
 // BytesPerSample returns the number of bytes per audio sample for the given
 // audio format. Returns 0 for unsupported formats.

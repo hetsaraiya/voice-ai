@@ -126,7 +126,7 @@
           "type": "select",
           "advanced": true,
           "required": false,
-          "default": "assistant_id",
+          "default": "conversation_id",
           "choices": [
             {
               "label": "Assistant ID",
@@ -311,7 +311,7 @@
           "type": "select",
           "advanced": true,
           "required": false,
-          "default": "assistant_id",
+          "default": "conversation_id",
           "choices": [
             {
               "label": "Assistant ID",
@@ -496,7 +496,7 @@
           "type": "select",
           "advanced": true,
           "required": false,
-          "default": "assistant_id",
+          "default": "conversation_id",
           "choices": [
             {
               "label": "Assistant ID",
@@ -681,7 +681,7 @@
           "type": "select",
           "advanced": true,
           "required": false,
-          "default": "assistant_id",
+          "default": "conversation_id",
           "choices": [
             {
               "label": "Assistant ID",
@@ -866,7 +866,7 @@
           "type": "select",
           "advanced": true,
           "required": false,
-          "default": "assistant_id",
+          "default": "conversation_id",
           "choices": [
             {
               "label": "Assistant ID",

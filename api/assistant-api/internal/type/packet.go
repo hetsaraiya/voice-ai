@@ -202,11 +202,19 @@ const (
 	InterruptionSourceVad  InterruptionSource = "vad"
 )
 
+type InterruptionEvent string
+
+const (
+	InterruptionEventStart InterruptionEvent = "start"
+	InterruptionEventEnd   InterruptionEvent = "end"
+)
+
 // InterruptionDetectedPacket signals that an interruption was detected (by VAD or word-level STT).
 // Dispatch handles this event by emitting InterruptTTSPacket and InterruptLLMPacket commands.
 type InterruptionDetectedPacket struct {
 	ContextID string
 	Source    InterruptionSource
+	Event     InterruptionEvent
 	StartAt   float64
 	EndAt     float64
 }

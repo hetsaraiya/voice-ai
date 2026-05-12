@@ -44,8 +44,7 @@ func (s *assistantAuthenticationService) Get(
 ) (*internal_assistant_entity.AssistantAuthentication, error) {
 	start := time.Now()
 	db := s.postgres.DB(ctx)
-
-	var out *internal_assistant_entity.AssistantAuthentication
+	var out internal_assistant_entity.AssistantAuthentication
 	tx := db.Preload("AssistantAuthenticationOption", "status = ?", type_enums.RECORD_ACTIVE).
 		Where("assistant_id = ? AND organization_id = ? AND project_id = ? AND status IN ?",
 			assistantId,
@@ -60,17 +59,12 @@ func (s *assistantAuthenticationService) Get(
 			Desc:   true,
 		}).
 		First(&out)
-	if tx.Error != nil {
-		if errors.Is(tx.Error, gorm.ErrRecordNotFound) {
-			s.logger.Benchmark("AssistantAuthenticationService.Get", time.Since(start))
-			return nil, nil
-		}
+	if tx.Error != nil && !errors.Is(tx.Error, gorm.ErrRecordNotFound) {
 		s.logger.Benchmark("AssistantAuthenticationService.Get", time.Since(start))
 		return nil, tx.Error
 	}
-
 	s.logger.Benchmark("AssistantAuthenticationService.Get", time.Since(start))
-	return out, nil
+	return &out, nil
 }
 
 func (s *assistantAuthenticationService) Create(

@@ -33,6 +33,15 @@ import {
   Dropdown,
   MultiSelect,
 } from '@carbon/react';
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  YAxis,
+} from 'recharts';
 import { TableToolbarFilter } from '@/app/components/carbon/table-toolbar-filter';
 import { ChevronRight } from '@carbon/icons-react';
 import { TextInput } from '@/app/components/carbon/form';
@@ -80,6 +89,28 @@ type TelemetryRow =
   | { kind: 'event'; ts: Date; key: string; record: TelemetryEvent }
   | { kind: 'metric'; ts: Date; key: string; record: TelemetryMetric };
 
+type LatencyMetricName =
+  | 'stt_latency_ms'
+  | 'tts_latency_ms'
+  | 'llm_latency_ms'
+  | 'eos_latency_ms';
+
+export type LatencyMetricDocument = {
+  timestampMs: number;
+  contextId: string;
+  conversationId: string;
+  metrics: Array<{ name: string; value: string }>;
+};
+
+export type LatencySeriesPoint = {
+  key: string;
+  sequence: number;
+  timestampMs: number;
+  timeLabel: string;
+  contextId: string;
+  conversationId: string;
+} & Partial<Record<LatencyMetricName, number>>;
+
 // ─── Color map ───────────────────────────────────────────────────────────────
 
 const EVENT_TAG_TYPE: Record<string, string> = {
@@ -120,6 +151,36 @@ const METRIC_SCOPE_OPTIONS = ['message', 'conversation'].map(id => ({
   id,
   label: id.charAt(0) + id.slice(1),
 }));
+
+const LATENCY_METRIC_META: Record<
+  LatencyMetricName,
+  { label: string; shortLabel: string; color: string; gradientId: string }
+> = {
+  stt_latency_ms: {
+    label: 'STT Latency',
+    shortLabel: 'STT',
+    color: '#f59e0b',
+    gradientId: 'telemetryLatencySttGradient',
+  },
+  tts_latency_ms: {
+    label: 'TTS Latency',
+    shortLabel: 'TTS',
+    color: 'var(--cds-interactive, #1e40af)',
+    gradientId: 'telemetryLatencyTtsGradient',
+  },
+  llm_latency_ms: {
+    label: 'LLM Latency',
+    shortLabel: 'LLM',
+    color: '#10b981',
+    gradientId: 'telemetryLatencyLlmGradient',
+  },
+  eos_latency_ms: {
+    label: 'EOS Latency',
+    shortLabel: 'EOS',
+    color: 'var(--cds-support-info, #0ea5e9)',
+    gradientId: 'telemetryLatencyEosGradient',
+  },
+};
 
 const normalizeComponentType = (nameKey: string): string =>
   nameKey === 'sip' ? 'telephony' : nameKey;
@@ -226,6 +287,68 @@ function formatDateTime(d: Date): string {
   );
 }
 
+const isLatencyMetricName = (name: string): name is LatencyMetricName =>
+  name === 'stt_latency_ms' ||
+  name === 'tts_latency_ms' ||
+  name === 'llm_latency_ms' ||
+  name === 'eos_latency_ms';
+
+export const buildLatencySeries = (
+  documents: LatencyMetricDocument[],
+): LatencySeriesPoint[] => {
+  const merged = new Map<string, LatencySeriesPoint>();
+
+  documents.forEach(document => {
+    const contextKey = document.contextId || `ts-${document.timestampMs}`;
+    const key = `${document.conversationId || 'unknown'}::${contextKey}`;
+    const existing = merged.get(key);
+    const point: LatencySeriesPoint =
+      existing ??
+      ({
+        key,
+        sequence: 0,
+        timestampMs: document.timestampMs,
+        timeLabel: formatDateTime(new Date(document.timestampMs)),
+        contextId: document.contextId,
+        conversationId: document.conversationId,
+      } as LatencySeriesPoint);
+
+    const hasExisting = !!existing;
+    let hasLatencyValue = false;
+
+    document.metrics.forEach(metric => {
+      if (!isLatencyMetricName(metric.name)) return;
+      const parsed = Number(metric.value);
+      if (!Number.isFinite(parsed)) return;
+      point[metric.name] = parsed;
+      hasLatencyValue = true;
+    });
+
+    if (!hasExisting && !hasLatencyValue) return;
+
+    if (document.timestampMs < point.timestampMs) {
+      point.timestampMs = document.timestampMs;
+      point.timeLabel = formatDateTime(new Date(document.timestampMs));
+    }
+
+    if (!point.contextId && document.contextId) {
+      point.contextId = document.contextId;
+    }
+    if (!point.conversationId && document.conversationId) {
+      point.conversationId = document.conversationId;
+    }
+
+    merged.set(key, point);
+  });
+
+  return Array.from(merged.values())
+    .sort((a, b) => a.timestampMs - b.timestampMs)
+    .map((point, index) => ({
+      ...point,
+      sequence: index + 1,
+    }));
+};
+
 function eventToJson(event: TelemetryEvent): object {
   const data = Object.fromEntries(
     event.getDataMap().toArray() as [string, string][],
@@ -311,14 +434,17 @@ export function ConversationTelemetryDialog(
   const [appliedEventDataType, setAppliedEventDataType] = useState('');
   const [appliedMetricScope, setAppliedMetricScope] = useState('');
   const [structuredError, setStructuredError] = useState('');
-  const activeTabKind: 'event' | 'metric' =
-    selectedTab === 0 ? 'event' : 'metric';
+  const activeTabKind: 'event' | 'metric' | 'latency' =
+    selectedTab === 0 ? 'event' : selectedTab === 1 ? 'metric' : 'latency';
   const hasSearchQuery = searchText.trim() !== '';
   const hasLocalFilters =
     activeTabKind === 'event'
       ? appliedEventNames.length > 0 || appliedEventDataType !== ''
-      : appliedMetricScope !== '';
-  const shouldFetchAllRows = hasSearchQuery || hasLocalFilters;
+      : activeTabKind === 'metric'
+        ? appliedMetricScope !== ''
+        : false;
+  const shouldFetchAllRows =
+    activeTabKind === 'latency' || hasSearchQuery || hasLocalFilters;
   const requestPage = shouldFetchAllRows ? 1 : page;
   const requestPageSize = shouldFetchAllRows ? 100 : pageSize;
 
@@ -582,7 +708,24 @@ export function ConversationTelemetryDialog(
       );
     });
 
-  const filteredRows = getFilteredRows(activeTabKind);
+  const filteredRows =
+    activeTabKind === 'latency' ? [] : getFilteredRows(activeTabKind);
+  const latencySeries = buildLatencySeries(
+    rows
+      .filter(
+        (row): row is Extract<TelemetryRow, { kind: 'metric' }> =>
+          row.kind === 'metric',
+      )
+      .map(row => ({
+        timestampMs: row.ts.getTime(),
+        contextId: row.record.getContextid(),
+        conversationId: row.record.getAssistantconversationid(),
+        metrics: row.record.getMetricsList().map(metric => ({
+          name: metric.getName(),
+          value: metric.getValue(),
+        })),
+      })),
+  );
 
   useEffect(() => {
     if (!shouldFetchAllRows) return;
@@ -598,6 +741,199 @@ export function ConversationTelemetryDialog(
   }, [selectedTab]);
 
   const totalItems = shouldFetchAllRows ? filteredRows.length : totalItem;
+  const latencyMetricNames = Object.keys(
+    LATENCY_METRIC_META,
+  ) as LatencyMetricName[];
+  const avgLatencyByMetric = latencyMetricNames.reduce(
+    (acc, metricName) => {
+      const values = latencySeries
+        .map(point => point[metricName])
+        .filter(
+          (value): value is number =>
+            typeof value === 'number' && Number.isFinite(value),
+        );
+      acc[metricName] =
+        values.length > 0
+          ? Math.round(
+              values.reduce((sum, current) => sum + current, 0) / values.length,
+            )
+          : 0;
+      return acc;
+    },
+    {} as Record<LatencyMetricName, number>,
+  );
+  const renderLatencyChart = () => {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center py-16">
+          <Loading withOverlay={false} small />
+        </div>
+      );
+    }
+
+    if (latencySeries.length === 0) {
+      return (
+        <div className="flex items-center justify-center py-16 text-gray-400 dark:text-gray-500 text-sm">
+          No latency metrics found
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-1 min-h-0 flex-col">
+        <div className="flex flex-wrap items-center gap-6 px-4 pt-3 pb-2">
+          {latencyMetricNames.map(metricName => (
+            <div key={metricName}>
+              <p className="text-[10px] text-gray-400 uppercase">
+                {LATENCY_METRIC_META[metricName].shortLabel}
+              </p>
+              <p className="text-xl font-light tabular-nums">
+                {avgLatencyByMetric[metricName]}{' '}
+                <span className="text-xs text-gray-500">ms</span>
+              </p>
+            </div>
+          ))}
+        </div>
+        <div className="flex-1 min-h-0 px-2">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart
+              data={latencySeries}
+              margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
+            >
+              <CartesianGrid
+                strokeDasharray="3 3"
+                vertical={false}
+                strokeOpacity={0.25}
+              />
+              <YAxis
+                tickLine={false}
+                axisLine={false}
+                width={42}
+                tick={{ fontSize: 11, fill: '#9ca3af' }}
+              />
+              <defs>
+                {latencyMetricNames.map(metricName => (
+                  <linearGradient
+                    key={LATENCY_METRIC_META[metricName].gradientId}
+                    id={LATENCY_METRIC_META[metricName].gradientId}
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="0%"
+                      stopColor={LATENCY_METRIC_META[metricName].color}
+                      stopOpacity={0.18}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor={LATENCY_METRIC_META[metricName].color}
+                      stopOpacity={0.02}
+                    />
+                  </linearGradient>
+                ))}
+              </defs>
+              {latencyMetricNames.map(metricName => (
+                <Area
+                  key={metricName}
+                  type="monotone"
+                  dataKey={metricName}
+                  stroke={LATENCY_METRIC_META[metricName].color}
+                  strokeWidth={0}
+                  fill={`url(#${LATENCY_METRIC_META[metricName].gradientId})`}
+                  dot={false}
+                  connectNulls
+                />
+              ))}
+              {latencyMetricNames.map(metricName => (
+                <Line
+                  key={`${metricName}-line`}
+                  type="monotone"
+                  dataKey={metricName}
+                  stroke={LATENCY_METRIC_META[metricName].color}
+                  strokeWidth={2}
+                  dot={{
+                    r: 2,
+                    fill: LATENCY_METRIC_META[metricName].color,
+                    strokeWidth: 0,
+                  }}
+                  activeDot={{ r: 3 }}
+                  connectNulls
+                />
+              ))}
+              <RechartsTooltip
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const point = payload[0]?.payload as
+                    | LatencySeriesPoint
+                    | undefined;
+                  const visiblePayload = Array.from(
+                    payload.reduce(
+                      (acc, item) => acc.set(String(item.dataKey), item),
+                      new Map<string, (typeof payload)[number]>(),
+                    ),
+                  )
+                    .map(([, item]) => item)
+                    .filter(item => Number.isFinite(Number(item?.value)));
+                  if (visiblePayload.length === 0) return null;
+
+                  return (
+                    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-lg px-3 py-2 text-sm min-w-[180px]">
+                      <p className="text-gray-400 text-xs mb-1.5">
+                        {point?.contextId
+                          ? `${point.timeLabel} • ${point.contextId}`
+                          : point?.timeLabel || ''}
+                      </p>
+                      {visiblePayload.map(item => {
+                        const metricName = item.dataKey as LatencyMetricName;
+                        const meta = LATENCY_METRIC_META[metricName];
+                        return (
+                          <div
+                            key={String(item.dataKey)}
+                            className="flex items-center gap-2"
+                          >
+                            <div
+                              className="w-2 h-2"
+                              style={{
+                                backgroundColor: item.color || meta?.color,
+                              }}
+                            />
+                            <span className="text-gray-600 dark:text-gray-300 uppercase text-xs">
+                              {meta?.shortLabel || String(item.dataKey)}
+                            </span>
+                            <span className="ml-auto font-semibold tabular-nums">
+                              {Number(item.value)} ms
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="flex flex-wrap justify-center gap-4 px-4 pb-3 text-xs">
+          {latencyMetricNames.map(metricName => (
+            <div
+              key={`${metricName}-legend`}
+              className="flex items-center gap-1.5"
+            >
+              <div
+                className="w-3 h-0.5"
+                style={{
+                  backgroundColor: LATENCY_METRIC_META[metricName].color,
+                }}
+              />
+              {LATENCY_METRIC_META[metricName].shortLabel}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
   const renderTelemetryTable = (kind: 'event' | 'metric') => {
     const isActiveTab = activeTabKind === kind;
     const isEventTab = kind === 'event';
@@ -877,7 +1213,7 @@ export function ConversationTelemetryDialog(
       />
       <ModalBody className="!p-0 !overflow-hidden !flex !flex-col">
         <Tabs
-          tabs={['Events', 'Metrics']}
+          tabs={['Events', 'Metrics', 'Latency']}
           selectedIndex={selectedTab}
           onChange={setSelectedTab}
           contained
@@ -890,6 +1226,9 @@ export function ConversationTelemetryDialog(
           </div>
           <div className="flex flex-1 min-h-0 flex-col">
             {renderTelemetryTable('metric')}
+          </div>
+          <div className="flex flex-1 min-h-0 flex-col">
+            {renderLatencyChart()}
           </div>
         </Tabs>
       </ModalBody>

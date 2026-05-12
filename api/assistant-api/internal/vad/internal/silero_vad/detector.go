@@ -75,8 +75,10 @@ func (c DetectorConfig) validate() error {
 // Segment contains timing information of a detected speech segment.
 type Segment struct {
 	// SpeechStartAt is the relative timestamp in seconds where speech begins.
+	// -1 means no speech-start event in this segment entry.
 	SpeechStartAt float64
 	// SpeechEndAt is the relative timestamp in seconds where speech ends.
+	// -1 means no speech-end event in this segment entry.
 	SpeechEndAt float64
 }
 
@@ -106,6 +108,8 @@ type Detector struct {
 	state [stateLen]float32
 	// Trailing samples from the previous window for temporal context
 	ctx [contextLen]float32
+	// Pending samples (< window size) carried across Detect calls
+	pending []float32
 
 	// Speech segmentation state
 	currSample int
@@ -216,8 +220,18 @@ func (sd *Detector) Detect(pcm []float32) ([]Segment, error) {
 		windowSize = 256
 	}
 
-	// Small chunks are normal at stream boundaries — skip silently
-	if len(pcm) < windowSize {
+	// Merge pending remainder from previous call with current audio.
+	input := pcm
+	if len(sd.pending) > 0 {
+		merged := make([]float32, len(sd.pending)+len(pcm))
+		copy(merged, sd.pending)
+		copy(merged[len(sd.pending):], pcm)
+		input = merged
+	}
+
+	// Small chunks are normal at stream boundaries — carry forward.
+	if len(input) < windowSize {
+		sd.pending = append(sd.pending[:0], input...)
 		return nil, nil
 	}
 
@@ -225,8 +239,10 @@ func (sd *Detector) Detect(pcm []float32) ([]Segment, error) {
 	speechPadSamples := sd.cfg.SpeechPadMs * sd.cfg.SampleRate / 1000
 
 	var segments []Segment
-	for i := 0; i < len(pcm)-windowSize; i += windowSize {
-		speechProb, err := sd.infer(pcm[i : i+windowSize])
+	fullWindows := len(input) / windowSize
+	for w := 0; w < fullWindows; w++ {
+		i := w * windowSize
+		speechProb, err := sd.infer(input[i : i+windowSize])
 		if err != nil {
 			return nil, fmt.Errorf("infer failed: %w", err)
 		}
@@ -245,7 +261,10 @@ func (sd *Detector) Detect(pcm []float32) ([]Segment, error) {
 			if speechStartAt < 0 {
 				speechStartAt = 0
 			}
-			segments = append(segments, Segment{SpeechStartAt: speechStartAt})
+			segments = append(segments, Segment{
+				SpeechStartAt: speechStartAt,
+				SpeechEndAt:   -1,
+			})
 		}
 
 		// Speech offset (with hysteresis)
@@ -263,13 +282,25 @@ func (sd *Detector) Detect(pcm []float32) ([]Segment, error) {
 			sd.tempEnd = 0
 			sd.triggered = false
 
-			// Speech started in a previous Detect() call — the onset was
-			// already reported. Just close the state without erroring.
+			// Speech started in a previous Detect() call — no start event in
+			// this call, but emit an end marker so callers can emit Event=end.
 			if len(segments) == 0 {
+				segments = append(segments, Segment{
+					SpeechStartAt: -1,
+					SpeechEndAt:   speechEndAt,
+				})
 				continue
 			}
 			segments[len(segments)-1].SpeechEndAt = speechEndAt
 		}
+	}
+
+	// Preserve tail remainder for the next Detect() call.
+	remainderStart := fullWindows * windowSize
+	if remainderStart < len(input) {
+		sd.pending = append(sd.pending[:0], input[remainderStart:]...)
+	} else {
+		sd.pending = sd.pending[:0]
 	}
 
 	return segments, nil
@@ -291,6 +322,7 @@ func (sd *Detector) Reset() {
 	for i := range sd.ctx {
 		sd.ctx[i] = 0
 	}
+	sd.pending = sd.pending[:0]
 }
 
 // Destroy releases all ONNX Runtime resources. Safe to call on a nil

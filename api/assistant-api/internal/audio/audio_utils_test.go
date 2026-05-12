@@ -6,11 +6,28 @@
 package internal_audio
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestLinear16ToInt16_ConvertsSamples(t *testing.T) {
+	data := make([]byte, 6)
+	binary.LittleEndian.PutUint16(data[0:2], 0x8000)
+	binary.LittleEndian.PutUint16(data[2:4], uint16(int16(0)))
+	binary.LittleEndian.PutUint16(data[4:6], uint16(int16(32767)))
+
+	got := Linear16ToInt16(data)
+	assert.Equal(t, []int16{-32768, 0, 32767}, got)
+}
+
+func TestLinear16ToInt16_OddLengthIgnoresTrailingByte(t *testing.T) {
+	data := []byte{0x01, 0x00, 0xFF}
+	got := Linear16ToInt16(data)
+	assert.Equal(t, []int16{1}, got)
+}
 
 // ---------------------------------------------------------------------------
 // BytesPerSample
