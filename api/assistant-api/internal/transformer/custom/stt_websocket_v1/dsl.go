@@ -158,9 +158,34 @@ func (engine *dslEngine) resolveQueryVariable(name string, scope queryScope) (an
 }
 
 func (engine *dslEngine) ParseFrame(messageType int, payload []byte) (responseFrame, error) {
-	return engine.core.ParseFrame(messageType, payload, func(currentType int) bool {
+	frame, err := engine.core.ParseFrame(messageType, payload, func(currentType int) bool {
 		return currentType == 2
 	})
+	if err != nil {
+		return responseFrame{}, err
+	}
+
+	// STT response rules use JSON-path extraction for structured payloads and
+	// text-frame extraction for raw transcript chunks. Upstreams that send quoted
+	// text chunks (JSON string primitives) should map to text-frame behavior.
+	if frame.Kind != frameTypeJSON {
+		return frame, nil
+	}
+
+	if _, isJSONObject := frame.JSON.(map[string]any); isJSONObject {
+		return frame, nil
+	}
+
+	if textValue, isJSONString := frame.JSON.(string); isJSONString {
+		frame.Kind = frameTypeText
+		frame.JSON = nil
+		frame.Text = textValue
+		return frame, nil
+	}
+
+	frame.Kind = frameTypeText
+	frame.JSON = nil
+	return frame, nil
 }
 
 func (engine *dslEngine) EvaluateResponse(frame responseFrame) (responseOutcome, error) {

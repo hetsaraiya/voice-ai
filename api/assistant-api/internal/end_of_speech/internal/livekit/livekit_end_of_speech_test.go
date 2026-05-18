@@ -445,7 +445,9 @@ func TestLivekitEndOfSpeech_ConversationEventShape(t *testing.T) {
 		return nil
 	}
 
-	executor, err := NewLivekitEndOfSpeech(logger, callback, utils.Option{})
+	executor, err := NewLivekitEndOfSpeech(logger, callback, utils.Option{
+		"microphone.eos.events": "standard",
+	})
 	if err != nil {
 		t.Fatalf("new: %v", err)
 	}
@@ -463,22 +465,20 @@ func TestLivekitEndOfSpeech_ConversationEventShape(t *testing.T) {
 	for !sawDetected || !sawMetric {
 		select {
 		case event := <-events:
-			switch event.Data["type"] {
-			case "initialized":
-				continue
-			case "detected":
-				assert.Equal(t, "ctx-events", event.ContextID)
-				assert.Equal(t, eosName, event.Data["provider"])
-				assert.Equal(t, "ctx-events", event.Data["context_id"])
-				assert.Equal(t, "hello world", event.Data["speech"])
-				assert.Equal(t, "0.0000", event.Data["confidence"])
-				_, parseErr := strconv.Atoi(event.Data["text_to_trigger_ms"])
-				assert.NoError(t, parseErr)
-				_, parseErr = strconv.Atoi(event.Data["wait_to_trigger_ms"])
-				assert.NoError(t, parseErr)
-				assert.False(t, event.Time.IsZero())
-				sawDetected = true
+			if event.Data["type"] != "detected" {
+				t.Fatalf("unexpected eos event in standard mode: %+v", event)
 			}
+			assert.Equal(t, "ctx-events", event.ContextID)
+			assert.Equal(t, eosName, event.Data["provider"])
+			assert.Equal(t, "ctx-events", event.Data["context_id"])
+			assert.Equal(t, "hello world", event.Data["speech"])
+			assert.Equal(t, "0.0000", event.Data["confidence"])
+			_, parseErr := strconv.Atoi(event.Data["text_to_trigger_ms"])
+			assert.NoError(t, parseErr)
+			_, parseErr = strconv.Atoi(event.Data["wait_to_trigger_ms"])
+			assert.NoError(t, parseErr)
+			assert.False(t, event.Time.IsZero())
+			sawDetected = true
 		case metric := <-metrics:
 			if len(metric.Metrics) != 1 {
 				continue
@@ -492,6 +492,123 @@ func TestLivekitEndOfSpeech_ConversationEventShape(t *testing.T) {
 		case <-timeout:
 			t.Fatal("timeout waiting for eos conversation events")
 		}
+	}
+}
+
+func TestLivekitEndOfSpeech_DebugConversationEvents(t *testing.T) {
+	logger, _ := commons.NewApplicationLogger()
+	events := make(chan internal_type.ConversationEventPacket, 8)
+	callback := func(ctx context.Context, packets ...internal_type.Packet) error {
+		for _, packet := range packets {
+			if event, ok := packet.(internal_type.ConversationEventPacket); ok {
+				select {
+				case events <- event:
+				default:
+				}
+			}
+		}
+		return nil
+	}
+
+	executor, err := NewLivekitEndOfSpeech(logger, callback, utils.Option{
+		"microphone.eos.events": "debug",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, executor.Execute(context.Background(), internal_type.UserTextReceivedPacket{
+		ContextID: "ctx-debug",
+		Text:      "hello",
+	}))
+
+	sawInitialized := false
+	sawInterim := false
+	sawDetected := false
+	timeout := time.After(500 * time.Millisecond)
+	for !sawInitialized || !sawInterim || !sawDetected {
+		select {
+		case event := <-events:
+			switch event.Data["type"] {
+			case "initialized":
+				sawInitialized = true
+			case "interim":
+				sawInterim = true
+			case "detected":
+				sawDetected = true
+			default:
+				t.Fatalf("unexpected debug event: %+v", event)
+			}
+		case <-timeout:
+			t.Fatal("timeout waiting for debug eos events")
+		}
+	}
+
+	require.NoError(t, executor.Close(context.Background()))
+
+	timeout = time.After(500 * time.Millisecond)
+	for {
+		select {
+		case event := <-events:
+			if event.Data["type"] != "closed" {
+				continue
+			}
+			return
+		case <-timeout:
+			t.Fatal("timeout waiting for closed eos event")
+		}
+	}
+}
+
+func TestLivekitEndOfSpeech_EventLevelOffKeepsMetrics(t *testing.T) {
+	events := make(chan internal_type.ConversationEventPacket, 4)
+	metrics := make(chan internal_type.UserMessageMetricPacket, 2)
+	endOfSpeech := &livekitEndOfSpeech{
+		onPacket: func(ctx context.Context, packets ...internal_type.Packet) error {
+			for _, packet := range packets {
+				switch typed := packet.(type) {
+				case internal_type.ConversationEventPacket:
+					select {
+					case events <- typed:
+					default:
+					}
+				case internal_type.UserMessageMetricPacket:
+					select {
+					case metrics <- typed:
+					default:
+					}
+				}
+			}
+			return nil
+		},
+		eventLevel:      eventLevelOff,
+		threshold:       defaultThreshold,
+		quickTimeout:    10 * time.Millisecond,
+		silenceTimeout:  100 * time.Millisecond,
+		fallbackTimeout: 50 * time.Millisecond,
+		maxHistory:      int(defaultMaxHistory),
+		commandCh:       make(chan workerCommand, 4),
+		stopCh:          make(chan struct{}),
+		state:           &endOfSpeechState{segment: speechSegment{}},
+	}
+	go endOfSpeech.worker()
+	defer func() { _ = endOfSpeech.Close(context.Background()) }()
+
+	require.NoError(t, endOfSpeech.Execute(context.Background(), internal_type.UserTextReceivedPacket{
+		ContextID: "ctx-off",
+		Text:      "hello",
+	}))
+
+	select {
+	case metric := <-metrics:
+		require.Len(t, metric.Metrics, 1)
+		assert.Equal(t, "eos_latency_ms", metric.Metrics[0].Name)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for eos metric")
+	}
+
+	select {
+	case event := <-events:
+		t.Fatalf("unexpected eos event in off mode: %+v", event)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

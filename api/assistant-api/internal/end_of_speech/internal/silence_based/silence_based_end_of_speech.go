@@ -21,6 +21,10 @@ import (
 const (
 	silenceBasedEndOfSpeechName = "silenceBasedEndOfSpeech"
 	optSilenceTimeout           = "microphone.eos.timeout"
+	optEventLevel               = "microphone.eos.events"
+	eventLevelOff               = "off"
+	eventLevelStandard          = "standard"
+	eventLevelDebug             = "debug"
 	defaultSilenceTimeout       = 1000 * time.Millisecond
 )
 
@@ -48,6 +52,7 @@ type endOfSpeechState struct {
 type silenceBasedEndOfSpeech struct {
 	onPacket       func(context.Context, ...internal_type.Packet) error
 	opts           utils.Option
+	eventLevel     string
 	silenceTimeout time.Duration
 
 	commandCh chan workerCommand
@@ -67,10 +72,18 @@ func NewSilenceBasedEndOfSpeech(
 	if value, err := opts.GetFloat64(optSilenceTimeout); err == nil {
 		silenceTimeout = time.Duration(value) * time.Millisecond
 	}
+	eventLevel := eventLevelStandard
+	if value, err := opts.GetString(optEventLevel); err == nil {
+		switch value {
+		case eventLevelOff, eventLevelStandard, eventLevelDebug:
+			eventLevel = value
+		}
+	}
 
 	endOfSpeech := &silenceBasedEndOfSpeech{
 		onPacket:       onPacket,
 		opts:           opts,
+		eventLevel:     eventLevel,
 		silenceTimeout: silenceTimeout,
 		commandCh:      make(chan workerCommand, 32),
 		stopCh:         make(chan struct{}),
@@ -79,7 +92,7 @@ func NewSilenceBasedEndOfSpeech(
 
 	go endOfSpeech.worker()
 
-	if onPacket != nil {
+	if onPacket != nil && endOfSpeech.eventLevel == eventLevelDebug {
 		_ = onPacket(context.Background(), internal_type.ConversationEventPacket{
 			Name: "eos",
 			Data: map[string]string{
@@ -227,23 +240,24 @@ func (endOfSpeech *silenceBasedEndOfSpeech) extendCurrentSegment(
 }
 
 func (endOfSpeech *silenceBasedEndOfSpeech) emitInterimSpeech(ctx context.Context, segment speechSegment) {
-	_ = endOfSpeech.onPacket(ctx,
-		internal_type.InterimEndOfSpeechPacket{
-			Speech:    segment.Text,
+	packets := []internal_type.Packet{internal_type.InterimEndOfSpeechPacket{
+		Speech:    segment.Text,
+		ContextID: segment.ContextID,
+	}}
+	if endOfSpeech.eventLevel == eventLevelDebug {
+		packets = append(packets, internal_type.ConversationEventPacket{
 			ContextID: segment.ContextID,
-		},
-		// internal_type.ConversationEventPacket{
-		// 	ContextID: segment.ContextID,
-		// 	Name:      "eos",
-		// 	Data: map[string]string{
-		// 		"type":       "interim",
-		// 		"provider":   endOfSpeech.Name(),
-		// 		"context_id": segment.ContextID,
-		// 		"speech":     segment.Text,
-		// 	},
-		// 	Time: time.Now(),
-		// },
-	)
+			Name:      "eos",
+			Data: map[string]string{
+				"type":       "interim",
+				"provider":   endOfSpeech.Name(),
+				"context_id": segment.ContextID,
+				"speech":     segment.Text,
+			},
+			Time: time.Now(),
+		})
+	}
+	_ = endOfSpeech.onPacket(ctx, packets...)
 }
 
 func (endOfSpeech *silenceBasedEndOfSpeech) enqueueCommand(command workerCommand) {
@@ -354,7 +368,7 @@ func (endOfSpeech *silenceBasedEndOfSpeech) emitEndOfSpeech(command workerComman
 	if !timerArmedAt.IsZero() {
 		waitToTriggerMs = triggerAt.Sub(timerArmedAt).Milliseconds()
 	}
-	_ = endOfSpeech.onPacket(ctx,
+	packets := []internal_type.Packet{
 		internal_type.EndOfSpeechPacket{
 			Speech:    segment.Text,
 			ContextID: segment.ContextID,
@@ -367,7 +381,9 @@ func (endOfSpeech *silenceBasedEndOfSpeech) emitEndOfSpeech(command workerComman
 				Value: fmt.Sprintf("%d", waitToTriggerMs),
 			}},
 		},
-		internal_type.ConversationEventPacket{
+	}
+	if endOfSpeech.eventLevel != eventLevelOff {
+		packets = append(packets, internal_type.ConversationEventPacket{
 			ContextID: segment.ContextID,
 			Name:      "eos",
 			Data: map[string]string{
@@ -382,11 +398,22 @@ func (endOfSpeech *silenceBasedEndOfSpeech) emitEndOfSpeech(command workerComman
 				"wait_to_trigger_ms": fmt.Sprintf("%d", waitToTriggerMs),
 			},
 			Time: triggerAt,
-		},
-	)
+		})
+	}
+	_ = endOfSpeech.onPacket(ctx, packets...)
 }
 
 func (endOfSpeech *silenceBasedEndOfSpeech) Close(_ context.Context) error {
+	if endOfSpeech.eventLevel == eventLevelDebug && endOfSpeech.onPacket != nil {
+		_ = endOfSpeech.onPacket(context.Background(), internal_type.ConversationEventPacket{
+			Name: "eos",
+			Data: map[string]string{
+				"type":     "closed",
+				"provider": endOfSpeech.Name(),
+			},
+			Time: time.Now(),
+		})
+	}
 	close(endOfSpeech.stopCh)
 	return nil
 }

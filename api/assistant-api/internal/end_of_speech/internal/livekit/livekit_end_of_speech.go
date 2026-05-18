@@ -26,10 +26,14 @@ const (
 	optKeyExtendedTimeout = "microphone.eos.extended_timeout"
 	optKeyFallbackTimeout = "microphone.eos.fallback_timeout"
 	optKeyMaxHistory      = "microphone.eos.max_history_turns"
+	optEventLevel         = "microphone.eos.events"
 
 	// Backward-compatible aliases.
 	optKeyLegacySilenceTimeout = "microphone.eos.silence_timeout"
 	optKeyLegacyTimeout        = "microphone.eos.timeout"
+	eventLevelOff              = "off"
+	eventLevelStandard         = "standard"
+	eventLevelDebug            = "debug"
 
 	// defaultThreshold is the English "unlikely_threshold" from LiveKit's
 	// languages.json. Probabilities below this → user still speaking.
@@ -115,6 +119,7 @@ type livekitEndOfSpeech struct {
 	silenceTimeout  time.Duration
 	fallbackTimeout time.Duration
 	maxHistory      int
+	eventLevel      string
 
 	// Worker orchestration
 	commandCh chan workerCommand
@@ -158,6 +163,7 @@ func NewLivekitEndOfSpeech(
 		silenceTimeout:  time.Duration(defaultSilenceTimeout) * time.Millisecond,
 		fallbackTimeout: time.Duration(defaultFallbackTimeout) * time.Millisecond,
 		maxHistory:      int(defaultMaxHistory),
+		eventLevel:      eventLevelStandard,
 		commandCh:       make(chan workerCommand, 32),
 		stopCh:          make(chan struct{}),
 		state:           &endOfSpeechState{segment: speechSegment{}},
@@ -182,10 +188,16 @@ func NewLivekitEndOfSpeech(
 	} else if v, err := opts.GetFloat64(optKeyLegacyTimeout); err == nil {
 		endOfSpeech.fallbackTimeout = time.Duration(v) * time.Millisecond
 	}
+	if v, err := opts.GetString(optEventLevel); err == nil {
+		switch v {
+		case eventLevelOff, eventLevelStandard, eventLevelDebug:
+			endOfSpeech.eventLevel = v
+		}
+	}
 
 	go endOfSpeech.worker()
 
-	if onPacket != nil {
+	if onPacket != nil && endOfSpeech.eventLevel == eventLevelDebug {
 		_ = onPacket(context.Background(), internal_type.ConversationEventPacket{
 			Name: "eos",
 			Data: map[string]string{
@@ -226,20 +238,24 @@ func (endOfSpeech *livekitEndOfSpeech) Execute(ctx context.Context, packet inter
 		endOfSpeech.state.confidence = 0
 		endOfSpeech.mu.Unlock()
 
-		_ = endOfSpeech.onPacket(ctx,
-			internal_type.InterimEndOfSpeechPacket{Speech: segment.Committed, ContextID: segment.ContextID},
-			// internal_type.ConversationEventPacket{
-			// 	ContextID: segment.ContextID,
-			// 	Name:      "eos",
-			// 	Data: map[string]string{
-			// 		"type":       "interim",
-			// 		"provider":   endOfSpeech.Name(),
-			// 		"context_id": segment.ContextID,
-			// 		"speech":     segment.Committed,
-			// 	},
-			// 	Time: time.Now(),
-			// },
-		)
+		packets := []internal_type.Packet{internal_type.InterimEndOfSpeechPacket{
+			Speech:    segment.Committed,
+			ContextID: segment.ContextID,
+		}}
+		if endOfSpeech.eventLevel == eventLevelDebug {
+			packets = append(packets, internal_type.ConversationEventPacket{
+				ContextID: segment.ContextID,
+				Name:      "eos",
+				Data: map[string]string{
+					"type":       "interim",
+					"provider":   endOfSpeech.Name(),
+					"context_id": segment.ContextID,
+					"speech":     segment.Committed,
+				},
+				Time: time.Now(),
+			})
+		}
+		_ = endOfSpeech.onPacket(ctx, packets...)
 		endOfSpeech.enqueueCommand(workerCommand{
 			ctx:             ctx,
 			segment:         segment,
@@ -323,9 +339,12 @@ func (endOfSpeech *livekitEndOfSpeech) Execute(ctx context.Context, packet inter
 
 		// Emit interim update (same as silence-based on final STT)
 		emittedAt := time.Now()
-		_ = endOfSpeech.onPacket(ctx,
-			internal_type.InterimEndOfSpeechPacket{Speech: fullText, ContextID: segment.ContextID},
-			internal_type.ConversationEventPacket{
+		packets := []internal_type.Packet{internal_type.InterimEndOfSpeechPacket{
+			Speech:    fullText,
+			ContextID: segment.ContextID,
+		}}
+		if endOfSpeech.eventLevel == eventLevelDebug {
+			packets = append(packets, internal_type.ConversationEventPacket{
 				ContextID: segment.ContextID,
 				Name:      "eos",
 				Data: map[string]string{
@@ -335,8 +354,9 @@ func (endOfSpeech *livekitEndOfSpeech) Execute(ctx context.Context, packet inter
 					"speech":     fullText,
 				},
 				Time: emittedAt,
-			},
-		)
+			})
+		}
+		_ = endOfSpeech.onPacket(ctx, packets...)
 
 		// Run model inference on accumulated final text.
 		// YES (prob >= threshold) → quick_timeout buffer, then fire.
@@ -527,7 +547,7 @@ func (endOfSpeech *livekitEndOfSpeech) fire(command workerCommand, timerArmedAt 
 	if !timerArmedAt.IsZero() {
 		waitToTriggerMs = triggerAt.Sub(timerArmedAt).Milliseconds()
 	}
-	_ = endOfSpeech.onPacket(ctx,
+	packets := []internal_type.Packet{
 		internal_type.EndOfSpeechPacket{
 			Speech:    speech,
 			ContextID: segment.ContextID,
@@ -540,7 +560,9 @@ func (endOfSpeech *livekitEndOfSpeech) fire(command workerCommand, timerArmedAt 
 				Value: fmt.Sprintf("%d", waitToTriggerMs),
 			}},
 		},
-		internal_type.ConversationEventPacket{
+	}
+	if endOfSpeech.eventLevel != eventLevelOff {
+		packets = append(packets, internal_type.ConversationEventPacket{
 			ContextID: segment.ContextID,
 			Name:      "eos",
 			Data: map[string]string{
@@ -555,11 +577,22 @@ func (endOfSpeech *livekitEndOfSpeech) fire(command workerCommand, timerArmedAt 
 				"wait_to_trigger_ms": fmt.Sprintf("%d", waitToTriggerMs),
 			},
 			Time: triggerAt,
-		},
-	)
+		})
+	}
+	_ = endOfSpeech.onPacket(ctx, packets...)
 }
 
 func (endOfSpeech *livekitEndOfSpeech) Close(_ context.Context) error {
+	if endOfSpeech.eventLevel == eventLevelDebug && endOfSpeech.onPacket != nil {
+		_ = endOfSpeech.onPacket(context.Background(), internal_type.ConversationEventPacket{
+			Name: "eos",
+			Data: map[string]string{
+				"type":     "closed",
+				"provider": endOfSpeech.Name(),
+			},
+			Time: time.Now(),
+		})
+	}
 	close(endOfSpeech.stopCh)
 
 	endOfSpeech.predictorMu.Lock()

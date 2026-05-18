@@ -171,6 +171,61 @@ func TestDSLEngine_ParseAndEvaluateTextResponse(t *testing.T) {
 	assert.False(t, outcome.Interim)
 }
 
+func TestDSLEngine_ParseAndEvaluateQuotedJSONTextResponse(t *testing.T) {
+	config := &Config{
+		ResponseRules: []ResponseRule{
+			{
+				When: ResponseWhen{Frame: frameTypeText},
+				Emit: map[string]any{
+					"script":   map[string]any{"$frame": frameTypeText},
+					"language": "hi",
+					"interim":  false,
+				},
+			},
+		},
+	}
+	engine := config.newEngine()
+
+	frame, err := engine.ParseFrame(1, []byte(`" hello"`))
+	require.NoError(t, err)
+	assert.Equal(t, frameTypeText, frame.Kind)
+	assert.Equal(t, " hello", frame.Text)
+
+	outcome, err := engine.EvaluateResponse(frame)
+	require.NoError(t, err)
+	assert.True(t, outcome.Matched)
+	assert.Equal(t, " hello", outcome.Script)
+	assert.Equal(t, "hi", outcome.Language)
+	assert.False(t, outcome.Interim)
+}
+
+func TestDSLEngine_ParseAndEvaluateJSONObjectResponse(t *testing.T) {
+	config := &Config{
+		ResponseRules: []ResponseRule{
+			{
+				When: ResponseWhen{Frame: frameTypeJSON},
+				Emit: map[string]any{
+					"script":   map[string]any{"$path": "text"},
+					"language": map[string]any{"$path": "language"},
+					"interim":  map[string]any{"$path": "interim"},
+				},
+			},
+		},
+	}
+	engine := config.newEngine()
+
+	frame, err := engine.ParseFrame(1, []byte(`{"text":"namaste duniya","language":"hi","interim":false}`))
+	require.NoError(t, err)
+	assert.Equal(t, frameTypeJSON, frame.Kind)
+
+	outcome, err := engine.EvaluateResponse(frame)
+	require.NoError(t, err)
+	assert.True(t, outcome.Matched)
+	assert.Equal(t, "namaste duniya", outcome.Script)
+	assert.Equal(t, "hi", outcome.Language)
+	assert.False(t, outcome.Interim)
+}
+
 func TestDSLEngine_InvalidVariable(t *testing.T) {
 	config := &Config{
 		BaseURL: "wss://example.com/stt",

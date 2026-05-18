@@ -25,9 +25,13 @@ const (
 	optPctExtendedTimeout  = "microphone.eos.extended_timeout"
 	optPctQuickTimeout     = "microphone.eos.quick_timeout"
 	optPctFallbackTimeout  = "microphone.eos.fallback_timeout"
+	optEventLevel          = "microphone.eos.events"
 
 	optPctLegacySilenceTimeout = "microphone.eos.silence_timeout"
 	optPctLegacyTimeout        = "microphone.eos.timeout"
+	eventLevelOff              = "off"
+	eventLevelStandard         = "standard"
+	eventLevelDebug            = "debug"
 
 	defaultPctThreshold       = 0.5
 	defaultPctQuickTimeout    = 250.0
@@ -77,6 +81,7 @@ type pipecatEndOfSpeech struct {
 	quickTimeout    time.Duration
 	extendedTimeout time.Duration
 	fallbackTimeout time.Duration
+	eventLevel      string
 
 	audioBuffer []float32
 
@@ -118,6 +123,7 @@ func NewPipecatEndOfSpeech(
 		quickTimeout:    time.Duration(defaultPctQuickTimeout) * time.Millisecond,
 		extendedTimeout: time.Duration(defaultPctExtendedTimeout) * time.Millisecond,
 		fallbackTimeout: time.Duration(defaultPctFallbackTimeout) * time.Millisecond,
+		eventLevel:      eventLevelStandard,
 		audioBuffer:     make([]float32, 0, maxAudioSamples),
 		commandCh:       make(chan workerCommand, 32),
 		stopCh:          make(chan struct{}),
@@ -140,10 +146,16 @@ func NewPipecatEndOfSpeech(
 	} else if fallbackTimeout, err := opts.GetFloat64(optPctLegacyTimeout); err == nil {
 		endOfSpeech.fallbackTimeout = time.Duration(fallbackTimeout) * time.Millisecond
 	}
+	if value, err := opts.GetString(optEventLevel); err == nil {
+		switch value {
+		case eventLevelOff, eventLevelStandard, eventLevelDebug:
+			endOfSpeech.eventLevel = value
+		}
+	}
 
 	go endOfSpeech.worker()
 
-	if onPacket != nil {
+	if onPacket != nil && endOfSpeech.eventLevel == eventLevelDebug {
 		_ = onPacket(context.Background(), internal_type.ConversationEventPacket{
 			Name: "eos",
 			Data: map[string]string{
@@ -329,23 +341,24 @@ func (endOfSpeech *pipecatEndOfSpeech) extendCurrentSegment(ctx context.Context,
 }
 
 func (endOfSpeech *pipecatEndOfSpeech) emitInterimSpeech(ctx context.Context, segment speechSegment) {
-	_ = endOfSpeech.onPacket(ctx,
-		internal_type.InterimEndOfSpeechPacket{
-			Speech:    segment.Text,
+	packets := []internal_type.Packet{internal_type.InterimEndOfSpeechPacket{
+		Speech:    segment.Text,
+		ContextID: segment.ContextID,
+	}}
+	if endOfSpeech.eventLevel == eventLevelDebug {
+		packets = append(packets, internal_type.ConversationEventPacket{
 			ContextID: segment.ContextID,
-		},
-		// internal_type.ConversationEventPacket{
-		// 	ContextID: segment.ContextID,
-		// 	Name:      "eos",
-		// 	Data: map[string]string{
-		// 		"type":       "interim",
-		// 		"provider":   endOfSpeech.Name(),
-		// 		"context_id": segment.ContextID,
-		// 		"speech":     segment.Text,
-		// 	},
-		// 	Time: time.Now(),
-		// },
-	)
+			Name:      "eos",
+			Data: map[string]string{
+				"type":       "interim",
+				"provider":   endOfSpeech.Name(),
+				"context_id": segment.ContextID,
+				"speech":     segment.Text,
+			},
+			Time: time.Now(),
+		})
+	}
+	_ = endOfSpeech.onPacket(ctx, packets...)
 }
 
 func (endOfSpeech *pipecatEndOfSpeech) appendAudio(pcm16 []byte) {
@@ -548,7 +561,7 @@ func (endOfSpeech *pipecatEndOfSpeech) emitEndOfSpeech(command workerCommand, ti
 		"text_to_trigger_ms": fmt.Sprintf("%d", textToTriggerMs),
 		"wait_to_trigger_ms": fmt.Sprintf("%d", waitToTriggerMs),
 	}
-	_ = endOfSpeech.onPacket(ctx,
+	packets := []internal_type.Packet{
 		internal_type.EndOfSpeechPacket{
 			Speech:    segment.Text,
 			ContextID: segment.ContextID,
@@ -561,16 +574,33 @@ func (endOfSpeech *pipecatEndOfSpeech) emitEndOfSpeech(command workerCommand, ti
 				Value: fmt.Sprintf("%d", waitToTriggerMs),
 			}},
 		},
-		internal_type.ConversationEventPacket{
+	}
+	if endOfSpeech.eventLevel != eventLevelOff {
+		packets = append(packets, internal_type.ConversationEventPacket{
 			ContextID: segment.ContextID,
 			Name:      "eos",
 			Data:      eventData,
 			Time:      triggerAt,
-		},
-	)
+		})
+	}
+	_ = endOfSpeech.onPacket(ctx, packets...)
 }
 
 func (endOfSpeech *pipecatEndOfSpeech) Close(ctx context.Context) error {
+	if endOfSpeech.eventLevel == eventLevelDebug && endOfSpeech.onPacket != nil {
+		eventCtx := ctx
+		if eventCtx == nil || eventCtx.Err() != nil {
+			eventCtx = context.Background()
+		}
+		_ = endOfSpeech.onPacket(eventCtx, internal_type.ConversationEventPacket{
+			Name: "eos",
+			Data: map[string]string{
+				"type":     "closed",
+				"provider": endOfSpeech.Name(),
+			},
+			Time: time.Now(),
+		})
+	}
 	close(endOfSpeech.stopCh)
 
 	endOfSpeech.predictorMu.Lock()

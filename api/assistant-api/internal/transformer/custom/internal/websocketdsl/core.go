@@ -339,13 +339,8 @@ func (core *Core) ParseFrame(messageType int, payload []byte, isBinary func(mess
 	}
 
 	rawText := string(payload)
-	trimmed := strings.TrimSpace(rawText)
-	if trimmed == "" {
-		return Frame{Kind: FrameText, Text: rawText}, nil
-	}
-
 	var decoded any
-	decoder := json.NewDecoder(strings.NewReader(trimmed))
+	decoder := json.NewDecoder(strings.NewReader(rawText))
 	decoder.UseNumber()
 	if err := decoder.Decode(&decoded); err == nil {
 		var extra any
@@ -355,7 +350,6 @@ func (core *Core) ParseFrame(messageType int, payload []byte, isBinary func(mess
 		}
 		return Frame{Kind: FrameText, Text: rawText}, nil
 	}
-
 	return Frame{Kind: FrameText, Text: rawText}, nil
 }
 

@@ -310,7 +310,6 @@ func (transformer *speechToText) readLoop(conn *websocket.Conn) {
 			}
 			return
 		}
-
 		frame, err := transformer.engine.ParseFrame(messageType, payload)
 		if err != nil {
 			transformer.emitPackets(internal_type.SpeechToTextErrorPacket{
