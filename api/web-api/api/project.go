@@ -267,7 +267,7 @@ func (wProjectApi *webProjectGRPCApi) AddUserToProject(ctx context.Context, auth
 		map[string]string{
 			"inviter_name": auth.GetUserInfo().Name,
 			"project_name": strings.Join(projectNames, ","),
-			"invite_url":   fmt.Sprintf("%s/auth/signup?utm_source=invite&utm_param=%d", wProjectApi.cfg.Ui.Public, auth.GetOrganizationRole().OrganizationId),
+			"invite_url":   fmt.Sprintf("%s/auth/signup?utm_source=invite&utm_param=%d", wProjectApi.cfg.BaseUrl(), auth.GetOrganizationRole().OrganizationId),
 		},
 	)
 	if err != nil {
