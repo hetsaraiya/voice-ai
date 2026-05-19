@@ -1310,6 +1310,43 @@ func TestEOS_MetricUsesLastTimerArm(t *testing.T) {
 	assert.Greater(t, textMs, waitMs+40)
 }
 
+func TestEOS_RespectsExplicitEmptyConcat(t *testing.T) {
+	called := make(chan internal_type.EndOfSpeechPacket, 1)
+	eos := newTestEOS(func(ctx context.Context, packets ...internal_type.Packet) error {
+		for _, packet := range packets {
+			if endOfSpeech, ok := packet.(internal_type.EndOfSpeechPacket); ok {
+				select {
+				case called <- endOfSpeech:
+				default:
+				}
+			}
+		}
+		return nil
+	}, newTestOpts(map[string]any{
+		"microphone.eos.events":           "off",
+		"microphone.eos.fallback_timeout": 80.0,
+	}))
+	defer closeTestEndOfSpeech(eos)
+
+	empty := ""
+	packets := []internal_type.SpeechToTextPacket{
+		{ContextID: "ctx-concat", Script: "I", Interim: false},
+		{ContextID: "ctx-concat", Script: "'m", Concat: &empty, Interim: false},
+		{ContextID: "ctx-concat", Script: "thinking", Interim: false},
+		{ContextID: "ctx-concat", Script: ".", Concat: &empty, Interim: false},
+	}
+	for _, packet := range packets {
+		require.NoError(t, eos.Execute(context.Background(), packet))
+	}
+
+	select {
+	case result := <-called:
+		assert.Equal(t, "I'm thinking.", result.Speech)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for end of speech")
+	}
+}
+
 func TestEOS_ConversationEvent_DetectedConfidence(t *testing.T) {
 	events := make(chan internal_type.ConversationEventPacket, 4)
 	eos := newTestEOSWithPredictor(func(ctx context.Context, packets ...internal_type.Packet) error {

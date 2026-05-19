@@ -440,6 +440,52 @@ func TestSilenceBasedEndOfSpeech_MetricUsesLastTimerArm(t *testing.T) {
 	}
 }
 
+func TestSilenceBasedEndOfSpeech_RespectsExplicitEmptyConcat(t *testing.T) {
+	logger, _ := commons.NewApplicationLogger()
+	called := make(chan internal_type.EndOfSpeechPacket, 1)
+	callback := func(ctx context.Context, packets ...internal_type.Packet) error {
+		for _, packet := range packets {
+			if endOfSpeech, ok := packet.(internal_type.EndOfSpeechPacket); ok {
+				select {
+				case called <- endOfSpeech:
+				default:
+				}
+			}
+		}
+		return nil
+	}
+
+	svcIface, err := NewSilenceBasedEndOfSpeech(logger, callback, newTestOpts(map[string]any{
+		"microphone.eos.timeout": 80.0,
+	}))
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	defer svcIface.Close(context.Background())
+
+	empty := ""
+	packets := []internal_type.SpeechToTextPacket{
+		{ContextID: "ctx-concat", Script: "I", Interim: false},
+		{ContextID: "ctx-concat", Script: "'m", Concat: &empty, Interim: false},
+		{ContextID: "ctx-concat", Script: "thinking", Interim: false},
+		{ContextID: "ctx-concat", Script: ".", Concat: &empty, Interim: false},
+	}
+	for _, packet := range packets {
+		if err := svcIface.Execute(context.Background(), packet); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+	}
+
+	select {
+	case result := <-called:
+		if result.Speech != "I'm thinking." {
+			t.Fatalf("expected %q, got %q", "I'm thinking.", result.Speech)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting for end of speech")
+	}
+}
+
 func TestSTTNormalizationDeduplication(t *testing.T) {
 	// SKIPPED: Implementation has deadlock in handleSTTInput->triggerExtension
 	// Both hold mutex and one calls the other causing deadlock

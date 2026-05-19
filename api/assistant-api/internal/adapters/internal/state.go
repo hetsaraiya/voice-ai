@@ -237,9 +237,9 @@ func (tc *genericRequestor) applyOptions(opts map[string]interface{}) {
 }
 
 func (tc *genericRequestor) onAddMetadata(_ context.Context, metadata ...*protos.Metadata) error {
-	dbCtx, cancel := context.WithTimeout(context.Background(), dbWriteTimeout)
-	defer cancel()
 	utils.Go(context.Background(), func() {
+		dbCtx, cancel := context.WithTimeout(context.Background(), dbWriteTimeout)
+		defer cancel()
 		_, err := tc.conversationService.ApplyConversationMetadata(
 			dbCtx,
 			tc.auth,

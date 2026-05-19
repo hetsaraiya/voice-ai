@@ -142,12 +142,20 @@ func (f VadSpeechActivityPacket) ContextId() string { return "" }
 type SpeechToTextPacket struct {
 	ContextID  string
 	Script     string
+	Concat     *string
 	Confidence float64
 	Language   string
 	Interim    bool
 }
 
 func (f SpeechToTextPacket) ContextId() string { return f.ContextID }
+
+func (f SpeechToTextPacket) GetConcat() string {
+	if f.Concat == nil {
+		return " "
+	}
+	return *f.Concat
+}
 
 // EndOfSpeechPacket signals that the EOS detector determined the user's turn is complete.
 type EndOfSpeechAudioPacket struct {

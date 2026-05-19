@@ -320,9 +320,7 @@ func (endOfSpeech *livekitEndOfSpeech) Execute(ctx context.Context, packet inter
 			Chunks:    append([]internal_type.SpeechToTextPacket(nil), endOfSpeech.state.segment.Chunks...),
 		}
 		if segment.Committed != "" {
-			if packet.Script != "" && !strings.HasSuffix(segment.Committed, " ") && !strings.HasPrefix(packet.Script, " ") {
-				segment.Committed += " "
-			}
+			segment.Committed += packet.GetConcat()
 			segment.Committed += packet.Script
 		} else {
 			segment.Committed = packet.Script

@@ -418,6 +418,7 @@ func (transformer *speechToText) emitTranscript(outcome responseOutcome) {
 		internal_type.SpeechToTextPacket{
 			ContextID:  contextID,
 			Script:     outcome.Script,
+			Concat:     utils.Ptr(""),
 			Confidence: confidenceValue,
 			Language:   language,
 			Interim:    outcome.Interim,

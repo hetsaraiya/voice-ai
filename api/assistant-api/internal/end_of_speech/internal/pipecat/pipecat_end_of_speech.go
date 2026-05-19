@@ -264,9 +264,7 @@ func (endOfSpeech *pipecatEndOfSpeech) handleSpeechToTextPacket(ctx context.Cont
 		Chunks:    append([]internal_type.SpeechToTextPacket(nil), endOfSpeech.state.segment.Chunks...),
 	}
 	if segment.Text != "" {
-		if packet.Script != "" && !strings.HasSuffix(segment.Text, " ") && !strings.HasPrefix(packet.Script, " ") {
-			segment.Text += " "
-		}
+		segment.Text += packet.GetConcat()
 		segment.Text += packet.Script
 	} else {
 		segment.Text = packet.Script

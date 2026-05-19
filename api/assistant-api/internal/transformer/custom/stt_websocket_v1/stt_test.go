@@ -196,6 +196,8 @@ func TestSpeechToText_WebsocketFlow_JSONRequestRules(t *testing.T) {
 	var (
 		hasInterimTranscript     bool
 		hasFinalTranscript       bool
+		hasInterimEmptyConcat    bool
+		hasFinalEmptyConcat      bool
 		hasLatencyMetric         bool
 		hasSpeechToTextError     bool
 		interruptionPacketCount  int
@@ -207,9 +209,15 @@ func TestSpeechToText_WebsocketFlow_JSONRequestRules(t *testing.T) {
 		case internal_type.SpeechToTextPacket:
 			if typed.Interim && typed.Script == "hello" {
 				hasInterimTranscript = true
+				if typed.Concat != nil && *typed.Concat == "" {
+					hasInterimEmptyConcat = true
+				}
 			}
 			if !typed.Interim && typed.Script == "hello world" {
 				hasFinalTranscript = true
+				if typed.Concat != nil && *typed.Concat == "" {
+					hasFinalEmptyConcat = true
+				}
 			}
 		case internal_type.InterruptionDetectedPacket:
 			interruptionPacketCount++
@@ -227,6 +235,8 @@ func TestSpeechToText_WebsocketFlow_JSONRequestRules(t *testing.T) {
 
 	assert.True(t, hasInterimTranscript, "expected interim transcript")
 	assert.True(t, hasFinalTranscript, "expected final transcript")
+	assert.True(t, hasInterimEmptyConcat, "expected interim transcript with explicit empty concat")
+	assert.True(t, hasFinalEmptyConcat, "expected final transcript with explicit empty concat")
 	assert.GreaterOrEqual(t, interruptionPacketCount, 2, "expected interruption packet for interim and final transcripts")
 	assert.True(t, hasLatencyMetric, "expected stt_latency_ms metric")
 	assert.Equal(t, 1, latencyMetricPacketCount, "expected one latency metric per interruption window")
