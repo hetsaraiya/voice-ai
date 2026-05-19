@@ -57,7 +57,7 @@ describe('Dashboard HomePage', () => {
   it('does not force white text on all descendants of featured card', () => {
     render(<HomePage />);
 
-    const featuredTile = screen.getByText('Own the stack').closest('a');
+    const featuredTile = screen.getByText('Build your first assistant').closest('a');
     expect(featuredTile).toBeInTheDocument();
     expect(featuredTile).not.toHaveClass('[&_*]:!text-white');
     expect(within(featuredTile as HTMLAnchorElement).getByText('Recommended')).toBeInTheDocument();

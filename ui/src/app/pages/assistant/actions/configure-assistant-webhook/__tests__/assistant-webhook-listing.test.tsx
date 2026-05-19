@@ -114,6 +114,8 @@ jest.mock('@carbon/react', () => {
     Breadcrumb: Div,
     BreadcrumbItem: ({ children, ...props }: any) =>
       React.createElement('a', props, children),
+    Link: ({ children, href, ...props }: any) =>
+      React.createElement('a', { href, ...props }, children),
     Tag: ({ children }: any) => React.createElement('span', null, children),
   };
 });

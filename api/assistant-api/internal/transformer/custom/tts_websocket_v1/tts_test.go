@@ -22,8 +22,8 @@ import (
 
 	transformer_testutil "github.com/rapidaai/api/assistant-api/internal/transformer/internal/testutil"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
-	"github.com/rapidaai/pkg/utils"
 	type_enums "github.com/rapidaai/pkg/types/enums"
+	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -465,8 +465,8 @@ func TestTextToSpeech_ConcurrentTextUsesSingleConnection(t *testing.T) {
 		}),
 		collector.onPacket,
 		utils.Option{
-			optionKeyVoiceID:      "virat",
-			optionKeyRequestRules: `[{"when":{"packet":"text"},"send":{"frame":"json","body":{"text":{"$path":"packet.text"}}}}]`,
+			optionKeyVoiceID:       "virat",
+			optionKeyRequestRules:  `[{"when":{"packet":"text"},"send":{"frame":"json","body":{"text":{"$path":"packet.text"}}}}]`,
 			optionKeyResponseRules: `[{"when":{"frame":"binary"},"emit":{"audio":{"$frame":"binary"}}}]`,
 		},
 	)
@@ -588,8 +588,8 @@ func TestTextToSpeech_CloseUnblocksPendingDial(t *testing.T) {
 		}),
 		collector.onPacket,
 		utils.Option{
-			optionKeyVoiceID:      "virat",
-			optionKeyRequestRules: `[{"when":{"packet":"text"},"send":{"frame":"json","body":{"text":{"$path":"packet.text"}}}}]`,
+			optionKeyVoiceID:       "virat",
+			optionKeyRequestRules:  `[{"when":{"packet":"text"},"send":{"frame":"json","body":{"text":{"$path":"packet.text"}}}}]`,
 			optionKeyResponseRules: `[{"when":{"frame":"binary"},"emit":{"audio":{"$frame":"binary"}}}]`,
 		},
 	)
