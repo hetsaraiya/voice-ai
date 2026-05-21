@@ -23,6 +23,7 @@ type UserService interface {
 	//
 	CreateOrganizationRole(ctx context.Context, auth types.Principle, role string, userId uint64, orgnizationId uint64, status type_enums.RecordState) (*internal_entity.UserOrganizationRole, error)
 	CreateProjectRole(ctx context.Context, auth types.Principle, userId uint64, role string, projectId uint64, status type_enums.RecordState) (*internal_entity.UserProjectRole, error)
+	CreateProjectRoles(ctx context.Context, auth types.Principle, userId uint64, role string, projectIds []uint64, status type_enums.RecordState) ([]*internal_entity.UserProjectRole, error)
 
 	//
 	ActivateAllProjectRoles(ctx context.Context, userId uint64) error
@@ -31,6 +32,7 @@ type UserService interface {
 
 	GetProjectRole(ctx context.Context, userId uint64, projectId uint64) (*internal_entity.UserProjectRole, error)
 	GetOrganizationRole(ctx context.Context, userId uint64) (*internal_entity.UserOrganizationRole, error)
+	GetAnyOrganizationRole(ctx context.Context, userId uint64) (*internal_entity.UserOrganizationRole, error)
 	Activate(ctx context.Context, Id uint64, name string, source *string) (types.Principle, error)
 
 	CreateSocial(ctx context.Context, userId uint64, id string, token string, source string, verified bool) (*internal_entity.UserSocial, error)

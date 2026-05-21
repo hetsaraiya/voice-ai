@@ -257,7 +257,17 @@ func (aS *userService) CreateOrganizationRole(ctx context.Context, auth types.Pr
 			CreatedBy: auth.GetUserInfo().Id,
 		},
 	}
-	tx := db.Save(ct)
+	tx := db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "user_auth_id"},
+			{Name: "organization_id"},
+			{Name: "status"},
+		},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"role":       role,
+			"updated_by": auth.GetUserInfo().Id,
+		}),
+	}).Create(ct)
 	if tx.Error != nil {
 		aS.logger.Errorf("exception in DB transaction %v", tx.Error)
 		return nil, tx.Error
@@ -277,10 +287,39 @@ func (aS *userService) GetProjectRole(ctx context.Context, userId uint64, projec
 }
 
 func (aS *userService) CreateProjectRole(ctx context.Context, auth types.Principle, userId uint64, role string, projectId uint64, status type_enums.RecordState) (*internal_entity.UserProjectRole, error) {
-	pr, err := aS.GetProjectRole(ctx, userId, projectId)
 	db := aS.postgres.DB(ctx)
-	if err != nil {
-		projectRole := &internal_entity.UserProjectRole{
+	projectRole := &internal_entity.UserProjectRole{
+		UserAuthId: userId,
+		ProjectId:  projectId,
+		Role:       role,
+		Mutable: gorm_models.Mutable{
+			Status:    status,
+			CreatedBy: auth.GetUserInfo().Id,
+		},
+	}
+	tx := db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "user_auth_id"},
+			{Name: "project_id"},
+			{Name: "status"},
+		},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"role":       role,
+			"updated_by": auth.GetUserInfo().Id,
+		}),
+	}).Create(projectRole)
+	if tx.Error != nil {
+		aS.logger.Errorf("exception in DB transaction %v", tx.Error)
+		return nil, tx.Error
+	}
+	return projectRole, nil
+}
+
+func (aS *userService) CreateProjectRoles(ctx context.Context, auth types.Principle, userId uint64, role string, projectIds []uint64, status type_enums.RecordState) ([]*internal_entity.UserProjectRole, error) {
+	db := aS.postgres.DB(ctx)
+	projectRoles := make([]*internal_entity.UserProjectRole, 0, len(projectIds))
+	for _, projectId := range projectIds {
+		projectRoles = append(projectRoles, &internal_entity.UserProjectRole{
 			UserAuthId: userId,
 			ProjectId:  projectId,
 			Role:       role,
@@ -288,30 +327,41 @@ func (aS *userService) CreateProjectRole(ctx context.Context, auth types.Princip
 				Status:    status,
 				CreatedBy: auth.GetUserInfo().Id,
 			},
-		}
-		tx := db.Save(projectRole)
-		if tx.Error != nil {
-			aS.logger.Errorf("exception in DB transaction %v", tx.Error)
-			return nil, tx.Error
-		}
-		return projectRole, nil
+		})
 	}
-
-	pr.UpdatedBy = auth.GetUserInfo().Id
-	pr.Role = role
-	pr.Status = status
-	tx := db.Save(pr)
+	tx := db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "user_auth_id"},
+			{Name: "project_id"},
+			{Name: "status"},
+		},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"role":       role,
+			"updated_by": auth.GetUserInfo().Id,
+		}),
+	}).Create(&projectRoles)
 	if tx.Error != nil {
 		aS.logger.Errorf("exception in DB transaction %v", tx.Error)
 		return nil, tx.Error
 	}
-	return pr, nil
+	return projectRoles, nil
 }
 
 func (aS *userService) GetOrganizationRole(ctx context.Context, userId uint64) (*internal_entity.UserOrganizationRole, error) {
 	db := aS.postgres.DB(ctx)
 	var ct internal_entity.UserOrganizationRole
 	tx := db.Last(&ct, "user_auth_id = ? AND status = ?", userId, type_enums.RECORD_ACTIVE.String())
+	if tx.Error != nil {
+		aS.logger.Errorf("exception in DB transaction %v", tx.Error)
+		return nil, tx.Error
+	}
+	return &ct, nil
+}
+
+func (aS *userService) GetAnyOrganizationRole(ctx context.Context, userId uint64) (*internal_entity.UserOrganizationRole, error) {
+	db := aS.postgres.DB(ctx)
+	var ct internal_entity.UserOrganizationRole
+	tx := db.Last(&ct, "user_auth_id = ?", userId)
 	if tx.Error != nil {
 		aS.logger.Errorf("exception in DB transaction %v", tx.Error)
 		return nil, tx.Error

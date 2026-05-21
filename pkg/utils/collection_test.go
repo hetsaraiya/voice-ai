@@ -112,6 +112,31 @@ func TestCloneMap(t *testing.T) {
 	})
 }
 
+func TestUnique(t *testing.T) {
+	t.Run("preserves first occurrence order", func(t *testing.T) {
+		got := Unique([]uint64{3, 1, 3, 2, 1})
+		expected := []uint64{3, 1, 2}
+		if len(got) != len(expected) {
+			t.Fatalf("expected len %d, got %d", len(expected), len(got))
+		}
+		for i := range expected {
+			if got[i] != expected[i] {
+				t.Fatalf("expected %v, got %v", expected, got)
+			}
+		}
+	})
+
+	t.Run("empty input returns empty writable slice", func(t *testing.T) {
+		got := Unique([]string{})
+		if got == nil {
+			t.Fatal("expected non-nil slice")
+		}
+		if len(got) != 0 {
+			t.Fatalf("expected empty slice, got %d", len(got))
+		}
+	})
+}
+
 func TestGetCaseInsensitiveKeyValue(t *testing.T) {
 	cfg := map[string]string{
 		"KEY1": "value1",

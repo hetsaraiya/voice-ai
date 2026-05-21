@@ -15,6 +15,7 @@ import (
 	gorm_models "github.com/rapidaai/pkg/models/gorm"
 	"github.com/rapidaai/pkg/types"
 	type_enums "github.com/rapidaai/pkg/types/enums"
+	"github.com/rapidaai/pkg/utils"
 	web_api "github.com/rapidaai/protos"
 )
 
@@ -131,6 +132,25 @@ func (pS *projectService) Get(ctx context.Context, auth types.SimplePrinciple, p
 		return nil, tx.Error
 	}
 	return &project, nil
+}
+
+func (pS *projectService) GetAllByOrganization(ctx context.Context, auth types.SimplePrinciple, organizationId uint64, projectIds []uint64) ([]*internal_entity.Project, error) {
+	db := pS.postgres.DB(ctx)
+	uniqueProjectIds := utils.Unique(projectIds)
+
+	var projects []*internal_entity.Project
+	tx := db.
+		Where("organization_id = ? AND id IN ? AND status = ?", organizationId, uniqueProjectIds, type_enums.RECORD_ACTIVE).
+		Find(&projects)
+	if tx.Error != nil {
+		pS.logger.Debugf("unable to find projects %v for organization %v", projectIds, organizationId)
+		return nil, tx.Error
+	}
+	if len(projects) != len(uniqueProjectIds) {
+		return nil, fmt.Errorf("one or more requested projects are missing, archived, or outside the organization")
+	}
+
+	return projects, nil
 }
 
 func (pS *projectService) Archive(ctx context.Context, auth types.Principle, projectId uint64) (*internal_entity.Project, error) {

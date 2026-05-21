@@ -29,7 +29,7 @@ import {
   normalizeAssistantConditionEntries,
 } from '@/app/components/tools/common';
 import { SourceConditionRule } from '@/app/components/conditions/source-condition-rule';
-import { InputGroup } from '../../../../components/input-group/index';
+import { InputGroup } from '@/app/components/input-group/index';
 
 type ParamType =
   | 'client'

@@ -12,6 +12,7 @@ import (
 	"github.com/rapidaai/pkg/connectors"
 	"github.com/rapidaai/pkg/types"
 	"github.com/rapidaai/pkg/utils"
+	"github.com/rapidaai/pkg/validator"
 	"github.com/rapidaai/protos"
 
 	internal_entity "github.com/rapidaai/api/web-api/internal/entity"
@@ -94,7 +95,7 @@ func (wProjectApi *webProjectGRPCApi) CreateProject(ctx context.Context, irReque
 			"Unable to create project for your organization, please try again in sometime")
 	}
 
-	_, err = wProjectApi.userService.CreateProjectRole(ctx, iAuth, iAuth.GetUserInfo().Id, "admin", prj.Id, type_enums.RECORD_ACTIVE)
+	_, err = wProjectApi.userService.CreateProjectRole(ctx, iAuth, iAuth.GetUserInfo().Id, type_enums.PROJECT_ROLE_ADMIN.String(), prj.Id, type_enums.RECORD_ACTIVE)
 	if err != nil {
 		wProjectApi.logger.Errorf("userService.CreateProjectRole from grpc with err %v", err)
 		return utils.Error[protos.CreateProjectResponse](
@@ -237,105 +238,164 @@ func (wProjectApi *webProjectGRPCApi) GetProject(ctx context.Context, irRequest 
 	return utils.Success[protos.GetProjectResponse, *protos.Project](ot)
 }
 
-func (wProjectApi *webProjectGRPCApi) AddUserToProject(ctx context.Context, auth types.Principle, email string, userId uint64, status type_enums.RecordState, role string, projectIds []uint64) (*protos.AddUsersToProjectResponse, error) {
-	projectNames := make([]string, len(projectIds))
-	projectOut := make([]*internal_entity.Project, len(projectIds))
-
-	for _, projectId := range projectIds {
-		p, err := wProjectApi.projectService.Get(ctx, auth, projectId)
-		if err != nil {
-			wProjectApi.logger.Debugf("inviting a user without having  a project %v", err)
-			continue
-		}
-		wProjectApi.userService.CreateProjectRole(ctx, auth, userId, role, projectId, status)
-		projectOut = append(projectOut, p)
-		projectNames = append(projectNames, p.Name)
-	}
-
-	err := wProjectApi.emailerClient.EmailRichText(
-		ctx,
-		external_clients.Contact{
-			Name:  "",
-			Email: email,
-		},
-		fmt.Sprintf("[RapidaAI] %s has invited you to join the %s organization", auth.GetUserInfo().Name, auth.GetOrganizationRole().OrganizationName),
-		external_emailer_template.INVITE_MEMBER_TEMPLATE,
-		map[string]string{
-			"inviter_name": auth.GetUserInfo().Name,
-			"project_name": strings.Join(projectNames, ","),
-			"invite_url":   fmt.Sprintf("%s/auth/signup?utm_source=invite&utm_param=%d", wProjectApi.cfg.BaseUrl(), auth.GetOrganizationRole().OrganizationId),
-		},
-	)
-	if err != nil {
-		wProjectApi.logger.Errorf("error while sending invite email %v", err)
-	}
-	out := []*protos.Project{}
-	err = utils.Cast(projectOut, &out)
-	if err != nil {
-		wProjectApi.logger.Errorf("unable to cast project credential to proto object %v", err)
-	}
-	return utils.Success[protos.AddUsersToProjectResponse, []*protos.Project](out)
-}
-
 func (wProjectApi *webProjectGRPCApi) AddUsersToProject(ctx context.Context, irRequest *protos.AddUsersToProjectRequest) (*protos.AddUsersToProjectResponse, error) {
 	auth, isAuthenticated := types.GetAuthPrincipleGPRC(ctx)
 	if !isAuthenticated {
 		return nil, errors.New("unauthenticated request")
 	}
-	// get only last project ids
-	//
-	eUser, err := wProjectApi.userService.Get(ctx, irRequest.Email)
+	currentOrgRole := auth.GetOrganizationRole()
+	if currentOrgRole == nil {
+		return utils.Error[protos.AddUsersToProjectResponse](
+			errors.New("you are not part of any active organization"),
+			"Please create organization and try again.",
+		)
+	}
+	if !validator.OneOf(currentOrgRole.Role, type_enums.ORGANIZATION_ROLE_OWNER.String(), type_enums.ORGANIZATION_ROLE_ADMIN.String()) {
+		return utils.Error[protos.AddUsersToProjectResponse](
+			errors.New("user is not authorized to invite users to projects"),
+			"You do not have permission to invite users to projects.",
+		)
+	}
+
+	if !validator.Email(irRequest.GetEmail()) {
+		return utils.Error[protos.AddUsersToProjectResponse](
+			errors.New("invalid email address"),
+			"The provided email is not valid, please check the email and retry.",
+		)
+	}
+	if !validator.NotEmpty(irRequest.GetProjectIds()) {
+		return utils.Error[protos.AddUsersToProjectResponse](
+			errors.New("project ids are required"),
+			"Please select at least one project and retry.",
+		)
+	}
+	if !validator.AllNonZero(irRequest.GetProjectIds()...) {
+		return utils.Error[protos.AddUsersToProjectResponse](
+			errors.New("project ids must be non-empty"),
+			"Please select valid projects and retry.",
+		)
+	}
+	if !validator.OneOf(irRequest.GetRole(), type_enums.PROJECT_ROLE_SUPER_ADMIN.String(), type_enums.PROJECT_ROLE_ADMIN.String(), type_enums.PROJECT_ROLE_WRITER.String(), type_enums.PROJECT_ROLE_READER.String()) {
+		return utils.Error[protos.AddUsersToProjectResponse](
+			errors.New("invalid project role"),
+			"Please select a valid project role and retry.",
+		)
+	}
+
+	projects, err := wProjectApi.projectService.GetAllByOrganization(ctx, auth, currentOrgRole.OrganizationId, utils.Unique(irRequest.GetProjectIds()))
 	if err != nil {
-		// create a user
+		wProjectApi.logger.Errorf("projectService.GetAllByOrganization from grpc with err %v", err)
+		return utils.Error[protos.AddUsersToProjectResponse](
+			err,
+			"Please select valid projects and retry.",
+		)
+	}
+	projectIds := make([]uint64, 0, len(projects))
+	projectNames := make([]string, 0, len(projects))
+	for _, project := range projects {
+		projectIds = append(projectIds, project.Id)
+		projectNames = append(projectNames, project.Name)
+	}
+
+	eUser, err := wProjectApi.userService.Get(ctx, irRequest.GetEmail())
+	if err != nil {
 		source := "invited-by-other"
-		username := irRequest.GetEmail()
 		parts := strings.Split(irRequest.GetEmail(), "@")
-		if len(parts) != 2 {
-			return utils.Error[protos.AddUsersToProjectResponse](
-				err,
-				"The provided email is not valid, please check the email and retry.",
-			)
-		}
-		username = parts[0]
-		eUser, err := wProjectApi.userService.Create(ctx, username, irRequest.GetEmail(), ciphers.RandomHash("rpd_"), type_enums.RECORD_INVITED, &source)
+		// user creation for invite, we will create a random password and send email to reset password flow
+		ePrinciple, err := wProjectApi.userService.Create(ctx, parts[0], irRequest.GetEmail(), ciphers.RandomHash("rpd_"), type_enums.RECORD_INVITED, &source)
 		if err != nil {
 			wProjectApi.logger.Errorf("unable to create user for invite err %v", err)
 			return utils.Error[protos.AddUsersToProjectResponse](
 				err,
-				"Unable to create user for invite err.",
+				"Unable to add user to project, please try again in sometime.",
 			)
 		}
-		// , role string, userId uint64, orgnizationId uint64, status string
-		_, err = wProjectApi.userService.CreateOrganizationRole(ctx, auth, irRequest.GetRole(), eUser.GetUserInfo().Id, auth.GetOrganizationRole().OrganizationId, type_enums.RECORD_INVITED)
+
+		// user is newly created for invite, so we will create organization role for the user
+		_, err = wProjectApi.userService.CreateOrganizationRole(ctx, auth, type_enums.ORGANIZATION_ROLE_MEMBER.String(), *ePrinciple.GetUserId(), currentOrgRole.OrganizationId, type_enums.RECORD_INVITED)
 		if err != nil {
 			wProjectApi.logger.Errorf("unable to create organization role err %v", err)
 			return utils.Error[protos.AddUsersToProjectResponse](
 				err,
-				"Unable to create organization role user for invite err.",
+				"Unable to add user to project, please try again in sometime.",
 			)
 		}
-		return wProjectApi.AddUserToProject(ctx, auth, eUser.GetUserInfo().Email, eUser.GetUserInfo().Id, type_enums.RECORD_INVITED, irRequest.Role, irRequest.ProjectIds)
+		_, err = wProjectApi.userService.CreateProjectRoles(ctx, auth, *ePrinciple.GetUserId(), irRequest.GetRole(), projectIds, type_enums.RECORD_INVITED)
+		if err != nil {
+			wProjectApi.logger.Errorf("unable to create project role for invite err %v", err)
+			return utils.Error[protos.AddUsersToProjectResponse](
+				err,
+				"Unable to add user to project, please try again in sometime.",
+			)
+		}
+		if err = wProjectApi.emailerClient.EmailRichText(
+			ctx,
+			external_clients.Contact{
+				Name:  "",
+				Email: irRequest.GetEmail(),
+			},
+			fmt.Sprintf("[RapidaAI] %s has invited you to join the %s organization", auth.GetUserInfo().Name, currentOrgRole.OrganizationName),
+			external_emailer_template.INVITE_MEMBER_TEMPLATE,
+			map[string]string{
+				"inviter_name": auth.GetUserInfo().Name,
+				"project_name": strings.Join(projectNames, ","),
+				"invite_url":   fmt.Sprintf("%s/auth/signup?utm_source=invite&utm_param=%d", wProjectApi.cfg.BaseUrl(), currentOrgRole.OrganizationId),
+			},
+		); err != nil {
+			wProjectApi.logger.Errorf("error while sending invite email %v", err)
+		}
+
 	} else {
-		org, err := wProjectApi.userService.GetOrganizationRole(ctx, eUser.Id)
-		if err == nil {
-			if org.GetOrganizationId() != auth.GetOrganizationRole().OrganizationId {
+		org, err := wProjectApi.userService.GetAnyOrganizationRole(ctx, eUser.GetId())
+		if err != nil {
+			_, err = wProjectApi.userService.CreateOrganizationRole(ctx, auth, type_enums.ORGANIZATION_ROLE_MEMBER.String(), eUser.GetId(), currentOrgRole.OrganizationId, eUser.Status)
+			if err != nil {
+				wProjectApi.logger.Errorf("unable to create organization role err %v", err)
 				return utils.Error[protos.AddUsersToProjectResponse](
 					err,
-					"User is already part of the another organizations, please contact us.",
+					"Unable to add user to project, please try again in sometime.",
 				)
 			}
-			return wProjectApi.AddUserToProject(ctx, auth, eUser.Email, eUser.Id, eUser.Status, irRequest.Role, irRequest.ProjectIds)
-		}
-		_, err = wProjectApi.userService.CreateOrganizationRole(ctx, auth, irRequest.GetRole(), eUser.Id, auth.GetOrganizationRole().OrganizationId, eUser.Status)
-		if err != nil {
-			wProjectApi.logger.Errorf("unable to create organization role err %v", err)
+		} else if org.GetOrganizationId() != currentOrgRole.OrganizationId {
 			return utils.Error[protos.AddUsersToProjectResponse](
-				err,
-				"Unable to create organization role user for invite err.",
+				errors.New("user is already part of another organization"),
+				"User is part of another organization, please ask the user to switch to this organization before adding to project.",
 			)
 		}
-		return wProjectApi.AddUserToProject(ctx, auth, eUser.Email, eUser.Id, eUser.Status, irRequest.Role, irRequest.ProjectIds)
+
+		_, err = wProjectApi.userService.CreateProjectRoles(ctx, auth, eUser.Id, irRequest.GetRole(), projectIds, eUser.Status)
+		if err != nil {
+			wProjectApi.logger.Errorf("unable to create project role for invite err %v", err)
+			return utils.Error[protos.AddUsersToProjectResponse](
+				err,
+				"Unable to add user to project, please try again in sometime.",
+			)
+		}
+		if err = wProjectApi.emailerClient.EmailRichText(
+			ctx,
+			external_clients.Contact{
+				Name:  "",
+				Email: irRequest.GetEmail(),
+			},
+			fmt.Sprintf("[RapidaAI] %s has invited you to join the %s organization", auth.GetUserInfo().Name, currentOrgRole.OrganizationName),
+			external_emailer_template.INVITE_MEMBER_TEMPLATE,
+			map[string]string{
+				"inviter_name": auth.GetUserInfo().Name,
+				"project_name": strings.Join(projectNames, ","),
+				"invite_url":   fmt.Sprintf("%s/auth/signup?utm_source=invite&utm_param=%d", wProjectApi.cfg.BaseUrl(), currentOrgRole.OrganizationId),
+			},
+		); err != nil {
+			wProjectApi.logger.Errorf("error while sending invite email %v", err)
+		}
+
 	}
+	out := []*protos.Project{}
+	err = utils.Cast(projects, &out)
+	if err != nil {
+		wProjectApi.logger.Errorf("unable to cast project credential to proto object %v", err)
+	}
+	return utils.Success[protos.AddUsersToProjectResponse, []*protos.Project](out)
+
 }
 
 /*
@@ -349,12 +409,10 @@ func (wProjectApi *webProjectGRPCApi) ArchiveProject(c context.Context, irReques
 		wProjectApi.logger.Errorf("DeleteProviderCredential from grpc with unauthenticated request")
 		return nil, errors.New("unauthenticated request")
 	}
-
 	if _, err := wProjectApi.projectService.Archive(c, auth, irRequest.Id); err != nil {
 		wProjectApi.logger.Errorf("DeleteProviderCredential while archieving project")
 		return nil, err
 	}
-
 	return utils.Success[protos.ArchiveProjectResponse, uint64](irRequest.Id)
 }
 
@@ -373,13 +431,11 @@ func (wProjectApi *webProjectGRPCApi) CreateProjectCredential(c context.Context,
 			"Unable to create the project credential, please try again in sometime.",
 		)
 	}
-
 	out := &protos.ProjectCredential{}
 	err = utils.Cast(pc, &out)
 	if err != nil {
 		wProjectApi.logger.Errorf("unable to cast project credential to proto object %v", err)
 	}
-
 	return utils.Success[protos.CreateProjectCredentialResponse, *protos.ProjectCredential](out)
 }
 
