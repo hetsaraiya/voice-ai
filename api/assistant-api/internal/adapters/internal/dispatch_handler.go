@@ -1039,7 +1039,8 @@ func (h requestorDispatchHandler) HandleInitializeSessionRuntime(ctx context.Con
 		h.r.assistantWebhookExecutors = append(h.r.assistantWebhookExecutors, exec)
 	}
 
-	if h.r.assistant.AssistantAuthentication != nil && h.r.IsConditionAllowed(h.r.assistant.AssistantAuthentication.GetOptions(), "authentication.condition") {
+	if h.r.assistant.AssistantAuthentication != nil &&
+		h.r.IsConditionAllowed(h.r.assistant.AssistantAuthentication.GetOptions(), "authentication.condition") {
 		authExec, err := internal_authentication.NewExecutor(h.r.logger, ctx, h.r.assistant.AssistantAuthentication, h.r, h.r)
 		if err != nil {
 			h.r.OnPacket(ctx, internal_type.InitializationFailedPacket{
@@ -1922,7 +1923,7 @@ func (h requestorDispatchHandler) HandleExecuteAnalysis(ctx context.Context, p i
 	source := variable.NewCommunicationSource(h.r)
 	registry := internal_namespace.NewDefaultRegistry().With("event", &internal_namespace.EventNamespace{})
 	for _, initializedAnalysis := range h.r.assistantAnalyseExecutors {
-		if !h.r.IsConditionAllowed(initializedAnalysis.Options(), "analysis.condition") {
+		if h.r.IsConditionAllowed(initializedAnalysis.Options(), "analysis.condition") {
 			arguments, err := initializedAnalysis.Arguments()
 			if err != nil {
 				h.r.logger.Warnw("failed to get analysis arguments", "name", initializedAnalysis.Name(), "error", err)
