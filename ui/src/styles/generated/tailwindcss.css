@@ -2689,6 +2689,9 @@
   .\!min-h-\[204px\] {
     min-height: 204px !important;
   }
+  .\!min-h-\[220px\] {
+    min-height: 220px !important;
+  }
   .\!min-h-\[260px\] {
     min-height: 260px !important;
   }
@@ -4427,6 +4430,9 @@
   .p-4 {
     padding: calc(var(--spacing) * 4);
   }
+  .p-5 {
+    padding: calc(var(--spacing) * 5);
+  }
   .p-6 {
     padding: calc(var(--spacing) * 6);
   }
@@ -6141,6 +6147,13 @@
       &::after {
         content: var(--tw-content);
         outline-color: var(--color-primary);
+      }
+    }
+  }
+  .hover\:\!border-primary {
+    &:hover {
+      @media (hover: hover) {
+        border-color: var(--color-primary) !important;
       }
     }
   }
@@ -9558,6 +9571,24 @@
     &:is(.dark *) {
       &:focus-within {
         border-color: var(--color-blue-600);
+      }
+    }
+  }
+  .dark\:hover\:\!border-primary {
+    @media (prefers-color-scheme: dark) {
+      &:not(.light *) {
+        &:hover {
+          @media (hover: hover) {
+            border-color: var(--color-primary) !important;
+          }
+        }
+      }
+    }
+    &:is(.dark *) {
+      &:hover {
+        @media (hover: hover) {
+          border-color: var(--color-primary) !important;
+        }
       }
     }
   }

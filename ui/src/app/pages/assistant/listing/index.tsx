@@ -216,26 +216,31 @@ function CreateAssistantDialog({
               <ClickableTile
                 key={option.title}
                 onClick={() => onSelect(option.path)}
-                className="group relative !min-h-[260px] !overflow-hidden !rounded-none !border !border-gray-200 !bg-white !p-6 dark:!border-gray-700 dark:!bg-gray-900"
+                className="group !flex !min-h-[220px] !flex-col !rounded-none !border !border-gray-200 !bg-gray-50 !p-0 transition-colors hover:!border-primary dark:!border-gray-700 dark:!bg-gray-800 dark:hover:!border-primary"
               >
-                <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,color-mix(in_oklab,var(--color-primary)_12%,transparent)_0%,transparent_46%)] dark:bg-[linear-gradient(135deg,color-mix(in_oklab,var(--color-primary)_18%,transparent)_0%,transparent_52%)]" />
-                <div className="relative z-[1] flex h-full flex-col">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">
-                      <Icon size={20} />
-                      <span>{option.eyebrow}</span>
+                <div className="flex flex-1 flex-col p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center bg-primary/10 text-primary dark:bg-primary/10">
+                      <Icon size={24} />
                     </div>
                     <ArrowRight
-                      size={24}
-                      className="text-primary transition-transform group-hover:translate-x-1"
+                      size={20}
+                      className="mt-1 shrink-0 text-gray-400 transition-transform group-hover:translate-x-1 group-hover:text-primary dark:text-gray-500"
                     />
                   </div>
-                  <h2 className="mt-8 text-2xl font-semibold leading-tight text-gray-900 dark:text-white">
+                  <p className="mt-5 text-xs font-semibold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">
+                    {option.eyebrow}
+                  </p>
+                  <h2 className="mt-2 text-xl font-semibold leading-tight text-gray-900 dark:text-white">
                     {option.title}
                   </h2>
-                  <p className="mt-5 max-w-[24rem] text-base leading-6 text-gray-600 dark:text-gray-300">
+                  <p className="mt-3 flex-1 text-sm leading-5 text-gray-600 dark:text-gray-300">
                     {option.description}
                   </p>
+                  <span className="mt-6 inline-flex items-center gap-1 text-sm font-medium text-primary">
+                    Select option
+                    <ArrowRight size={14} />
+                  </span>
                 </div>
               </ClickableTile>
             );
