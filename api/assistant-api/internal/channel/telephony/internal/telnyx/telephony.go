@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rapidaai/api/assistant-api/config"
+	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/types"
@@ -143,7 +144,8 @@ func (tpc *telnyxTelephony) OutboundCall(
 	auth types.SimplePrinciple,
 	toPhone string,
 	fromPhone string,
-	assistantId, assistantConversationId uint64,
+	assistant *internal_assistant_entity.Assistant,
+	assistantConversationId uint64,
 	vaultCredential *protos.VaultCredential,
 	opts utils.Option,
 ) (*internal_type.CallInfo, error) {
@@ -161,7 +163,7 @@ func (tpc *telnyxTelephony) OutboundCall(
 
 	// Build the WebSocket stream URL for bidirectional audio
 	streamURL := fmt.Sprintf("wss://%s/%s",
-		tpc.appCfg.PublicAssistantHost,
+		tpc.appCfg.Assistant.Public,
 		internal_type.GetContextAnswerPath(telnyxProvider, contextID))
 
 	// Build the request body for Telnyx Call Control API
@@ -283,7 +285,7 @@ func (tpc *telnyxTelephony) InboundCall(c *gin.Context, auth types.SimplePrincip
 		"result": "streaming.start",
 		"params": gin.H{
 			"stream_url": fmt.Sprintf("wss://%s/%s",
-				tpc.appCfg.PublicAssistantHost,
+				tpc.appCfg.Assistant.Public,
 				internal_type.GetContextAnswerPath("telnyx", ctxID)),
 			"stream_track": "both_tracks",
 		},
@@ -302,6 +304,9 @@ func (tpc *telnyxTelephony) Auth(vaultCredential *protos.VaultCredential) (strin
 func (tpc *telnyxTelephony) getCredentials(vaultCredential *protos.VaultCredential) (string, string, error) {
 	if vaultCredential == nil {
 		return "", "", fmt.Errorf("vault credential is nil")
+	}
+	if vaultCredential.GetValue() == nil {
+		return "", "", fmt.Errorf("vault credential value is nil")
 	}
 
 	credMap := vaultCredential.GetValue().AsMap()

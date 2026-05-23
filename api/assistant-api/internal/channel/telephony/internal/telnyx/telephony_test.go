@@ -8,16 +8,18 @@ package internal_telnyx_telephony
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rapidaai/api/assistant-api/config"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
+	configs "github.com/rapidaai/config"
 	"github.com/rapidaai/pkg/commons"
+	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -26,11 +28,20 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
+func newTelnyxTestLogger(t *testing.T) commons.Logger {
+	t.Helper()
+	logger, err := commons.NewApplicationLogger()
+	if err != nil {
+		t.Fatalf("failed to create logger: %v", err)
+	}
+	return logger
+}
+
 func TestNewTelnyxTelephony(t *testing.T) {
 	cfg := &config.AssistantConfig{
-		PublicAssistantHost: "test.example.com",
+		AppConfig: configs.AppConfig{Assistant: configs.ServiceHostConfig{Public: "test.example.com"}},
 	}
-	logger := commons.NewLogger("test")
+	logger := newTelnyxTestLogger(t)
 
 	telephony, err := NewTelnyxTelephony(cfg, logger)
 
@@ -45,7 +56,7 @@ func TestNewTelnyxTelephony(t *testing.T) {
 
 func TestCatchAllStatusCallback(t *testing.T) {
 	cfg := &config.AssistantConfig{}
-	logger := commons.NewLogger("test")
+	logger := newTelnyxTestLogger(t)
 	telephony, _ := NewTelnyxTelephony(cfg, logger)
 
 	w := httptest.NewRecorder()
@@ -65,7 +76,7 @@ func TestCatchAllStatusCallback(t *testing.T) {
 
 func TestStatusCallback(t *testing.T) {
 	cfg := &config.AssistantConfig{}
-	logger := commons.NewLogger("test")
+	logger := newTelnyxTestLogger(t)
 	telephony, _ := NewTelnyxTelephony(cfg, logger)
 
 	tests := []struct {
@@ -147,7 +158,7 @@ func TestStatusCallback(t *testing.T) {
 
 func TestReceiveCall(t *testing.T) {
 	cfg := &config.AssistantConfig{}
-	logger := commons.NewLogger("test")
+	logger := newTelnyxTestLogger(t)
 	telephony, _ := NewTelnyxTelephony(cfg, logger)
 
 	tests := []struct {
@@ -186,16 +197,16 @@ func TestReceiveCall(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 
-			url := "/telnyx/incoming"
+			reqURL := "/telnyx/incoming"
 			if len(tt.queryParams) > 0 {
-				params := make([]string, 0)
+				params := url.Values{}
 				for k, v := range tt.queryParams {
-					params = append(params, k+"="+v)
+					params.Set(k, v)
 				}
-				url = url + "?" + strings.Join(params, "&")
+				reqURL = reqURL + "?" + params.Encode()
 			}
 
-			c.Request = httptest.NewRequest("POST", url, nil)
+			c.Request = httptest.NewRequest("POST", reqURL, nil)
 
 			callInfo, err := telephony.ReceiveCall(c)
 
@@ -224,9 +235,9 @@ func TestReceiveCall(t *testing.T) {
 
 func TestInboundCall(t *testing.T) {
 	cfg := &config.AssistantConfig{
-		PublicAssistantHost: "test.example.com",
+		AppConfig: configs.AppConfig{Assistant: configs.ServiceHostConfig{Public: "test.example.com"}},
 	}
-	logger := commons.NewLogger("test")
+	logger := newTelnyxTestLogger(t)
 	telephony, _ := NewTelnyxTelephony(cfg, logger)
 
 	w := httptest.NewRecorder()
@@ -262,7 +273,7 @@ func TestTelnyxWebSocketEventParsing(t *testing.T) {
 		expected TelnyxWebSocketEvent
 	}{
 		{
-			name: "start event",
+			name:    "start event",
 			jsonStr: `{"event":"start","stream_id":"stream-123","start":{"call_control_id":"call-456","media_format":{"encoding":"PCMU","sample_rate":8000,"channels":1}}}`,
 			expected: TelnyxWebSocketEvent{
 				Event:    "start",
@@ -278,7 +289,7 @@ func TestTelnyxWebSocketEventParsing(t *testing.T) {
 			},
 		},
 		{
-			name: "media event",
+			name:    "media event",
 			jsonStr: `{"event":"media","stream_id":"stream-123","media":{"track":"inbound","payload":"dGVzdA=="}}`,
 			expected: TelnyxWebSocketEvent{
 				Event:    "media",
@@ -290,7 +301,7 @@ func TestTelnyxWebSocketEventParsing(t *testing.T) {
 			},
 		},
 		{
-			name: "stop event",
+			name:    "stop event",
 			jsonStr: `{"event":"stop","stream_id":"stream-123","stop":{"call_control_id":"call-456"}}`,
 			expected: TelnyxWebSocketEvent{
 				Event:    "stop",
@@ -321,9 +332,7 @@ func TestTelnyxWebSocketEventParsing(t *testing.T) {
 }
 
 func TestGetCredentials(t *testing.T) {
-	cfg := &config.AssistantConfig{}
-	logger := commons.NewLogger("test")
-	telephony, _ := NewTelnyxTelephony(cfg, logger)
+	telephony := &telnyxTelephony{}
 
 	tests := []struct {
 		name       string
@@ -391,9 +400,7 @@ func TestGetCredentials(t *testing.T) {
 }
 
 func TestGetCredentials_NilVault(t *testing.T) {
-	cfg := &config.AssistantConfig{}
-	logger := commons.NewLogger("test")
-	telephony, _ := NewTelnyxTelephony(cfg, logger)
+	telephony := &telnyxTelephony{}
 
 	_, _, err := telephony.getCredentials(nil)
 	if err == nil {
@@ -401,107 +408,14 @@ func TestGetCredentials_NilVault(t *testing.T) {
 	}
 }
 
-func TestOutboundCall(t *testing.T) {
-	tests := []struct {
-		name       string
-		statusCode int
-		respBody   map[string]interface{}
-		expectErr  bool
-		expectFail bool
-	}{
-		{
-			name:       "success",
-			statusCode: http.StatusOK,
-			respBody: map[string]interface{}{
-				"data": map[string]interface{}{
-					"call_control_id": "call-123",
-					"call_session_id": "session-456",
-					"status":          "initiated",
-				},
-			},
-			expectErr: false,
-		},
-		{
-			name:       "api error 4xx",
-			statusCode: http.StatusBadRequest,
-			respBody: map[string]interface{}{
-				"errors": []interface{}{
-					map[string]interface{}{"detail": "invalid request"},
-				},
-			},
-			expectErr:  true,
-			expectFail: true,
-		},
-		{
-			name:       "api error 5xx",
-			statusCode: http.StatusInternalServerError,
-			respBody: map[string]interface{}{
-				"errors": []interface{}{
-					map[string]interface{}{"detail": "internal error"},
-				},
-			},
-			expectErr:  true,
-			expectFail: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Header.Get("Authorization") == "" {
-					w.WriteHeader(http.StatusUnauthorized)
-					return
-				}
-				body, _ := io.ReadAll(r.Body)
-				var req map[string]interface{}
-				json.Unmarshal(body, &req)
-				w.WriteHeader(tt.statusCode)
-				json.NewEncoder(w).Encode(tt.respBody)
-			}))
-			defer server.Close()
-
-			cfg := &config.AssistantConfig{
-				PublicAssistantHost: "test.example.com",
-			}
-			logger := commons.NewLogger("test")
-			telephony, _ := NewTelnyxTelephony(cfg, logger)
-
-			// Override base URL by using the test server
-			// Since we can't override the const, we test via the HTTP client behavior
-			// We'll test getCredentials + the HTTP flow separately
-
-			// For full integration, we'd need to inject the base URL; test what we can
-			credMap := map[string]interface{}{
-				"api_key":       "test-api-key",
-				"connection_id": "test-connection-id",
-			}
-			structValue, _ := structpb.NewStruct(credMap)
-			vaultCred := &protos.VaultCredential{Value: structValue}
-
-			// Verify credentials work
-			apiKey, connID, err := telephony.getCredentials(vaultCred)
-			if err != nil {
-				t.Fatalf("getCredentials failed: %v", err)
-			}
-			if apiKey != "test-api-key" || connID != "test-connection-id" {
-				t.Errorf("unexpected credentials: apiKey=%s, connID=%s", apiKey, connID)
-			}
-
-			_ = server.URL // referenced for completeness
-		})
-	}
-}
-
 func TestOutboundCall_MissingCredentials(t *testing.T) {
 	cfg := &config.AssistantConfig{
-		PublicAssistantHost: "test.example.com",
+		AppConfig: configs.AppConfig{Assistant: configs.ServiceHostConfig{Public: "test.example.com"}},
 	}
-	logger := commons.NewLogger("test")
+	logger := newTelnyxTestLogger(t)
 	telephony, _ := NewTelnyxTelephony(cfg, logger)
 
-	opts := &internal_type.TestOption{}
-
-	info, err := telephony.OutboundCall(nil, "+15551234567", "+15559876543", 1, 1, nil, nil)
+	info, err := telephony.OutboundCall(nil, "+15551234567", "+15559876543", nil, 1, nil, utils.Option{})
 	if err == nil {
 		t.Error("expected error for nil vault credential")
 	}
@@ -510,69 +424,8 @@ func TestOutboundCall_MissingCredentials(t *testing.T) {
 	}
 }
 
-func TestHangupCall(t *testing.T) {
-	tests := []struct {
-		name       string
-		statusCode int
-		expectErr  bool
-	}{
-		{
-			name:       "success",
-			statusCode: http.StatusOK,
-			expectErr:  false,
-		},
-		{
-			name:       "error 4xx",
-			statusCode: http.StatusBadRequest,
-			expectErr:  true,
-		},
-		{
-			name:       "error 5xx",
-			statusCode: http.StatusInternalServerError,
-			expectErr:  true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(tt.statusCode)
-				if tt.statusCode >= 400 {
-					w.Write([]byte(`{"error":"failed"}`))
-				}
-			}))
-			defer server.Close()
-
-			// Test the HTTP client behavior pattern
-			// Full integration test would require injecting base URL
-			cfg := &config.AssistantConfig{}
-			logger := commons.NewLogger("test")
-			telephony, _ := NewTelnyxTelephony(cfg, logger)
-
-			credMap := map[string]interface{}{
-				"api_key":       "test-api-key",
-				"connection_id": "test-connection-id",
-			}
-			structValue, _ := structpb.NewStruct(credMap)
-			vaultCred := &protos.VaultCredential{Value: structValue}
-
-			apiKey, _, err := telephony.getCredentials(vaultCred)
-			if err != nil {
-				t.Fatalf("getCredentials failed: %v", err)
-			}
-			if apiKey != "test-api-key" {
-				t.Errorf("expected test-api-key, got %s", apiKey)
-			}
-
-			_ = server.URL // referenced for completeness
-		})
-	}
-}
-
 func TestHangupCall_MissingCredentials(t *testing.T) {
-	cfg := &config.AssistantConfig{}
-	logger := commons.NewLogger("test")
-	telephony, _ := NewTelnyxTelephony(cfg, logger)
+	telephony := &telnyxTelephony{}
 
 	err := telephony.HangupCall("call-123", nil)
 	if err == nil {
