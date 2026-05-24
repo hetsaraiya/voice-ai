@@ -212,6 +212,7 @@ func (tws *telnyxWebsocketStreamer) Send(response internal_type.Stream) error {
 			}
 		}
 	case *protos.ConversationDisconnection:
+		_ = tws.Disconnect(data.GetType())
 		if tws.GetConversationUuid() != "" {
 			if err := tws.telephony.HangupCall(tws.GetConversationUuid(), tws.VaultCredential()); err != nil {
 				tws.Logger.Errorf("Error ending Telnyx call: %v", err)

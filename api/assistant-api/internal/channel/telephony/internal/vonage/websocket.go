@@ -150,6 +150,7 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 			}
 		}
 	case *protos.ConversationDisconnection:
+		_ = vng.Disconnect(data.GetType())
 		if vng.GetConversationUuid() != "" {
 			if cAuth, err := vonageAuth(vng.VaultCredential()); err == nil {
 				vonage.NewVoiceClient(cAuth).Hangup(vng.GetConversationUuid())

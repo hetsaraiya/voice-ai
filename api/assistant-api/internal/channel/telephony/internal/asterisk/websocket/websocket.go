@@ -223,6 +223,7 @@ func (aws *asteriskWebsocketStreamer) Send(response internal_type.Stream) error 
 		// Server-initiated disconnect: the talker already knows the reason
 		// (it called Notify with it). No need to round-trip back through
 		// CriticalCh — just hang up the Asterisk channel and clean up.
+		_ = aws.Disconnect(data.GetType())
 		aws.stopAudioProcessing()
 		if err := aws.hangupCall(); err != nil {
 			aws.Logger.Warnw("Failed to hang up call for disconnection", "error", err)

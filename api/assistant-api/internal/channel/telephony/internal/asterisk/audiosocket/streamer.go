@@ -223,6 +223,7 @@ func (as *Streamer) Send(response internal_type.Stream) error {
 		// Server-initiated disconnect: the talker already knows the reason
 		// (it called Notify with it). No need to round-trip back through
 		// CriticalCh — just signal hangup over AudioSocket and clean up.
+		_ = as.Disconnect(data.GetType())
 		_ = as.writeFrame(FrameTypeHangup, nil)
 		as.Cancel()
 	case *protos.ConversationToolCall:

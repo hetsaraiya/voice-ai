@@ -155,6 +155,7 @@ func (exotel *exotelWebsocketStreamer) Send(response internal_type.Stream) error
 		// (it called Notify with it). No need to round-trip back through
 		// CriticalCh — Exotel has no REST API to terminate a call; closing
 		// the WebSocket via Cancel is the only way to release the call leg.
+		_ = exotel.Disconnect(data.GetType())
 		exotel.stopAudioProcessing()
 		exotel.Cancel()
 	case *protos.ConversationToolCall:

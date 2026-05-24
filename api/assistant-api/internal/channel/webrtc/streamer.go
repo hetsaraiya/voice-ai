@@ -1024,6 +1024,7 @@ func (s *webrtcStreamer) Send(response internal_type.Stream) error {
 	case *protos.ConversationMetadata:
 		s.Output(data)
 	case *protos.ConversationDisconnection:
+		_ = s.Disconnect(data.GetType())
 		s.Output(data)
 		s.Close()
 	case *protos.ConversationMetric:
