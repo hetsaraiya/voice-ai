@@ -442,7 +442,7 @@ func (eService *assistantService) Get(ctx context.Context,
 			})
 	}
 
-	if opts.InjectAnalysis {
+	if opts.InjectWebhook {
 		wg.Add(1)
 		utils.Go(ctx,
 			func() {
@@ -460,7 +460,7 @@ func (eService *assistantService) Get(ctx context.Context,
 			})
 	}
 
-	if opts.InjectWebhook {
+	if opts.InjectAnalysis {
 		wg.Add(1)
 		utils.Go(ctx,
 			func() {
