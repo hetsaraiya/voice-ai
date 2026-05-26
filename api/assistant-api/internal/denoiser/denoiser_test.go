@@ -10,7 +10,6 @@ import (
 
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
-	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -36,8 +35,6 @@ func TestDenoiserIdentifierString(t *testing.T) {
 func TestGetDenoiserWithValidTypes(t *testing.T) {
 	mockLogger, _ := commons.NewApplicationLogger()
 
-	config := &protos.AudioConfig{SampleRate: 16000}
-
 	tests := []struct {
 		name       string
 		identifier DenoiserIdentifier
@@ -51,7 +48,7 @@ func TestGetDenoiserWithValidTypes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := utils.Option{DenoiserOptionsKeyProvider: tt.identifier}
 
-			denoiser, err := GetDenoiser(t.Context(), mockLogger, config, nil, opts)
+			denoiser, err := GetDenoiser(t.Context(), mockLogger, nil, opts)
 			assert.NoError(t, err)
 			assert.NotNil(t, denoiser)
 		})
@@ -61,7 +58,6 @@ func TestGetDenoiserWithValidTypes(t *testing.T) {
 // TestGetDenoiserWithInvalidIdentifiers tests factory with invalid identifiers
 func TestGetDenoiserWithInvalidIdentifiers(t *testing.T) {
 	mockLogger, _ := commons.NewApplicationLogger()
-	config := &protos.AudioConfig{SampleRate: 16000}
 	tests := []struct {
 		name       string
 		identifier DenoiserIdentifier
@@ -77,7 +73,7 @@ func TestGetDenoiserWithInvalidIdentifiers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := utils.Option{DenoiserOptionsKeyProvider: tt.identifier}
 
-			denoiser, err := GetDenoiser(t.Context(), mockLogger, config, nil, opts)
+			denoiser, err := GetDenoiser(t.Context(), mockLogger, nil, opts)
 			assert.NoError(t, err)
 			assert.NotNil(t, denoiser)
 		})
@@ -86,8 +82,6 @@ func TestGetDenoiserWithInvalidIdentifiers(t *testing.T) {
 
 // TestGetDenoiserWithNilLogger tests with nil logger
 func TestGetDenoiserWithNilLogger(t *testing.T) {
-	config := &protos.AudioConfig{SampleRate: 16000}
-
 	tests := []struct {
 		name       string
 		identifier DenoiserIdentifier
@@ -101,29 +95,29 @@ func TestGetDenoiserWithNilLogger(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := utils.Option{DenoiserOptionsKeyProvider: tt.identifier}
 
-			denoiser, _ := GetDenoiser(t.Context(), nil, config, nil, opts)
+			denoiser, _ := GetDenoiser(t.Context(), nil, nil, opts)
 			assert.NotNil(t, denoiser)
 		})
 	}
 }
 
-// TestGetDenoiserWithNilAudioConfig tests with nil config
-func TestGetDenoiserWithNilAudioConfig(t *testing.T) {
+// TestGetDenoiserWithNilOnPacket tests factory behavior when no callback is provided.
+func TestGetDenoiserWithNilOnPacket(t *testing.T) {
 	mockLogger, _ := commons.NewApplicationLogger()
 
 	tests := []struct {
 		name       string
 		identifier DenoiserIdentifier
 	}{
-		{name: "KRISP with nil config", identifier: KRISP},
-		{name: "RN_NOISE with nil config", identifier: RN_NOISE},
+		{name: "KRISP with nil onPacket", identifier: KRISP},
+		{name: "RN_NOISE with nil onPacket", identifier: RN_NOISE},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := utils.Option{DenoiserOptionsKeyProvider: tt.identifier}
 
-			denoiser, _ := GetDenoiser(t.Context(), mockLogger, nil, nil, opts)
+			denoiser, _ := GetDenoiser(t.Context(), mockLogger, nil, opts)
 			assert.NotNil(t, denoiser)
 		})
 	}
@@ -132,8 +126,6 @@ func TestGetDenoiserWithNilAudioConfig(t *testing.T) {
 // TestAllDenoiserTypesCallFactory tests all types work
 func TestAllDenoiserTypesCallFactory(t *testing.T) {
 	mockLogger, _ := commons.NewApplicationLogger()
-
-	config := &protos.AudioConfig{SampleRate: 16000}
 
 	tests := []struct {
 		name       string
@@ -146,7 +138,7 @@ func TestAllDenoiserTypesCallFactory(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := utils.Option{DenoiserOptionsKeyProvider: tt.identifier}
-			denoiser, err := GetDenoiser(t.Context(), mockLogger, config, nil, opts)
+			denoiser, err := GetDenoiser(t.Context(), mockLogger, nil, opts)
 			assert.NoError(t, err)
 			assert.NotNil(t, denoiser)
 		})
@@ -200,8 +192,6 @@ func TestDenoiserTypeConversion(t *testing.T) {
 func TestDenoiserFactoryDefaults(t *testing.T) {
 	mockLogger, _ := commons.NewApplicationLogger()
 
-	config := &protos.AudioConfig{SampleRate: 16000}
-
 	tests := []struct {
 		name       string
 		identifier DenoiserIdentifier
@@ -214,7 +204,7 @@ func TestDenoiserFactoryDefaults(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := utils.Option{DenoiserOptionsKeyProvider: tt.identifier}
-			denoiser, err := GetDenoiser(t.Context(), mockLogger, config, nil, opts)
+			denoiser, err := GetDenoiser(t.Context(), mockLogger, nil, opts)
 			assert.NoError(t, err)
 			assert.NotNil(t, denoiser)
 		})
@@ -231,66 +221,59 @@ func TestValidDenoiserIdentifierMatching(t *testing.T) {
 	}
 }
 
-// TestDenoiserFactoryWithDifferentConfigs tests various configs
-func TestDenoiserFactoryWithDifferentConfigs(t *testing.T) {
+// TestDenoiserFactoryProvidesExecutorMetadata validates the new executor contract.
+func TestDenoiserFactoryProvidesExecutorMetadata(t *testing.T) {
 	mockLogger, _ := commons.NewApplicationLogger()
 
 	tests := []struct {
 		name       string
 		identifier DenoiserIdentifier
-		sampleRate uint32
 	}{
-		{name: "KRISP 8kHz", identifier: KRISP, sampleRate: 8000},
-		{name: "KRISP 16kHz", identifier: KRISP, sampleRate: 16000},
-		{name: "RN_NOISE 8kHz", identifier: RN_NOISE, sampleRate: 8000},
-		{name: "RN_NOISE 16kHz", identifier: RN_NOISE, sampleRate: 16000},
+		{name: "KRISP metadata", identifier: KRISP},
+		{name: "RN_NOISE metadata", identifier: RN_NOISE},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := &protos.AudioConfig{SampleRate: tt.sampleRate}
 			opts := utils.Option{DenoiserOptionsKeyProvider: tt.identifier}
 
-			denoiser, err := GetDenoiser(t.Context(), mockLogger, config, nil, opts)
+			denoiser, err := GetDenoiser(t.Context(), mockLogger, nil, opts)
 			assert.NoError(t, err)
 			assert.NotNil(t, denoiser)
+			assert.NotEmpty(t, denoiser.Name())
+			_, err = denoiser.Arguments()
+			assert.NoError(t, err)
 		})
 	}
 }
 
 // BenchmarkGetDenoiserKRISP benchmarks KRISP factory
 func BenchmarkGetDenoiserKRISP(b *testing.B) {
-
-	config := &protos.AudioConfig{SampleRate: 16000}
 	opts := utils.Option{DenoiserOptionsKeyProvider: KRISP}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		GetDenoiser(b.Context(), nil, config, nil, opts)
+		GetDenoiser(b.Context(), nil, nil, opts)
 	}
 }
 
 // BenchmarkGetDenoiserRNNoise benchmarks RN_NOISE factory
 func BenchmarkGetDenoiserRNNoise(b *testing.B) {
-
-	config := &protos.AudioConfig{SampleRate: 16000}
 	opts := utils.Option{DenoiserOptionsKeyProvider: RN_NOISE}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		GetDenoiser(b.Context(), nil, config, nil, opts)
+		GetDenoiser(b.Context(), nil, nil, opts)
 	}
 }
 
 // BenchmarkGetDenoiserDefault benchmarks default behavior
 func BenchmarkGetDenoiserDefault(b *testing.B) {
-
-	config := &protos.AudioConfig{SampleRate: 16000}
 	opts := utils.Option{DenoiserOptionsKeyProvider: DenoiserIdentifier("")}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		GetDenoiser(b.Context(), nil, config, nil, opts)
+		GetDenoiser(b.Context(), nil, nil, opts)
 	}
 }
 

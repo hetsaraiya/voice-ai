@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // M wraps a map for convenient getters.
@@ -170,6 +171,18 @@ func (m Option) GetString(key string) (string, error) {
 	default:
 		return fmt.Sprintf("%v", v), nil
 	}
+}
+
+func (m Option) GetDuration(key string) (time.Duration, error) {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return 0, fmt.Errorf("key %q not found or nil", key)
+	}
+	duration := GetDuration(v)
+	if duration == nil {
+		return 0, fmt.Errorf("invalid duration for %q", key)
+	}
+	return *duration, nil
 }
 
 func (m Option) GetUint32(key string) (uint32, error) {

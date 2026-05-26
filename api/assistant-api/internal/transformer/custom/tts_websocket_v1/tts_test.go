@@ -9,6 +9,7 @@ package internal_transformer_custom_tts_websocket_v1
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,21 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
 )
+
+type fakeTTSResampler struct {
+	out []byte
+	err error
+}
+
+func (resampler *fakeTTSResampler) Resample(data []byte, _, _ *protos.AudioConfig) ([]byte, error) {
+	if resampler.err != nil {
+		return nil, resampler.err
+	}
+	if resampler.out != nil {
+		return append([]byte(nil), resampler.out...), nil
+	}
+	return append([]byte(nil), data...), nil
+}
 
 type packetCollector struct {
 	mu      sync.Mutex
@@ -183,6 +199,138 @@ func TestTextToSpeech_WebsocketFlow_RequestRules(t *testing.T) {
 
 	assert.True(t, hasAudio, "expected audio packet")
 	assert.True(t, hasEnd, "expected end packet")
+}
+
+func TestTextToSpeech_NormalizesCustomAudioOutput(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		conn, err := upgrader.Upgrade(writer, request, nil)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		_, _, err = conn.ReadMessage()
+		require.NoError(t, err)
+		require.NoError(t, conn.WriteMessage(websocket.BinaryMessage, []byte("provider-audio")))
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"done","request_id":"ctx-normalize"}`)))
+	}))
+	defer server.Close()
+
+	baseURL := strings.Replace(server.URL, "http://", "ws://", 1)
+	collector := newPacketCollector()
+	transformer, err := NewTextToSpeech(
+		context.Background(),
+		transformer_testutil.NewTestLogger(),
+		testWSCredential(t, map[string]any{
+			credentialKeyBaseURLCamel: baseURL,
+		}),
+		collector.onPacket,
+		utils.Option{
+			optionKeyVoiceID:       "virat",
+			optionKeySampleRate:    "8000",
+			optionKeyRequestRules:  `[{"when":{"packet":"text"},"send":{"frame":"json","body":{"text":{"$path":"packet.text"}}}}]`,
+			optionKeyResponseRules: `[{"when":{"frame":"binary"},"emit":{"audio":{"$frame":"binary"}}},{"when":{"frame":"json","path":"type","equals":"done"},"emit":{"message_id":{"$path":"request_id"},"done":true}}]`,
+		},
+	)
+	require.NoError(t, err)
+
+	typed, ok := transformer.(*textToSpeech)
+	require.True(t, ok)
+	require.NotNil(t, typed.resampler, "non-internal custom TTS output should initialize a streaming resampler")
+	typed.resampler = &fakeTTSResampler{out: []byte("internal-audio")}
+
+	require.NoError(t, transformer.Initialize())
+	require.NoError(t, transformer.Transform(context.Background(), internal_type.TextToSpeechTextPacket{
+		ContextID: "ctx-normalize",
+		Text:      "hello",
+	}))
+
+	select {
+	case <-collector.endCh:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timed out waiting for TextToSpeechEndPacket")
+	}
+
+	require.NoError(t, transformer.Close(context.Background()))
+
+	hasAudio := false
+	for _, packet := range collector.all() {
+		audio, ok := packet.(internal_type.TextToSpeechAudioPacket)
+		if ok && audio.ContextID == "ctx-normalize" {
+			hasAudio = true
+			assert.Equal(t, []byte("internal-audio"), audio.AudioChunk)
+			assert.NotEqual(t, []byte("provider-audio"), audio.AudioChunk)
+		}
+	}
+	assert.True(t, hasAudio, "expected normalized audio packet")
+	assert.False(t, collector.hasTTSError(), "did not expect TextToSpeechErrorPacket")
+}
+
+func TestTextToSpeech_NormalizeAudioErrorSkipsChunk(t *testing.T) {
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		conn, err := upgrader.Upgrade(writer, request, nil)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		_, _, err = conn.ReadMessage()
+		require.NoError(t, err)
+		require.NoError(t, conn.WriteMessage(websocket.BinaryMessage, []byte("provider-audio")))
+		require.NoError(t, conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"done","request_id":"ctx-error"}`)))
+	}))
+	defer server.Close()
+
+	baseURL := strings.Replace(server.URL, "http://", "ws://", 1)
+	collector := newPacketCollector()
+	transformer, err := NewTextToSpeech(
+		context.Background(),
+		transformer_testutil.NewTestLogger(),
+		testWSCredential(t, map[string]any{
+			credentialKeyBaseURLCamel: baseURL,
+		}),
+		collector.onPacket,
+		utils.Option{
+			optionKeyVoiceID:       "virat",
+			optionKeyRequestRules:  `[{"when":{"packet":"text"},"send":{"frame":"json","body":{"text":{"$path":"packet.text"}}}}]`,
+			optionKeyResponseRules: `[{"when":{"frame":"binary"},"emit":{"audio":{"$frame":"binary"}}},{"when":{"frame":"json","path":"type","equals":"done"},"emit":{"message_id":{"$path":"request_id"},"done":true}}]`,
+		},
+	)
+	require.NoError(t, err)
+
+	typed, ok := transformer.(*textToSpeech)
+	require.True(t, ok)
+	typed.resampler = &fakeTTSResampler{err: errors.New("resample failed")}
+
+	require.NoError(t, transformer.Initialize())
+	require.NoError(t, transformer.Transform(context.Background(), internal_type.TextToSpeechTextPacket{
+		ContextID: "ctx-error",
+		Text:      "hello",
+	}))
+
+	select {
+	case <-collector.endCh:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timed out waiting for TextToSpeechEndPacket")
+	}
+
+	require.NoError(t, transformer.Close(context.Background()))
+
+	var (
+		hasAudio bool
+		hasError bool
+	)
+	for _, packet := range collector.all() {
+		switch typed := packet.(type) {
+		case internal_type.TextToSpeechAudioPacket:
+			hasAudio = true
+			assert.NotEqual(t, []byte("provider-audio"), typed.AudioChunk, "raw provider audio must not be emitted after normalization failure")
+		case internal_type.TextToSpeechErrorPacket:
+			hasError = true
+			assert.Equal(t, "ctx-error", typed.ContextID)
+			assert.Contains(t, typed.Error.Error(), "failed to resample audio")
+		}
+	}
+	assert.False(t, hasAudio, "did not expect audio packet after normalization failure")
+	assert.True(t, hasError, "expected TextToSpeechErrorPacket")
 }
 
 func TestTextToSpeech_EndsOnCleanServerClose(t *testing.T) {

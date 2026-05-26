@@ -9,10 +9,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rapidaai/api/assistant-api/config"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
+	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -262,6 +266,127 @@ func TestReceiveCall(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStatusCallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logger, err := commons.NewApplicationLogger()
+	require.NoError(t, err)
+	telephony, err := NewTwilioTelephony(&config.AssistantConfig{}, logger)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		form        map[string]string
+		checkStatus func(*testing.T, *internal_type.StatusInfo)
+	}{
+		{
+			name: "completed call captures duration and price",
+			form: map[string]string{
+				"CallSid":      "CAf64ab88f90f35581dcb16e60f875ea4a",
+				"CallStatus":   "completed",
+				"CallDuration": "14",
+				"Price":        "-0.02000",
+			},
+			checkStatus: func(t *testing.T, info *internal_type.StatusInfo) {
+				require.NotNil(t, info)
+				assert.Equal(t, "completed", info.Event)
+				assert.Equal(t, "CAf64ab88f90f35581dcb16e60f875ea4a", info.ChannelUUID)
+				require.NotNil(t, info.Duration)
+				assert.Equal(t, 14*time.Second, *info.Duration)
+				assert.Equal(t, "-0.02000", info.Price)
+				assert.Nil(t, info.Error)
+			},
+		},
+		{
+			name: "busy call maps to failed error reason",
+			form: map[string]string{
+				"CallSid":    "CAf64ab88f90f35581dcb16e60f875ea4a",
+				"CallStatus": "busy",
+			},
+			checkStatus: func(t *testing.T, info *internal_type.StatusInfo) {
+				require.NotNil(t, info)
+				assert.Equal(t, "busy", info.Event)
+				require.NotNil(t, info.Error)
+				assert.Equal(t, "failed", info.Error.Error)
+				assert.Equal(t, "busy", info.Error.Reason)
+			},
+		},
+		{
+			name: "error code overrides completed as failed",
+			form: map[string]string{
+				"CallSid":      "CAf64ab88f90f35581dcb16e60f875ea4a",
+				"CallStatus":   "completed",
+				"ErrorCode":    "11200",
+				"ErrorMessage": "HTTP retrieval failure",
+			},
+			checkStatus: func(t *testing.T, info *internal_type.StatusInfo) {
+				require.NotNil(t, info)
+				assert.Equal(t, "completed", info.Event)
+				require.NotNil(t, info.Error)
+				assert.Equal(t, "failed", info.Error.Error)
+				assert.Equal(t, "HTTP retrieval failure", info.Error.Reason)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			formValues := url.Values{}
+			for key, value := range tt.form {
+				formValues.Add(key, value)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(formValues.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			c.Request = req
+
+			statusInfo, err := telephony.StatusCallback(c, nil, 1, 1)
+
+			require.NoError(t, err)
+			tt.checkStatus(t, statusInfo)
+		})
+	}
+}
+
+func TestCatchAllStatusCallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logger, err := commons.NewApplicationLogger()
+	require.NoError(t, err)
+	telephony, err := NewTwilioTelephony(&config.AssistantConfig{}, logger)
+	require.NoError(t, err)
+
+	t.Run("valid Twilio global event", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+
+		queryValues := url.Values{}
+		queryValues.Add("CallSid", "CAf64ab88f90f35581dcb16e60f875ea4a")
+		queryValues.Add("CallStatus", "no-answer")
+		c.Request = httptest.NewRequest(http.MethodGet, "/?"+queryValues.Encode(), nil)
+
+		statusInfo, err := telephony.CatchAllStatusCallback(c)
+
+		require.NoError(t, err)
+		require.NotNil(t, statusInfo)
+		assert.Equal(t, "no-answer", statusInfo.Event)
+		assert.Equal(t, "CAf64ab88f90f35581dcb16e60f875ea4a", statusInfo.ChannelUUID)
+		require.NotNil(t, statusInfo.Error)
+		assert.Equal(t, "no-answer", statusInfo.Error.Reason)
+	})
+
+	t.Run("missing CallSid", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/?CallStatus=completed", nil)
+
+		statusInfo, err := telephony.CatchAllStatusCallback(c)
+
+		assert.Error(t, err)
+		assert.Nil(t, statusInfo)
+	})
 }
 
 // TestReceiveCall_QueryParameterExtraction tests that all query parameters are captured in CallInfo payload

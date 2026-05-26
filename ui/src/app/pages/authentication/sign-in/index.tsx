@@ -81,16 +81,24 @@ export function SignInPage() {
   }, [afterAuthenticate, code, state]);
 
   return (
-    <>
+    <Stack gap={6}>
       <Helmet title="Sign in to your account" />
-      <div className="flex justify-between items-baseline">
-        <h2 className="text-2xl font-light tracking-tight">Sign in</h2>
+      <Stack gap={2}>
+        <h1 className="m-0 text-[1.8rem] leading-tight">Signin</h1>
         {workspace.authentication.signUp.enable && (
-          <Link href="/auth/signup" className="text-sm">
-            I don't have an account
-          </Link>
+          <p className="mt-1.5 text-sm leading-[1.4286] text-(--cds-text-secondary)">
+            Don't have an account? &nbsp;
+            <Link href="/auth/signup" className="text-sm">
+              Sign-up
+            </Link>
+          </p>
         )}
-      </div>
+
+        <div
+          aria-hidden="true"
+          className={`h-px bg-gray-300 dark:bg-gray-900 mt-3`}
+        />
+      </Stack>
 
       <form className="mt-6" onSubmit={handleSubmit(onAuthenticate)}>
         <Stack gap={5}>
@@ -124,18 +132,20 @@ export function SignInPage() {
             Continue
           </PrimaryButton>
         </Stack>
+        <div
+          aria-hidden="true"
+          className={`h-px bg-gray-300 dark:bg-gray-900 mt-3`}
+        />
       </form>
 
-      <div className="mt-6 flex flex-col gap-3">
+      <Stack gap={2}>
         <p className="text-center">
           <Link href="/auth/forgot-password" className="text-sm">
             Can't sign in?
           </Link>
         </p>
-        <SocialButtonGroup
-          {...workspace.authentication.signIn.providers}
-        />
-      </div>
-    </>
+      </Stack>
+      <SocialButtonGroup {...workspace.authentication.signIn.providers} />
+    </Stack>
   );
 }

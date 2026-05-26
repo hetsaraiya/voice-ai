@@ -1,0 +1,211 @@
+openapi: 3.0.3
+info:
+  title: Rapida Common Schemas
+  version: 0.1.0
+paths: {}
+components:
+  schemas:
+    Uint64String:
+      type: string
+      pattern: "^[0-9]+$"
+    AssistantDefinition:
+      type: object
+      properties:
+        assistantId:
+          $ref: "#/components/schemas/Uint64String"
+        version:
+          type: string
+    Error:
+      type: object
+      properties:
+        errorCode:
+          $ref: "#/components/schemas/Uint64String"
+        errorMessage:
+          type: string
+        humanMessage:
+          type: string
+    User:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uint64String"
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        status:
+          type: string
+        createdDate:
+          type: string
+          format: date-time
+    Metric:
+      type: object
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+        description:
+          type: string
+    Metadata:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uint64String"
+        key:
+          type: string
+        value:
+          type: string
+    Argument:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uint64String"
+        name:
+          type: string
+        value:
+          type: string
+    AssistantConversationMessage:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uint64String"
+        assistantConversationId:
+          $ref: "#/components/schemas/Uint64String"
+        role:
+          type: string
+        content:
+          type: string
+        createdDate:
+          type: string
+          format: date-time
+        updatedDate:
+          type: string
+          format: date-time
+    AssistantConversationContext:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uint64String"
+        assistantConversationId:
+          $ref: "#/components/schemas/Uint64String"
+        key:
+          type: string
+        value:
+          type: string
+        createdDate:
+          type: string
+          format: date-time
+        updatedDate:
+          type: string
+          format: date-time
+    AssistantConversationRecording:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uint64String"
+        assistantConversationId:
+          $ref: "#/components/schemas/Uint64String"
+        assistantRecordingUrl:
+          type: string
+        userRecordingUrl:
+          type: string
+        conversationRecordingUrl:
+          type: string
+        createdDate:
+          type: string
+          format: date-time
+        updatedDate:
+          type: string
+          format: date-time
+    AssistantConversationTelephonyEvent:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uint64String"
+        assistantConversationId:
+          $ref: "#/components/schemas/Uint64String"
+        provider:
+          type: string
+        eventType:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        createdDate:
+          type: string
+          format: date-time
+        updatedDate:
+          type: string
+          format: date-time
+    AssistantConversation:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uint64String"
+        userId:
+          $ref: "#/components/schemas/Uint64String"
+        assistantId:
+          $ref: "#/components/schemas/Uint64String"
+        name:
+          type: string
+        projectId:
+          $ref: "#/components/schemas/Uint64String"
+        organizationId:
+          $ref: "#/components/schemas/Uint64String"
+        source:
+          type: string
+        createdBy:
+          $ref: "#/components/schemas/Uint64String"
+        updatedBy:
+          $ref: "#/components/schemas/Uint64String"
+        user:
+          $ref: "#/components/schemas/User"
+        assistantProviderModelId:
+          $ref: "#/components/schemas/Uint64String"
+        assistantConversationMessage:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantConversationMessage"
+        identifier:
+          type: string
+        status:
+          type: string
+        createdDate:
+          type: string
+          format: date-time
+        updatedDate:
+          type: string
+          format: date-time
+        contexts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantConversationContext"
+        metrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/Metric"
+        arguments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Argument"
+        metadata:
+          type: array
+          items:
+            $ref: "#/components/schemas/Metadata"
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/Metadata"
+        direction:
+          type: string
+        recordings:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantConversationRecording"
+        telephonyEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantConversationTelephonyEvent"

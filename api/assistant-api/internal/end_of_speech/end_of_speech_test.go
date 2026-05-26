@@ -78,23 +78,3 @@ func TestGetEndOfSpeech_WithNilOptions(t *testing.T) {
 	assert.NotNil(t, endOfSpeech)
 	assert.Equal(t, "pipecatSmartTurnEndOfSpeech", endOfSpeech.Name())
 }
-
-func TestResolveEndOfSpeechProvider_DefaultsToPipecat(t *testing.T) {
-	assert.Equal(t, PipecatSmartTurnEndOfSpeech, resolveEndOfSpeechProvider(nil))
-	assert.Equal(t, PipecatSmartTurnEndOfSpeech, resolveEndOfSpeechProvider(utils.Option{}))
-}
-
-func TestResolveEndOfSpeechProvider_UsesConfiguredValue(t *testing.T) {
-	assert.Equal(t,
-		SilenceBasedEndOfSpeech,
-		resolveEndOfSpeechProvider(utils.Option{EndOfSpeechOptionsKeyProvider: SilenceBasedEndOfSpeech}),
-	)
-	assert.Equal(t,
-		LiveKitEndOfSpeech,
-		resolveEndOfSpeechProvider(utils.Option{EndOfSpeechOptionsKeyProvider: LiveKitEndOfSpeech}),
-	)
-	assert.Equal(t,
-		PipecatSmartTurnEndOfSpeech,
-		resolveEndOfSpeechProvider(utils.Option{EndOfSpeechOptionsKeyProvider: PipecatSmartTurnEndOfSpeech}),
-	)
-}

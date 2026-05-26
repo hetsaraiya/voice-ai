@@ -186,9 +186,9 @@ func TestMetadataPrefixNamespace_Client(t *testing.T) {
 
 	enum := ns.Enumerate(src, variable.ResolveContext{})
 	want := map[string]string{
-		"direction":          "outbound",
-		"telephony_provider": "sip",
-		"phone":              "6001",
+		"direction": "outbound",
+		"channel":   "sip",
+		"phone":     "6001",
 	}
 	if len(enum) != len(want) {
 		t.Errorf("client enumerate size = %d, want %d (%v)", len(enum), len(want), enum)

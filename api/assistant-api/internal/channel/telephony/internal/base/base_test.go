@@ -56,7 +56,7 @@ func TestCreateConnectionRequest_EmitsAllClientKeys(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "outbound", metadataString(t, md, "client.direction"))
-	require.Equal(t, "sip", metadataString(t, md, "client.telephony_provider"))
+	require.Equal(t, "sip", metadataString(t, md, "client.channel"))
 	require.Equal(t, "15551234567", metadataString(t, md, "client.phone"))
 	require.Equal(t, "15557654321", metadataString(t, md, "client.assistant_phone"))
 	require.Equal(t, "live-call-id", metadataString(t, md, "client.provider_call_id"))
@@ -85,6 +85,6 @@ func TestCreateConnectionRequest_OmitsEmptyOptionalFields(t *testing.T) {
 
 	// Required-when-known fields still emitted.
 	require.Equal(t, "inbound", metadataString(t, md, "client.direction"))
-	require.Equal(t, "sip", metadataString(t, md, "client.telephony_provider"))
+	require.Equal(t, "sip", metadataString(t, md, "client.channel"))
 	require.Equal(t, "ctx-1", metadataString(t, md, "client.context_id"))
 }

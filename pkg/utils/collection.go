@@ -43,6 +43,23 @@ func CloneMap[K comparable, V any](input map[K]V) map[K]V {
 	return out
 }
 
+// Unique returns the first occurrence of each value while preserving input order.
+func Unique[T comparable](input []T) []T {
+	if len(input) == 0 {
+		return []T{}
+	}
+	out := make([]T, 0, len(input))
+	seen := map[T]bool{}
+	for _, value := range input {
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
 func GetCaseInsensitiveKeyValue(cfg map[string]string, key string) (string, bool) {
 	if value, ok := cfg[key]; ok {
 		return value, true

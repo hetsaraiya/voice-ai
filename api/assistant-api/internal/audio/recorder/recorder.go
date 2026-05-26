@@ -11,7 +11,6 @@ import (
 	"github.com/rapidaai/pkg/commons"
 )
 
-// logger, audioConfig, opts
 func GetRecorder(logger commons.Logger) (internal_type.Recorder, error) {
 	return internal_recorder.NewDefaultAudioRecorder(logger)
 }

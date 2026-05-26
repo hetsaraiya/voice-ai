@@ -167,6 +167,9 @@ func (eService *assistantService) Get(ctx context.Context,
 	assistantId uint64,
 	assistantProviderId *uint64,
 	opts *internal_services.GetAssistantOption) (*internal_assistant_entity.Assistant, error) {
+	if opts == nil {
+		opts = &internal_services.GetAssistantOption{}
+	}
 	start := time.Now()
 	db := eService.postgres.DB(ctx)
 
@@ -181,6 +184,10 @@ func (eService *assistantService) Get(ctx context.Context,
 		if *auth.GetCurrentOrganizationId() != assistant.OrganizationId || *auth.GetCurrentProjectId() != assistant.ProjectId {
 			return nil, fmt.Errorf("you don't have access to the assistant")
 		}
+	}
+
+	if assistantProviderId != nil {
+		assistant.AssistantProviderId = *assistantProviderId
 	}
 
 	// get assistant
@@ -385,10 +392,6 @@ func (eService *assistantService) Get(ctx context.Context,
 	}
 
 	if opts.InjectAssistantProvider {
-		if assistantProviderId != nil {
-			assistant.AssistantProviderId = *assistantProviderId
-		}
-
 		wg.Add(1)
 		utils.Go(ctx,
 			func() {
@@ -439,7 +442,7 @@ func (eService *assistantService) Get(ctx context.Context,
 			})
 	}
 
-	if opts.InjectAnalysis {
+	if opts.InjectWebhook {
 		wg.Add(1)
 		utils.Go(ctx,
 			func() {
@@ -457,7 +460,7 @@ func (eService *assistantService) Get(ctx context.Context,
 			})
 	}
 
-	if opts.InjectWebhook {
+	if opts.InjectAnalysis {
 		wg.Add(1)
 		utils.Go(ctx,
 			func() {

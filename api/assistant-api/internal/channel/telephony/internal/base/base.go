@@ -206,8 +206,8 @@ func (base *BaseTelephonyStreamer) SourceAudioConfig() *protos.AudioConfig {
 // can't overwrite previously-stored values during resume.
 func (base *BaseTelephonyStreamer) CreateConnectionRequest() *protos.ConversationInitialization {
 	clientMetadata := map[string]interface{}{
-		"client.direction":          base.callCtx.Direction,
-		"client.telephony_provider": base.callCtx.Provider,
+		"client.direction": base.callCtx.Direction,
+		"client.channel":   base.callCtx.Provider,
 	}
 	if v := base.callCtx.CallerNumber; v != "" {
 		clientMetadata["client.phone"] = v

@@ -69,6 +69,8 @@ func pcm(val byte, length int) []byte {
 // wavPCMData strips the 44-byte WAV header and returns the raw PCM payload.
 func wavPCMData(wav []byte) []byte { return wav[wavHeaderSize:] }
 
+func wavChannels(wav []byte) uint16 { return binary.LittleEndian.Uint16(wav[22:24]) }
+
 // ---------------------------------------------------------------------------
 // Basic recording
 // ---------------------------------------------------------------------------
@@ -134,7 +136,7 @@ func TestTimelineBasedPlacement(t *testing.T) {
 	fc.Advance(100 * time.Millisecond)
 	rec.Record(ctx, internal_type.TextToSpeechAudioPacket{ContextID: "c1", AudioChunk: pcm(0x22, 200)})
 
-	userWAV, systemWAV, err := rec.Persist()
+	userWAV, systemWAV, _, err := rec.Persist()
 	if err != nil {
 		t.Fatalf("Persist error: %v", err)
 	}
@@ -188,7 +190,7 @@ func TestTracksAreIndependent(t *testing.T) {
 	rec.Record(ctx, internal_type.UserAudioReceivedPacket{Audio: pcm(0x11, 100)})
 	rec.Record(ctx, internal_type.TextToSpeechAudioPacket{ContextID: "c1", AudioChunk: pcm(0x22, 150)})
 
-	userWAV, systemWAV, err := rec.Persist()
+	userWAV, systemWAV, _, err := rec.Persist()
 	if err != nil {
 		t.Fatalf("Persist error: %v", err)
 	}
@@ -230,7 +232,7 @@ func TestTTSBurstDoesNotOverlap(t *testing.T) {
 		t.Errorf("chunk 1: expected offset 100, got %d", rec.chunks[1].ByteOffset)
 	}
 
-	_, systemWAV, err := rec.Persist()
+	_, systemWAV, _, err := rec.Persist()
 	if err != nil {
 		t.Fatalf("Persist error: %v", err)
 	}
@@ -311,7 +313,7 @@ func TestTTSPacingNoGaps(t *testing.T) {
 	}
 
 	fc.Advance(890 * time.Millisecond) // session = 1s
-	_, systemWAV, err := rec.Persist()
+	_, systemWAV, _, err := rec.Persist()
 	if err != nil {
 		t.Fatalf("Persist error: %v", err)
 	}
@@ -354,7 +356,7 @@ func TestTTSNewSegmentAfterGap(t *testing.T) {
 	}
 
 	fc.Advance(500 * time.Millisecond)
-	_, systemWAV, err := rec.Persist()
+	_, systemWAV, _, err := rec.Persist()
 	if err != nil {
 		t.Fatalf("Persist error: %v", err)
 	}
@@ -440,7 +442,7 @@ func TestInterruptionPartialTrim(t *testing.T) {
 	}
 
 	fc.Advance(490 * time.Millisecond) // session 500ms
-	_, systemWAV, err := rec.Persist()
+	_, systemWAV, _, err := rec.Persist()
 	if err != nil {
 		t.Fatalf("Persist error: %v", err)
 	}
@@ -558,7 +560,7 @@ func TestPushCopiesData(t *testing.T) {
 func TestPersistEmptyReturnsError(t *testing.T) {
 	rec, _ := newTestRecorderWithClock(t)
 	rec.Start()
-	if _, _, err := rec.Persist(); err == nil {
+	if _, _, _, err := rec.Persist(); err == nil {
 		t.Fatal("expected error for empty recorder")
 	}
 }
@@ -575,7 +577,7 @@ func TestPersistProducesValidWAV(t *testing.T) {
 	// Advance clock so session = 500ms
 	fc.Advance(300 * time.Millisecond)
 
-	userWAV, systemWAV, err := rec.Persist()
+	userWAV, systemWAV, _, err := rec.Persist()
 	if err != nil {
 		t.Fatalf("Persist error: %v", err)
 	}
@@ -596,6 +598,46 @@ func TestPersistProducesValidWAV(t *testing.T) {
 	}
 }
 
+func TestPersistProducesConversationStereoWAV(t *testing.T) {
+	rec, fc := newTestRecorderWithClock(t)
+	rec.Start()
+	ctx := context.Background()
+
+	rec.Record(ctx, internal_type.UserAudioReceivedPacket{Audio: pcm(0x11, 4)})
+	fc.Advance(10 * time.Millisecond)
+	rec.Record(ctx, internal_type.TextToSpeechAudioPacket{ContextID: "c1", AudioChunk: pcm(0x22, 4)})
+
+	_, _, conversationWAV, err := rec.Persist()
+	if err != nil {
+		t.Fatalf("Persist error: %v", err)
+	}
+	if got := wavChannels(conversationWAV); got != 2 {
+		t.Fatalf("conversation WAV channels = %d, want 2", got)
+	}
+
+	conversationPCM := wavPCMData(conversationWAV)
+	if len(conversationPCM) < 648 {
+		t.Fatalf("conversation PCM too short: %d", len(conversationPCM))
+	}
+
+	// First stereo frame: user on left, assistant silence on right.
+	if conversationPCM[0] != 0x11 || conversationPCM[1] != 0x11 {
+		t.Fatalf("left channel at start = % x, want user audio", conversationPCM[0:2])
+	}
+	if conversationPCM[2] != 0x00 || conversationPCM[3] != 0x00 {
+		t.Fatalf("right channel at start = % x, want silence", conversationPCM[2:4])
+	}
+
+	// Assistant begins at 10ms: left silence, assistant on right.
+	assistantFrameOffset := durationBytes(10*time.Millisecond) / AudioBytesPerSample * AudioBytesPerSample * 2
+	if conversationPCM[assistantFrameOffset] != 0x00 || conversationPCM[assistantFrameOffset+1] != 0x00 {
+		t.Fatalf("left channel at assistant offset = % x, want silence", conversationPCM[assistantFrameOffset:assistantFrameOffset+2])
+	}
+	if conversationPCM[assistantFrameOffset+2] != 0x22 || conversationPCM[assistantFrameOffset+3] != 0x22 {
+		t.Fatalf("right channel at assistant offset = % x, want assistant audio", conversationPCM[assistantFrameOffset+2:assistantFrameOffset+4])
+	}
+}
+
 func TestPersistPadsToSessionDuration(t *testing.T) {
 	// Session lasts 500ms = 16000 bytes at 32000 B/s.
 	// User: 100 bytes at t=0. System: 200 bytes at t=0.
@@ -609,7 +651,7 @@ func TestPersistPadsToSessionDuration(t *testing.T) {
 
 	fc.Advance(500 * time.Millisecond)
 
-	userWAV, systemWAV, err := rec.Persist()
+	userWAV, systemWAV, _, err := rec.Persist()
 	if err != nil {
 		t.Fatalf("Persist error: %v", err)
 	}
@@ -648,7 +690,7 @@ func TestPersistSystemAudioPlacedAtCorrectTime(t *testing.T) {
 
 	fc.Advance(500 * time.Millisecond) // session = 1s
 
-	userWAV, systemWAV, err := rec.Persist()
+	userWAV, systemWAV, _, err := rec.Persist()
 	if err != nil {
 		t.Fatalf("Persist error: %v", err)
 	}
@@ -693,7 +735,7 @@ func TestPersistOnlyUserAudio(t *testing.T) {
 	rec.Record(context.Background(), internal_type.UserAudioReceivedPacket{Audio: pcm(0xAA, 500)})
 	fc.Advance(100 * time.Millisecond) // 3200 session bytes
 
-	userWAV, systemWAV, err := rec.Persist()
+	userWAV, systemWAV, _, err := rec.Persist()
 	if err != nil {
 		t.Fatalf("Persist error: %v", err)
 	}
@@ -721,7 +763,7 @@ func TestPersistOnlySystemAudio(t *testing.T) {
 	rec.Record(context.Background(), internal_type.TextToSpeechAudioPacket{ContextID: "c1", AudioChunk: pcm(0xBB, 300)})
 	fc.Advance(100 * time.Millisecond)
 
-	userWAV, systemWAV, err := rec.Persist()
+	userWAV, systemWAV, _, err := rec.Persist()
 	if err != nil {
 		t.Fatalf("Persist error: %v", err)
 	}

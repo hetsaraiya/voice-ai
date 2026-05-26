@@ -19,6 +19,8 @@ import (
 	configs "github.com/rapidaai/pkg/configs"
 )
 
+type postgresTxContextKey struct{}
+
 type PostgresConnector interface {
 	Connector
 	Query(ctx context.Context, qry string, dest interface{}) error
@@ -35,7 +37,22 @@ func NewPostgresConnector(config *configs.PostgresConfig, logger commons.Logger)
 	return &postgresConnector{cfg: config, logger: logger}
 }
 
+func WithPostgresTx(ctx context.Context, tx *gorm.DB) context.Context {
+	if tx == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, postgresTxContextKey{}, tx)
+}
+
+func PostgresTxFromContext(ctx context.Context) (*gorm.DB, bool) {
+	tx, ok := ctx.Value(postgresTxContextKey{}).(*gorm.DB)
+	return tx, ok && tx != nil
+}
+
 func (psql *postgresConnector) DB(ctx context.Context) *gorm.DB {
+	if tx, ok := PostgresTxFromContext(ctx); ok {
+		return tx.WithContext(ctx)
+	}
 	return psql.db.WithContext(ctx)
 }
 

@@ -29,13 +29,11 @@ var exotelLinear8kConfig = internal_audio.NewLinear8khzMonoAudioConfig()
 
 type exotelWebsocketStreamer struct {
 	internal_telephony_base.BaseTelephonyStreamer
-
 	mediaSession *internal_telephony_media.MediaSession
-
-	connection *websocket.Conn
-	writeMu    sync.Mutex
-	closed     atomic.Bool
-	streamID   string
+	connection   *websocket.Conn
+	writeMu      sync.Mutex
+	closed       atomic.Bool
+	streamID     string
 }
 
 func NewExotelWebsocketStreamer(logger commons.Logger, connection *websocket.Conn, cc *callcontext.CallContext, vaultCred *protos.VaultCredential,
@@ -121,6 +119,9 @@ func (exotel *exotelWebsocketStreamer) runWebSocketReader() {
 				Time: timestamppb.Now(),
 			})
 		case "stop":
+			if msg := exotel.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER); msg != nil {
+				exotel.Input(msg)
+			}
 			exotel.Cancel()
 			return
 		default:
@@ -157,6 +158,7 @@ func (exotel *exotelWebsocketStreamer) Send(response internal_type.Stream) error
 		// (it called Notify with it). No need to round-trip back through
 		// CriticalCh — Exotel has no REST API to terminate a call; closing
 		// the WebSocket via Cancel is the only way to release the call leg.
+		_ = exotel.Disconnect(data.GetType())
 		exotel.stopAudioProcessing()
 		exotel.Cancel()
 	case *protos.ConversationToolCall:

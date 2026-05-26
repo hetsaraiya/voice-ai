@@ -1,0 +1,138 @@
+openapi: 3.0.3
+info:
+  title: Rapida Talk API
+  version: 0.1.0
+paths:
+  /v1/talk/create-phone-call:
+    post:
+      operationId: createPhoneCall
+      summary: Create an outbound phone call
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePhoneCallRequest"
+      responses:
+        "200":
+          description: Outbound phone call request accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatePhoneCallResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Unauthenticated request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to initiate outbound call
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/talk/create-bulk-phone-call:
+    post:
+      operationId: createBulkPhoneCall
+      summary: Create outbound phone calls in bulk
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBulkPhoneCallRequest"
+      responses:
+        "200":
+          description: Bulk outbound phone call request accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateBulkPhoneCallResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Unauthenticated request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to initiate outbound calls
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  schemas:
+    CreatePhoneCallRequest:
+      type: object
+      properties:
+        assistant:
+          $ref: "./common.yaml#/components/schemas/AssistantDefinition"
+        metadata:
+          type: object
+          additionalProperties: true
+        args:
+          type: object
+          additionalProperties: true
+        options:
+          type: object
+          additionalProperties: true
+        fromNumber:
+          type: string
+        toNumber:
+          type: string
+    CreatePhoneCallResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          format: int32
+        success:
+          type: boolean
+        data:
+          $ref: "./common.yaml#/components/schemas/AssistantConversation"
+        error:
+          $ref: "./common.yaml#/components/schemas/Error"
+    CreateBulkPhoneCallRequest:
+      type: object
+      properties:
+        phoneCalls:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreatePhoneCallRequest"
+    CreateBulkPhoneCallResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          format: int32
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: "./common.yaml#/components/schemas/AssistantConversation"
+        error:
+          $ref: "./common.yaml#/components/schemas/Error"
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          format: int32
+        success:
+          type: boolean
+        error:
+          $ref: "./common.yaml#/components/schemas/Error"

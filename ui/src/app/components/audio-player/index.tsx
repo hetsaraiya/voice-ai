@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, FC, ReactNode } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.esm.js';
 import { GhostButton } from '@/app/components/carbon/button';
-import { ArrowDownToLine, Pause, Play, Volume2, VolumeX } from 'lucide-react';
+import {Download, Pause, Play,  VolumeMute, VolumeUp} from '@carbon/icons-react';
 import { Tooltip } from '@/app/components/base/tooltip';
 import { cn } from '@/utils';
 import { Slider } from '@/app/components/form/slider';
@@ -58,6 +58,7 @@ export const AudioPlayer: FC<AudioPlayerProps> = ({
 
   const assistantSrc = recording.getAssistantrecordingurl();
   const userSrc = recording.getUserrecordingurl();
+  const completeRecordingSrc = recording.getConversationrecordingurl();
 
   useEffect(() => {
     if (!sharedAudioContext.current) {
@@ -245,7 +246,7 @@ export const AudioPlayer: FC<AudioPlayerProps> = ({
     return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  const handleDownloadAudio = async (src: string, label: string) => {
+  const handleDownloadAudio = async (recordingId: string, src: string, label: string) => {
     try {
       const response = await fetch(src);
       const blob = await response.blob();
@@ -309,9 +310,9 @@ export const AudioPlayer: FC<AudioPlayerProps> = ({
           >
             <GhostButton size="md" onClick={toggleMute} type="button">
               {muted || volume === 0 ? (
-                <VolumeX className="w-4 h-4" strokeWidth={1.5} />
+                <VolumeMute className="w-4 h-4" strokeWidth={1.5} />
               ) : (
-                <Volume2 className="w-4 h-4" strokeWidth={1.5} />
+                <VolumeUp className="w-4 h-4" strokeWidth={1.5} />
               )}
             </GhostButton>
           </Tooltip>
@@ -335,20 +336,29 @@ export const AudioPlayer: FC<AudioPlayerProps> = ({
           ))}
           <GhostButton
             size="md"
-            onClick={() => handleDownloadAudio(assistantSrc, 'assistant')}
+            onClick={() => handleDownloadAudio(recording.getId(), completeRecordingSrc, 'conversation')}
             type="button"
             className="rounded-none"
           >
-            <ArrowDownToLine className="h-4 w-4 mr-1" strokeWidth={1.5} />{' '}
+            <Download  className="mr-2 stroke-primary size-4" strokeWidth={0.2} />{' '}
+            <span>Conversation</span>
+          </GhostButton>
+            <GhostButton
+            size="md"
+            onClick={() => handleDownloadAudio(recording.getId(), assistantSrc, 'assistant')}
+            type="button"
+            className="rounded-none"
+          >
+            <Download  className="mr-2 stroke-primary size-" strokeWidth={0.2} />{' '}
             <span>Assistant</span>
           </GhostButton>
           <GhostButton
             size="md"
-            onClick={() => handleDownloadAudio(userSrc, 'user')}
+            onClick={() => handleDownloadAudio(recording.getId(), userSrc, 'user')}
             type="button"
             className="rounded-none"
           >
-            <ArrowDownToLine className="h-4 w-4 mr-1" strokeWidth={1.5} />{' '}
+            <Download  className="mr-2 stroke-primary size-" strokeWidth={0.2} />{' '}
             <span>User</span>
           </GhostButton>
         </div>

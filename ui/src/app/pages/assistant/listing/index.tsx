@@ -10,17 +10,23 @@ import { Assistant } from '@rapidaai/react';
 import { PageLoading } from '@/app/components/carbon/loading';
 import { EmptyState } from '@/app/components/carbon/empty-state';
 import { Pagination } from '@/app/components/carbon/pagination';
-import { Renew } from '@carbon/icons-react';
+import {
+  Add,
+  ArrowRight,
+  Bot,
+  PromptTemplate,
+  Renew,
+} from '@carbon/icons-react';
 import {
   TableToolbar,
   TableToolbarContent,
   TableToolbarSearch,
   Button,
-  ComboButton,
-  MenuItem,
+  ClickableTile,
 } from '@carbon/react';
 import { PageHeaderBlock } from '@/app/components/blocks/page-header-block';
 import { PageTitleBlock } from '@/app/components/blocks/page-title-block';
+import { Modal, ModalBody, ModalHeader } from '@/app/components/carbon/modal';
 
 export function AssistantPage() {
   const navigate = useNavigate();
@@ -28,6 +34,8 @@ export function AssistantPage() {
   const [userId, token, projectId] = useCredential();
   const assistantAction = useAssistantPageStore();
   const { loading, showLoader, hideLoader } = useRapidaStore();
+  const [createAssistantModalOpen, setCreateAssistantModalOpen] =
+    useState(false);
 
   useEffect(() => {
     if (searchParams) {
@@ -89,22 +97,20 @@ export function AssistantPage() {
             onClick={() => getAssistants(projectId, token, userId)}
             tooltipPosition="bottom"
           />
-          <ComboButton
-            label="Create new Assistant"
-            onClick={() => navigate('/deployment/assistant/create-assistant')}
+          <Button
+            renderIcon={Add}
+            onClick={() => setCreateAssistantModalOpen(true)}
           >
-            <MenuItem
-              label="Connect new AgentKit"
-              onClick={() => navigate('/deployment/assistant/connect-agentkit')}
-            />
-          </ComboButton>
+            Create new Assistant
+          </Button>
         </TableToolbarContent>
       </TableToolbar>
 
       {/* Content */}
       {loading ? (
         <PageLoading className="h-full" />
-      ) : assistantAction.assistants && assistantAction.assistants.length > 0 ? (
+      ) : assistantAction.assistants &&
+        assistantAction.assistants.length > 0 ? (
         <section className="grid content-start grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4 flex-1 overflow-auto p-4">
           {assistantAction.assistants.map((ast, idx) => (
             <SingleAssistant key={idx} assistant={ast} />
@@ -116,9 +122,8 @@ export function AssistantPage() {
             title="No Assistant"
             subtitle="No assistants match your current filters."
             action="Create new Assistant"
-            onAction={() =>
-              navigate('/deployment/assistant/create-assistant')
-            }
+            actionIcon={Add}
+            onAction={() => setCreateAssistantModalOpen(true)}
           />
         </div>
       ) : (
@@ -127,9 +132,8 @@ export function AssistantPage() {
             title="No Assistant"
             subtitle="Create assistants for each client, brand, or business unit from one controlled platform."
             action="Create new Assistant"
-            onAction={() =>
-              navigate('/deployment/assistant/create-assistant')
-            }
+            actionIcon={Add}
+            onAction={() => setCreateAssistantModalOpen(true)}
           />
         </div>
       )}
@@ -151,6 +155,98 @@ export function AssistantPage() {
           }}
         />
       )}
+
+      <CreateAssistantDialog
+        open={createAssistantModalOpen}
+        onClose={() => setCreateAssistantModalOpen(false)}
+        onSelect={path => {
+          setCreateAssistantModalOpen(false);
+          navigate(path);
+        }}
+      />
     </div>
+  );
+}
+
+const createAssistantOptions = [
+  {
+    title: 'From Prompt',
+    eyebrow: 'Prompting',
+    description:
+      'Create a voice assistant from instructions, model configuration, tools, and deployment settings.',
+    icon: PromptTemplate,
+    path: '/deployment/assistant/create-assistant',
+  },
+  {
+    title: 'AgentKit',
+    eyebrow: 'Agents',
+    description:
+      'Connect an AgentKit assistant and manage it alongside your voice deployments and integrations.',
+    icon: Bot,
+    path: '/deployment/assistant/connect-agentkit',
+  },
+];
+
+function CreateAssistantDialog({
+  open,
+  onClose,
+  onSelect,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSelect: (path: string) => void;
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="lg"
+      containerClassName="!max-w-[960px]"
+    >
+      <ModalHeader
+        label="Assistant"
+        title="Create an assistant"
+        onClose={onClose}
+      />
+      <ModalBody>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {createAssistantOptions.map(option => {
+            const Icon = option.icon;
+            return (
+              <ClickableTile
+                key={option.title}
+                onClick={() => onSelect(option.path)}
+                className="group !flex !min-h-[220px] !flex-col !rounded-none !border !border-gray-200 !bg-gray-50 !p-0 transition-colors hover:!border-primary dark:!border-gray-700 dark:!bg-gray-800 dark:hover:!border-primary"
+              >
+                <div className="flex flex-1 flex-col p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center bg-primary/10 text-primary dark:bg-primary/10">
+                      <Icon size={24} />
+                    </div>
+                    <ArrowRight
+                      size={20}
+                      className="mt-1 shrink-0 text-gray-400 transition-transform group-hover:translate-x-1 group-hover:text-primary dark:text-gray-500"
+                    />
+                  </div>
+                  <p className="mt-5 text-xs font-semibold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">
+                    {option.eyebrow}
+                  </p>
+                  <h2 className="mt-2 text-xl font-semibold leading-tight text-gray-900 dark:text-white">
+                    {option.title}
+                  </h2>
+                  <p className="mt-3 flex-1 text-sm leading-5 text-gray-600 dark:text-gray-300">
+                    {option.description}
+                  </p>
+                  <span className="mt-6 inline-flex items-center gap-1 text-sm font-medium text-primary">
+                    Select option
+                    <ArrowRight size={14} />
+                  </span>
+                </div>
+              </ClickableTile>
+            );
+          })}
+        </div>
+      </ModalBody>
+    </Modal>
   );
 }

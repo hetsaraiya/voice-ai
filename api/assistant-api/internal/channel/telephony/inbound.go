@@ -64,69 +64,6 @@ func NewInboundDispatcher(deps TelephonyDispatcherDeps) *InboundDispatcher {
 	}
 }
 
-// HandleStatusCallback resolves the telephony provider and processes a status callback
-// webhook. It builds telemetry (metric + event) from the StatusInfo returned by the provider.
-func (d *InboundDispatcher) HandleStatusCallback(c *gin.Context, provider string, auth types.SimplePrinciple, assistantId, conversationId uint64) error {
-	tel, err := GetTelephony(Telephony(provider), d.cfg, d.logger, d.telephonyOpt)
-	if err != nil {
-		return fmt.Errorf("invalid telephony provider %s: %w", provider, err)
-	}
-
-	statusInfo, err := tel.StatusCallback(c, auth, assistantId, conversationId)
-	if err != nil {
-		return fmt.Errorf("status callback failed: %w", err)
-	}
-	if statusInfo == nil {
-		return nil
-	}
-
-	d.logger.Infow("Status callback received",
-		"provider", provider,
-		"event", statusInfo.Event,
-		"assistant_id", assistantId,
-		"conversation_id", conversationId)
-
-	// Persist callback event as metadata so it's visible in conversation history.
-	// Terminal events (completed, failed, busy, no-answer, canceled) also persist a status metric.
-	if d.conversationService != nil {
-		metadata := []*types.Metadata{
-			types.NewMetadata("telephony.callback.event", statusInfo.Event),
-			types.NewMetadata("telephony.callback.provider", provider),
-		}
-		if err := d.conversationService.PersistMetadata(c, auth, assistantId, conversationId, metadata); err != nil {
-			d.logger.Warnw("Failed to persist callback metadata", "error", err)
-		}
-
-		switch statusInfo.Event {
-		case "completed":
-			d.conversationService.PersistMetrics(c, auth, assistantId, conversationId, []*types.Metric{
-				{Name: "status", Value: "COMPLETED", Description: "call_completed_callback"},
-			})
-		case "failed", "busy", "no-answer", "canceled", "rejected":
-			d.conversationService.PersistMetrics(c, auth, assistantId, conversationId, []*types.Metric{
-				{Name: "status", Value: "FAILED", Description: statusInfo.Event},
-			})
-		}
-	}
-
-	return nil
-}
-
-// HandleStatusCallbackByContext resolves a call context from Postgres using the contextId and
-// processes the status callback. Unlike ResolveCallSessionByContext, this reads the context
-// without changing its status, since status callbacks can fire multiple times during a call
-// and may arrive asynchronously even after the call has ended (status="completed").
-func (d *InboundDispatcher) HandleStatusCallbackByContext(c *gin.Context, contextID string) error {
-	cc, err := d.store.Get(c, contextID)
-	if err != nil {
-		d.logger.Errorf("failed to resolve call context %s for event callback: %v", contextID, err)
-		return fmt.Errorf("call context not found or expired: %w", err)
-	}
-
-	auth := cc.ToAuth()
-	return d.HandleStatusCallback(c, cc.Provider, auth, cc.AssistantID, cc.ConversationID)
-}
-
 // ResolveVaultCredential fetches the vault credential for the given assistant.
 // This is the only DB round-trip needed — call IDs (assistant, conversation,
 // provider) are already in the CallContext from Redis.

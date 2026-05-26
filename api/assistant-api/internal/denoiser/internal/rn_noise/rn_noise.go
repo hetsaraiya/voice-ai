@@ -75,7 +75,8 @@ func (st *RNNoise) SuppressNoise(input []float32) (float64, []float32, error) {
 	return float64(vad), output, nil
 }
 
-// ProcessAudio processes multiple frames and returns combined confidence and cleaned audio
+// ProcessAudio processes multiple frames, preserving the exact input length
+// while averaging the per-frame speech confidence returned by RNNoise.
 func (st *RNNoise) ProcessAudio(input []float32) (float64, []float32, error) {
 	if st.denoiseState == nil {
 		return 0, nil, fmt.Errorf("rnnoise state is not initialized")
@@ -85,13 +86,15 @@ func (st *RNNoise) ProcessAudio(input []float32) (float64, []float32, error) {
 		return 0, nil, fmt.Errorf("input audio is empty")
 	}
 
-	// Pre-allocate output buffer
 	frameCount := (len(input) + frameSize - 1) / frameSize
-	cleanedAudio := make([]float32, 0, frameCount*frameSize)
-	var maxConfidence float64
+	cleanedAudio := make([]float32, len(input))
+	var totalConfidence float64
 
 	st.mu.Lock()
 	defer st.mu.Unlock()
+
+	var paddedInput []float32
+	var paddedOutput []float32
 
 	for i := 0; i < len(input); i += frameSize {
 		end := i + frameSize
@@ -99,40 +102,39 @@ func (st *RNNoise) ProcessAudio(input []float32) (float64, []float32, error) {
 			end = len(input)
 		}
 
-		// Extract chunk
 		chunk := input[i:end]
+		outputChunk := cleanedAudio[i:end]
 
-		// Create padded buffer if necessary
-		processBuffer := make([]float32, frameSize)
-		copy(processBuffer, chunk)
-		// Rest is zeros (padding)
+		var (
+			inputPtr  *C.float
+			outputPtr *C.float
+		)
 
-		// Process frame
-		output := make([]float32, frameSize)
-		copy(output, processBuffer)
-
-		inputPtr := (*C.float)(unsafe.Pointer(&processBuffer[0]))
-		outputPtr := (*C.float)(unsafe.Pointer(&output[0]))
-
-		vad := C.rnnoise_process_frame(st.denoiseState, outputPtr, inputPtr)
-		confidence := float64(vad)
-
-		if confidence > maxConfidence {
-			maxConfidence = confidence
+		if len(chunk) == frameSize {
+			inputPtr = (*C.float)(unsafe.Pointer(&chunk[0]))
+			outputPtr = (*C.float)(unsafe.Pointer(&outputChunk[0]))
+		} else {
+			if paddedInput == nil {
+				paddedInput = make([]float32, frameSize)
+				paddedOutput = make([]float32, frameSize)
+			}
+			clear(paddedInput)
+			copy(paddedInput, chunk)
+			inputPtr = (*C.float)(unsafe.Pointer(&paddedInput[0]))
+			outputPtr = (*C.float)(unsafe.Pointer(&paddedOutput[0]))
 		}
 
-		// Append to result (only original length, not padding)
-		if i+frameSize > len(input) {
-			// Last frame - only append the original samples
-			cleanedAudio = append(cleanedAudio, output[:len(input)-i]...)
-		} else {
-			cleanedAudio = append(cleanedAudio, output...)
+		vad := C.rnnoise_process_frame(st.denoiseState, outputPtr, inputPtr)
+		totalConfidence += float64(vad)
+
+		if len(chunk) < frameSize {
+			copy(outputChunk, paddedOutput[:len(chunk)])
 		}
 
 		st.frameCount++
 	}
 
-	return maxConfidence, cleanedAudio, nil
+	return totalConfidence / float64(frameCount), cleanedAudio, nil
 }
 
 // Close cleans up resources

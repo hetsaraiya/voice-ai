@@ -52,9 +52,9 @@ export const recordStateToIconIndicator: Record<
   ACTIVE: { kind: 'normal', label: 'Active' },
   active: { kind: 'normal', label: 'Active' },
 
-  RECORD_INVITED: { kind: 'pending', label: 'Invited' },
-  INVITED: { kind: 'pending', label: 'Invited' },
-  invited: { kind: 'pending', label: 'Invited' },
+  RECORD_INVITED: { kind: 'incomplete', label: 'Invited' },
+  INVITED: { kind: 'incomplete', label: 'Invited' },
+  invited: { kind: 'incomplete', label: 'Invited' },
 
   RECORD_QUEUED: { kind: 'pending', label: 'Queued' },
   QUEUED: { kind: 'pending', label: 'Queued' },

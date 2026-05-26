@@ -110,6 +110,9 @@ func (vng *vonageWebsocketStreamer) runWebSocketReader() {
 					Time: timestamppb.Now(),
 				})
 			case "stop":
+				if msg := vng.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER); msg != nil {
+					vng.Input(msg)
+				}
 				vng.Cancel()
 				return
 			default:
@@ -150,6 +153,7 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 			}
 		}
 	case *protos.ConversationDisconnection:
+		_ = vng.Disconnect(data.GetType())
 		if vng.GetConversationUuid() != "" {
 			if cAuth, err := vonageAuth(vng.VaultCredential()); err == nil {
 				vonage.NewVoiceClient(cAuth).Hangup(vng.GetConversationUuid())

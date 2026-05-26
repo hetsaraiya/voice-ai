@@ -32,8 +32,8 @@ func GetEndOfSpeech(
 	onCallback func(context.Context, ...internal_type.Packet) error,
 	opts utils.Option,
 ) (internal_type.EndOfSpeechExecutor, error) {
-	provider := resolveEndOfSpeechProvider(opts)
-	switch provider {
+	provider, _ := opts.GetString(EndOfSpeechOptionsKeyProvider)
+	switch EndOfSpeechIdentifier(provider) {
 	case SilenceBasedEndOfSpeech:
 		return internal_silence_based.NewSilenceBasedEndOfSpeech(logger, onCallback, opts)
 	case LiveKitEndOfSpeech:
@@ -43,12 +43,4 @@ func GetEndOfSpeech(
 	default:
 		return nil, fmt.Errorf("end_of_speech: unsupported provider %q", provider)
 	}
-}
-
-func resolveEndOfSpeechProvider(opts utils.Option) EndOfSpeechIdentifier {
-	provider, _ := opts.GetString(EndOfSpeechOptionsKeyProvider)
-	if EndOfSpeechIdentifier(provider) == "" {
-		return PipecatSmartTurnEndOfSpeech
-	}
-	return EndOfSpeechIdentifier(provider)
 }

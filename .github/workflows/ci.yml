@@ -130,8 +130,8 @@ jobs:
         run: |
           # Skip assistant-api entirely - it has deep CGO dependencies (azure speech, silero-vad, rnnoise)
           # that require C libraries not available in CI. These are validated by Docker build.
-          # Test only non-CGO dependent services
-          CGO_ENABLED=0 go test -v -coverprofile=coverage.out -covermode=atomic \
+          # Keep CGO enabled here because web-api tests use sqlite (go-sqlite3) in test setup.
+          CGO_ENABLED=1 go test -v -coverprofile=coverage.out -covermode=atomic \
             ./api/web-api/... \
             ./api/integration-api/... \
             ./api/endpoint-api/... \

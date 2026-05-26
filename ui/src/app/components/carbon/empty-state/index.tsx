@@ -7,6 +7,7 @@ export interface EmptyStateProps {
   title: string;
   subtitle?: string;
   action?: string;
+  actionIcon?: ElementType;
   onAction?: () => void;
   actionComponent?: ReactNode;
   className?: string;
@@ -17,6 +18,7 @@ export const EmptyState: FC<EmptyStateProps> = ({
   title,
   subtitle,
   action,
+  actionIcon,
   onAction,
   actionComponent,
   className,
@@ -46,6 +48,7 @@ export const EmptyState: FC<EmptyStateProps> = ({
         <Button
           size="lg"
           kind="tertiary"
+          renderIcon={actionIcon}
           className="dark:bg-gray-950! bg-white! dark:hover:text-white! hover:bg-primary! dark:hover:bg-primary! font-medium"
           onClick={onAction}
         >

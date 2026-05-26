@@ -77,6 +77,7 @@ func (d *Dispatcher) runSession(ctx context.Context, v SessionConnectedPipeline)
 			cc.ChannelUUID, contextID, "", "", // codec/sampleRate set by streamer
 		))
 		observer.EmitEvent(ctx, obs.ComponentTelephony, map[string]string{
+			obs.DataContextID: contextID,
 			obs.DataType:      obs.EventCallStarted,
 			obs.DataProvider:  cc.Provider,
 			obs.DataDirection: cc.Direction,

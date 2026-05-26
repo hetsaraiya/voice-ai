@@ -30,6 +30,10 @@ func (gr *genericRequestor) Conversation() *internal_conversation_entity.Assista
 	return gr.assistantConversation
 }
 
+func (gr *genericRequestor) Ready() bool {
+	return gr.Conversation() != nil && gr.Assistant() != nil
+}
+
 func (gr *genericRequestor) GetSpeechToTextTransformer() (
 	*internal_assistant_entity.AssistantDeploymentAudio,
 	error,
@@ -285,6 +289,17 @@ func (deb *genericRequestor) onAddMessageMetadata(_ context.Context, prefix stri
 		defer cancel()
 		if _, err := deb.conversationService.ApplyMessageMetadata(dbCtx, deb.Auth(), deb.Conversation().Id, fmt.Sprintf("%s-%s", prefix, messageId), metadata); err != nil {
 			deb.logger.Errorf("Error in ApplyMessageMetadata: %v", err)
+		}
+	})
+	return nil
+}
+
+func (gr *genericRequestor) CreateConversationRecording(_ context.Context, user, assistant, conversation []byte) error {
+	utils.Go(context.Background(), func() {
+		dbCtx, cancel := context.WithTimeout(context.Background(), dbWriteTimeout)
+		defer cancel()
+		if _, err := gr.conversationService.CreateConversationRecording(dbCtx, gr.auth, gr.assistant.Id, gr.assistantConversation.Id, user, assistant, conversation); err != nil {
+			gr.logger.Errorf("unable to create recording for the conversation id %d with error : %v", gr.assistantConversation.Id, err)
 		}
 	})
 	return nil

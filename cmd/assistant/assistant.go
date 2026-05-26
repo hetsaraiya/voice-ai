@@ -259,28 +259,32 @@ func (app *AppRunner) ResolveConfig() error {
 
 // init for app close
 func (app *AppRunner) Init(ctx context.Context) error {
-	err := app.Postgres.Connect(ctx)
-	if err != nil {
-		app.Logger.Error("error while connecting to postgres.", err)
-		return err
+	if app.Postgres != nil {
+		err := app.Postgres.Connect(ctx)
+		if err != nil {
+			app.Logger.Error("error while connecting to postgres.", err)
+			return err
+		}
+		app.Closeable = append(app.Closeable, app.Postgres.Disconnect)
 	}
 
-	err = app.Redis.Connect(ctx)
-	if err != nil {
-		app.Logger.Error("error while connecting to redis.", err)
-		return err
+	if app.Redis != nil {
+		err := app.Redis.Connect(ctx)
+		if err != nil {
+			app.Logger.Error("error while connecting to redis.", err)
+			return err
+		}
+		app.Closeable = append(app.Closeable, app.Redis.Disconnect)
 	}
 
 	if app.Opensearch != nil {
-		err = app.Opensearch.Connect(ctx)
+		err := app.Opensearch.Connect(ctx)
 		if err != nil {
 			app.Logger.Error("error while connecting to opensearch.", err)
 			return err
 		}
 		app.Closeable = append(app.Closeable, app.Opensearch.Disconnect)
 	}
-	app.Closeable = append(app.Closeable, app.Postgres.Disconnect)
-	app.Closeable = append(app.Closeable, app.Redis.Disconnect)
 
 	return nil
 }
@@ -302,13 +306,13 @@ func (app *AppRunner) Close(ctx context.Context) {
 func (g *AppRunner) AllRouters(ctx context.Context) error {
 	router.AssistantApiRoute(g.Cfg, g.S, g.Logger, g.Postgres, g.Redis, g.Opensearch)
 	router.HealthCheckRoutes(g.Cfg, g.E, g.Logger, g.Postgres)
+	router.AssistantConversationApiRoute(g.Cfg, g.S, g.Logger, g.Postgres, g.Redis, g.Opensearch, g.SIP)
+	router.AssistantDeploymentApiRoute(g.Cfg, g.S, g.Logger, g.Postgres)
+	router.TalkApiRoute(g.Cfg, g.E, g.Logger, g.Postgres, g.Redis, g.Opensearch, g.SIP)
 	if g.Opensearch != nil {
 		router.KnowledgeApiRoute(g.Cfg, g.S, g.Logger, g.Postgres, g.Redis, g.Opensearch)
 		router.DocumentApiRoute(g.Cfg, g.S, g.Logger, g.Postgres, g.Redis, g.Opensearch)
 	}
-	router.AssistantConversationApiRoute(g.Cfg, g.S, g.Logger, g.Postgres, g.Redis, g.Opensearch, g.SIP)
-	router.AssistantDeploymentApiRoute(g.Cfg, g.S, g.Logger, g.Postgres)
-	router.TalkCallbackApiRoute(g.Cfg, g.E, g.Logger, g.Postgres, g.Redis, g.Opensearch, g.SIP)
 	return nil
 }
 

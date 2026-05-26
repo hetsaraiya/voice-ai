@@ -24,7 +24,7 @@ import {
   AssistantMappingTable,
 } from '@/app/components/tools/common';
 import { SourceConditionRule } from '@/app/components/conditions/source-condition-rule';
-import { InputGroup } from '../../../../components/input-group/index';
+import { InputGroup } from '@/app/components/input-group/index';
 
 // ── Parameter types ──────────────────────────────────────────────────────────
 
@@ -54,11 +54,12 @@ const PARAM_TYPE_OPTIONS = [
   { value: 'custom', name: 'Custom' },
   { value: 'analysis', name: 'Analysis' },
 ];
+const ANALYSIS_CONDITION_OPTION_KEY = 'analysis.condition';
 const RESERVED_OPTION_KEYS = new Set([
   'option.endpoint_id',
   'option.endpoint_version',
   'option.endpoint_parameters',
-  'option.conditions',
+  `option.${ANALYSIS_CONDITION_OPTION_KEY}`,
 ]);
 // ── Main component ───────────────────────────────────────────────────────────
 
@@ -153,7 +154,7 @@ export const CreateAssistantAnalysis: FC<{ assistantId: string }> = ({
         value: JSON.stringify(endpointParameters),
       },
       {
-        key: 'conditions',
+        key: ANALYSIS_CONDITION_OPTION_KEY,
         value: JSON.stringify(sourceConditions),
       },
     ].forEach(({ key, value }) => {

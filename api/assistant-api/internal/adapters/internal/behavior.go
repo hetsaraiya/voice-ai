@@ -12,6 +12,7 @@ import (
 	"time"
 
 	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
+	observe "github.com/rapidaai/api/assistant-api/internal/observe"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
@@ -104,6 +105,25 @@ func (r *genericRequestor) initializeMaxSessionDuration(ctx context.Context, beh
 	}
 	timeoutDuration := time.Duration(*behavior.MaxSessionDuration) * time.Second
 	r.maxSessionTimer = time.AfterFunc(timeoutDuration, func() {
+		if r.Ready() {
+			r.OnPacket(r.sessionCtx,
+				internal_type.ConversationEventPacket{
+					ContextID: r.GetID(),
+					Name:      observe.ComponentSession,
+					Data: map[string]string{
+						observe.DataType:   observe.EventDisconnectRequested,
+						observe.DataReason: protos.ConversationDisconnection_DISCONNECTION_TYPE_MAX_DURATION.String()},
+					Time: time.Now(),
+				},
+				internal_type.ConversationMetadataPacket{
+					ContextID: r.Conversation().Id,
+					Metadata: []*protos.Metadata{{
+						Key:   "disconnect_reason",
+						Value: protos.ConversationDisconnection_DISCONNECTION_TYPE_MAX_DURATION.String(),
+					}},
+				},
+			)
+		}
 		r.Notify(ctx, &protos.ConversationDisconnection{
 			Type: protos.ConversationDisconnection_DISCONNECTION_TYPE_MAX_DURATION,
 		})
@@ -159,6 +179,26 @@ func (r *genericRequestor) onIdleTimeout(ctx context.Context) error {
 	// Check if max backoff retries reached
 	if behavior.IdleTimeoutBackoff != nil && *behavior.IdleTimeoutBackoff > 0 {
 		if r.idleTimeoutCount >= *behavior.IdleTimeoutBackoff {
+			if r.Ready() {
+				r.OnPacket(r.sessionCtx,
+					internal_type.ConversationEventPacket{
+						ContextID: r.GetID(),
+						Name:      observe.ComponentSession,
+						Data: map[string]string{
+							observe.DataType:   observe.EventDisconnectRequested,
+							observe.DataReason: protos.ConversationDisconnection_DISCONNECTION_TYPE_IDLE_TIMEOUT.String()},
+						Time: time.Now(),
+					},
+					internal_type.ConversationMetadataPacket{
+						ContextID: r.Conversation().Id,
+						Metadata: []*protos.Metadata{{
+							Key:   "disconnect_reason",
+							Value: protos.ConversationDisconnection_DISCONNECTION_TYPE_IDLE_TIMEOUT.String(),
+						}},
+					},
+				)
+			}
+
 			r.Notify(ctx, &protos.ConversationDisconnection{
 				Type: protos.ConversationDisconnection_DISCONNECTION_TYPE_IDLE_TIMEOUT,
 			})

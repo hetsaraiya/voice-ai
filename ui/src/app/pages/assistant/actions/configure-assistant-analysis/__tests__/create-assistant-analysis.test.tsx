@@ -323,7 +323,7 @@ describe('CreateAssistantAnalysis', () => {
           }),
         },
         {
-          key: 'conditions',
+          key: 'analysis.condition',
           value: JSON.stringify([
             {
               key: 'conversation_mode',

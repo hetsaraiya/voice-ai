@@ -52,7 +52,8 @@ export function SignUpPage() {
       } else {
         let errorMessage = auth?.getError();
         if (errorMessage) setError(errorMessage.getHumanmessage());
-        else setError('Unable to process your request. please try again later.');
+        else
+          setError('Unable to process your request. please try again later.');
         return;
       }
     },
@@ -98,72 +99,81 @@ export function SignUpPage() {
   return (
     <>
       <Helmet title="Sign up to your account" />
-      <div className="flex justify-between items-baseline">
-        <h2 className="text-2xl font-light tracking-tight">Sign up</h2>
-        <Link href="/auth/signin" className="text-sm">
-          I already have an account
-        </Link>
-      </div>
-
-      <form className="mt-6" onSubmit={handleSubmit(onRegisterUser)}>
-        <Stack gap={5}>
-          <TextInput
-            id="signup-name"
-            labelText="Name"
-            type="text"
-            required
-            autoComplete="name"
-            placeholder="eg: John Doe"
-            {...register('name', { required: 'Please enter your name' })}
+      <Stack gap={6}>
+        <Stack gap={2}>
+          <h1 className="m-0 text-[1.8rem] leading-tight">Signup</h1>
+          <p className="mt-1.5 text-sm leading-[1.4286] text-(--cds-text-secondary)">
+            Already have an account? &nbsp;
+            <Link href="/auth/signin" className="text-sm">
+              Sign-in
+            </Link>
+          </p>
+          <div
+            aria-hidden="true"
+            className={`h-px bg-gray-300 dark:bg-gray-900 mt-3`}
           />
-          <TextInput
-            id="signup-email"
-            labelText="Email Address"
-            type="email"
-            required
-            autoComplete="email"
-            placeholder="eg: john@rapida.ai"
-            {...register('email', { required: 'Please enter email' })}
-          />
-          <PasswordInput
-            id="signup-password"
-            labelText="Password"
-            required
-            autoComplete="new-password"
-            placeholder="********"
-            {...register('password', { required: 'Please enter password' })}
-          />
-          {error && (
-            <Notification kind="error" title="Error" subtitle={error} />
-          )}
-          <PrimaryButton
-            size="lg"
-            renderIcon={ArrowRight}
-            isLoading={loading}
-            type="submit"
-            className="!w-full !max-w-none !justify-between"
-          >
-            Continue
-          </PrimaryButton>
         </Stack>
-      </form>
-
-      <div className="mt-6 flex flex-col gap-3">
-        <p className="text-sm text-gray-600 dark:text-gray-400">
-          By signing up, you agree to the{' '}
-          <Link href="/static/terms-conditions" target="_blank" inline>
-            Terms and Conditions
-          </Link>{' '}
-          and{' '}
-          <Link href="/static/privacy-policy" target="_blank" inline>
-            Privacy Policy
-          </Link>
-          .
-        </p>
-        <SocialButtonGroup
-          {...workspace.authentication.signIn.providers}
-        />
-      </div>
+        <form onSubmit={handleSubmit(onRegisterUser)}>
+          <Stack gap={5}>
+            <TextInput
+              id="signup-name"
+              labelText="Name"
+              type="text"
+              required
+              autoComplete="name"
+              placeholder="eg: John Doe"
+              {...register('name', { required: 'Please enter your name' })}
+            />
+            <TextInput
+              id="signup-email"
+              labelText="Email Address"
+              type="email"
+              required
+              autoComplete="email"
+              placeholder="eg: john@rapida.ai"
+              {...register('email', { required: 'Please enter email' })}
+            />
+            <PasswordInput
+              id="signup-password"
+              labelText="Password"
+              required
+              autoComplete="new-password"
+              placeholder="********"
+              {...register('password', { required: 'Please enter password' })}
+            />
+            {error && (
+              <Notification kind="error" title="Error" subtitle={error} />
+            )}
+            <PrimaryButton
+              size="lg"
+              renderIcon={ArrowRight}
+              isLoading={loading}
+              type="submit"
+              className="!w-full !max-w-none !justify-between"
+            >
+              Continue
+            </PrimaryButton>
+          </Stack>
+          <div
+            aria-hidden="true"
+            className={`h-px bg-gray-300 dark:bg-gray-900 mt-3`}
+          />
+        </form>
+        <Stack gap={2}>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            By signing up, you agree to the{' '}
+            <Link href="/static/terms-conditions" target="_blank" inline>
+              Terms and Conditions
+            </Link>{' '}
+            and{' '}
+            <Link href="/static/privacy-policy" target="_blank" inline>
+              Privacy Policy
+            </Link>
+            .
+          </p>
+        </Stack>
+        <SocialButtonGroup {...workspace.authentication.signIn.providers} />
+      </Stack>
     </>
   );
 }

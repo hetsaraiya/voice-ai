@@ -89,7 +89,7 @@ func TestHandleModeSwitchInitializeVoiceActivityDetection_ConfigError_EmitsModeS
 	assert.Equal(t, protos.StreamMode_STREAM_MODE_AUDIO, errPkt.StreamMode)
 	assert.Equal(t, internal_type.ModeSwitchErrorTypeInitializeVoiceActivityDetection, errPkt.Type)
 	assert.Error(t, errPkt.Error)
-	assert.Nil(t, r.vad)
+	assert.Nil(t, r.vadExecutor)
 }
 
 func TestHandleModeSwitchInitializeVoiceActivityDetection_GetVADError_EmitsModeSwitchError(t *testing.T) {
@@ -115,7 +115,7 @@ func TestHandleModeSwitchInitializeVoiceActivityDetection_GetVADError_EmitsModeS
 	assert.Equal(t, protos.StreamMode_STREAM_MODE_AUDIO, errPkt.StreamMode)
 	assert.Equal(t, internal_type.ModeSwitchErrorTypeInitializeVoiceActivityDetection, errPkt.Type)
 	assert.Error(t, errPkt.Error)
-	assert.Nil(t, r.vad)
+	assert.Nil(t, r.vadExecutor)
 }
 
 func TestHandleVadAudio_ExecuteIsSynchronous(t *testing.T) {
@@ -124,7 +124,7 @@ func TestHandleVadAudio_ExecuteIsSynchronous(t *testing.T) {
 		enterCh:   make(chan struct{}),
 		releaseCh: make(chan struct{}),
 	}
-	r.vad = blocking
+	r.vadExecutor = blocking
 	h := requestorDispatchHandler{r: r}
 
 	done := make(chan struct{})

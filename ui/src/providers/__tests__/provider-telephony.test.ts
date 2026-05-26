@@ -6,6 +6,7 @@ const EXPECTED_TELEPHONY_CODES = [
   'exotel',
   'asterisk',
   'sip',
+  'telnyx',
   'twilio',
 ];
 
@@ -21,16 +22,22 @@ describe('Telephony providers registry', () => {
     });
   });
 
-  it('all telephony providers have telephony config with phone field', () => {
-    TELEPHONY_PROVIDER.forEach(provider => {
-      const config = loadProviderConfig(provider.code);
-      expect(config).not.toBeNull();
-      expect(config?.telephony).toBeDefined();
-      expect(config?.telephony?.parameters).toBeDefined();
-      const hasPhone = config?.telephony?.parameters.some(
-        p => p.key === 'phone',
-      );
-      expect(hasPhone).toBe(true);
-    });
+  it('all config-backed telephony providers have telephony config with phone field', () => {
+    TELEPHONY_PROVIDER.filter(provider => provider.code !== 'telnyx').forEach(
+      provider => {
+        const config = loadProviderConfig(provider.code);
+        expect(config).not.toBeNull();
+        expect(config?.telephony).toBeDefined();
+        expect(config?.telephony?.parameters).toBeDefined();
+        const hasPhone = config?.telephony?.parameters.some(
+          p => p.key === 'phone',
+        );
+        expect(hasPhone).toBe(true);
+      },
+    );
+  });
+
+  it('telnyx currently has no split telephony config', () => {
+    expect(loadProviderConfig('telnyx')).toBeNull();
   });
 });

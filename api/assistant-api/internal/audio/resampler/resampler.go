@@ -12,9 +12,16 @@ import (
 	"github.com/rapidaai/pkg/commons"
 )
 
-// GetResampler returns the high-quality soxr resampler for all audio rate conversion.
+// GetResampler returns the high-quality streaming resampler used for transport
+// pipelines where consecutive chunks belong to one continuous audio stream.
 func GetResampler(logger commons.Logger) (internal_type.AudioResampler, error) {
 	return internal_resampler_soxr.NewLibsoxrAudioResampler(logger), nil
+}
+
+// GetChunkResampler returns a stateless exact-length resampler for bounded
+// preprocessing stages that must preserve duration per call.
+func GetChunkResampler(logger commons.Logger) (internal_type.AudioResampler, error) {
+	return internal_resampler_soxr.NewLibsoxrChunkAudioResampler(logger), nil
 }
 
 func GetConverter(logger commons.Logger) (internal_type.AudioConverter, error) {

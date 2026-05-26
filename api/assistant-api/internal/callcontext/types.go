@@ -23,8 +23,9 @@ import (
 // consumes the context (typically at session establishment). Get reads
 // regardless of status, since async callbacks may arrive after claim.
 const (
-	StatusPending = "pending" // Context created, awaiting media-path consumption
-	StatusClaimed = "claimed" // Context consumed (media-path bound, or call ended unclaimed)
+	StatusPending   = "pending"   // Context created, awaiting media-path consumption
+	StatusClaimed   = "claimed"   // Context consumed (media-path bound, or call ended unclaimed)
+	StatusCompleted = "completed" // Provider reported a terminal completed state
 )
 
 // CallContext holds all the information needed to resolve a call session.
@@ -46,7 +47,6 @@ type CallContext struct {
 	Provider       string    `json:"provider" gorm:"column:provider;type:varchar(50);not null;default:''"`
 	Direction      string    `json:"direction" gorm:"column:direction;type:varchar(20);not null;default:''"`
 	CallerNumber   string    `json:"callerNumber" gorm:"column:caller_number;type:varchar(50);not null;default:''"`
-	CalleeNumber   string    `json:"calleeNumber" gorm:"column:callee_number;type:varchar(50);not null;default:''"`
 	FromNumber     string    `json:"fromNumber" gorm:"column:from_number;type:varchar(50);not null;default:''"`
 	CreatedDate    time.Time `json:"createdDate" gorm:"type:timestamp;not null;default:NOW();<-:create"`
 	UpdatedDate    time.Time `json:"updatedDate" gorm:"type:timestamp;default:null"`

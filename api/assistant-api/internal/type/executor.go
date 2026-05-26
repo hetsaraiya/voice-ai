@@ -48,3 +48,7 @@ type EndOfSpeechExecutor interface {
 type VoiceActivityDetectorExecutor interface {
 	Executor[UserAudioReceivedPacket]
 }
+
+type VoiceDenoiserExecutor interface {
+	Executor[DenoiseAudioPacket]
+}

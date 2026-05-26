@@ -5,25 +5,9 @@ import { User } from '@rapidaai/react';
 import { RoleIndicator } from '@/app/components/indicators/role';
 import { toHumanReadableDate } from '@/utils/date';
 import { TableRow, TableCell } from '@carbon/react';
-import IconIndicator from '@carbon/react/es/components/IconIndicator';
-
-const statusMap: Record<string, { kind: string; label: string }> = {
-  ACTIVE: { kind: 'succeeded', label: 'Active' },
-  active: { kind: 'succeeded', label: 'Active' },
-  DISABLED: { kind: 'failed', label: 'Disabled' },
-  disabled: { kind: 'failed', label: 'Disabled' },
-  INACTIVE: { kind: 'incomplete', label: 'Inactive' },
-  inactive: { kind: 'incomplete', label: 'Inactive' },
-  PENDING: { kind: 'pending', label: 'Pending' },
-  pending: { kind: 'pending', label: 'Pending' },
-};
-
-const defaultStatus = { kind: 'normal', label: 'Active' };
+import { CarbonIconIndicator } from '@/app/components/carbon/icon-indicator';
 
 export function SingleUser(props: { user: User }) {
-  const status = props.user.getStatus?.() || '';
-  const { kind, label } = statusMap[status] || defaultStatus;
-
   return (
     <TableRow>
       <TableCell>{props.user.getId()}</TableCell>
@@ -42,7 +26,7 @@ export function SingleUser(props: { user: User }) {
           toHumanReadableDate(props.user.getCreateddate()!)}
       </TableCell>
       <TableCell>
-        <IconIndicator kind={kind as any} label={label} size={16} />
+        <CarbonIconIndicator state={props.user.getStatus?.()} />
       </TableCell>
       <TableCell>
         <UserOption id={props.user.getId()} />

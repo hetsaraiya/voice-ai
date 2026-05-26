@@ -7,7 +7,7 @@ import { useForm } from 'react-hook-form';
 import { ServiceError } from '@rapidaai/react';
 import { connectionConfig } from '@/configs';
 import { useRapidaStore } from '@/hooks';
-import { Stack, TextInput } from '@/app/components/carbon/form';
+import { Stack } from '@/app/components/carbon/form';
 import { PrimaryButton } from '@/app/components/carbon/button';
 import { Notification } from '@/app/components/carbon/notification';
 import { ArrowRight } from '@carbon/icons-react';
@@ -32,7 +32,8 @@ export function ChangePasswordPage() {
       } else {
         let errorMessage = cpr?.getError();
         if (errorMessage) setError(errorMessage.getHumanmessage());
-        else setError('Unable to process your request. Please try again later.');
+        else
+          setError('Unable to process your request. Please try again later.');
         return;
       }
     },
@@ -41,7 +42,9 @@ export function ChangePasswordPage() {
 
   const onCreatePassword = data => {
     if (!token) {
-      setError('The password token is expired, please request again for reset password token.');
+      setError(
+        'The password token is expired, please request again for reset password token.',
+      );
       return;
     }
     if (data.password !== data.confirmPassword) {
@@ -53,14 +56,19 @@ export function ChangePasswordPage() {
   };
 
   return (
-    <>
+    <Stack gap={6}>
       <Helmet title="Change your password" />
-      <h2 className="text-2xl font-light tracking-tight">Change Password</h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-        You've requested to change your password. Please enter your new password
-        below to secure your account.
-      </p>
-
+      <Stack gap={2}>
+        <h1 className="m-0 text-[1.8rem] leading-tight">Change Password</h1>
+        <p className="mt-1.5 text-sm leading-[1.4286] text-(--cds-text-secondary)">
+          You've requested to change your password. Please enter your new
+          password below to secure your account.
+        </p>
+        <div
+          aria-hidden="true"
+          className={`h-px bg-gray-300 dark:bg-gray-900 mt-3`}
+        />
+      </Stack>
       <form className="mt-6" onSubmit={handleSubmit(onCreatePassword)}>
         <Stack gap={5}>
           <PasswordInput
@@ -91,6 +99,6 @@ export function ChangePasswordPage() {
           </PrimaryButton>
         </Stack>
       </form>
-    </>
+    </Stack>
   );
 }

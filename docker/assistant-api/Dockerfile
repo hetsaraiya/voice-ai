@@ -11,6 +11,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # ---- Copy only what this service needs ----
 COPY config/ ./config/
+COPY openapi/ ./openapi/
 COPY protos/ ./protos/
 COPY pkg/ ./pkg/
 COPY api/assistant-api ./api/assistant-api

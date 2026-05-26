@@ -18,6 +18,14 @@ import { ConversationDirectionIndicator } from '@/app/components/indicators/conv
 import { ConversationTelemetryDialog } from '@/app/components/base/modal/conversation-telemetry-modal';
 import { CONFIG } from '@/configs';
 import { AssistantConversationTelephonyEventDialog } from '@/app/components/base/modal/assistant-conversation-telephony-event-modal';
+import { ChannelIndicator } from './channel-indicator';
+import { normalizeDisconnectReason } from './disconnect-reason';
+import { DisconnectReasonIndicator } from './disconnect-reason-indicator';
+import { DurationBreakdownToggletip } from './duration-breakdown-toggletip';
+import {
+  getChannelValue,
+  getDisconnectReasonValue,
+} from './session-list.helpers';
 
 import {
   Table,
@@ -184,12 +192,18 @@ export function Conversations({ currentAssistant }: ConversationProps) {
                   return row.getAssistantid();
                 case 'assistant_provider_model_id':
                   return `vrsn_${row.getAssistantprovidermodelid()}`;
+                case 'channel':
+                  return getChannelValue(row);
                 case 'identifier':
                   return csvEscape(row.getIdentifier());
                 case 'source':
                   return row.getSource();
                 case 'status':
                   return getStatusMetric(row.getMetricsList());
+                case 'disconnect_reason':
+                  return normalizeDisconnectReason(
+                    getDisconnectReasonValue(row),
+                  ).label;
                 case 'created_date':
                   return row.getCreateddate()
                     ? toDate(row.getCreateddate()!)
@@ -319,9 +333,16 @@ export function Conversations({ currentAssistant }: ConversationProps) {
                       </TableCell>
                     )}
                     {assistantConversationListAction.visibleColumn(
+                      'channel',
+                    ) && (
+                      <TableCell className="min-w-[130px] whitespace-nowrap text-sm">
+                        <ChannelIndicator channel={getChannelValue(row)} />
+                      </TableCell>
+                    )}
+                    {assistantConversationListAction.visibleColumn(
                       'identifier',
                     ) && (
-                      <TableCell className="max-w-[160px] truncate text-sm">
+                      <TableCell className="min-w-[220px] max-w-[280px] truncate text-sm">
                         {row.getIdentifier()}
                       </TableCell>
                     )}
@@ -336,8 +357,13 @@ export function Conversations({ currentAssistant }: ConversationProps) {
                     {assistantConversationListAction.visibleColumn(
                       'duration',
                     ) && (
-                      <TableCell className="text-sm tabular-nums">
-                        {getConversationDuration(row.getMetricsList())}
+                      <TableCell className="min-w-[150px] whitespace-nowrap text-sm tabular-nums">
+                        <div className="flex items-center gap-1.5">
+                          <span>
+                            {getConversationDuration(row.getMetricsList())}
+                          </span>
+                          <DurationBreakdownToggletip conversation={row} />
+                        </div>
                       </TableCell>
                     )}
 
@@ -388,6 +414,16 @@ export function Conversations({ currentAssistant }: ConversationProps) {
                             }}
                           />
                         </div>
+                      </TableCell>
+                    )}
+
+                    {assistantConversationListAction.visibleColumn(
+                      'disconnect_reason',
+                    ) && (
+                      <TableCell className="min-w-[180px] whitespace-nowrap text-sm">
+                        <DisconnectReasonIndicator
+                          reason={getDisconnectReasonValue(row)}
+                        />
                       </TableCell>
                     )}
 

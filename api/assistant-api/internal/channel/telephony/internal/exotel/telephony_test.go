@@ -9,12 +9,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rapidaai/api/assistant-api/config"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	configs "github.com/rapidaai/config"
+	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
@@ -238,6 +241,125 @@ func TestReceiveCall(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStatusCallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logger, err := commons.NewApplicationLogger()
+	require.NoError(t, err)
+	telephony, err := NewExotelTelephony(&config.AssistantConfig{}, logger)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		form        map[string]string
+		checkStatus func(*testing.T, *internal_type.StatusInfo)
+	}{
+		{
+			name: "completed call captures duration and price",
+			form: map[string]string{
+				"CallSid":              "exotel-call-sid-12345",
+				"Status":               "completed",
+				"ConversationDuration": "17",
+				"Price":                "0.0500",
+			},
+			checkStatus: func(t *testing.T, info *internal_type.StatusInfo) {
+				require.NotNil(t, info)
+				assert.Equal(t, "completed", info.Event)
+				assert.Equal(t, "exotel-call-sid-12345", info.ChannelUUID)
+				require.NotNil(t, info.Duration)
+				assert.Equal(t, 17*time.Second, *info.Duration)
+				assert.Equal(t, "0.0500", info.Price)
+				assert.Nil(t, info.Error)
+			},
+		},
+		{
+			name: "busy call maps to failed error reason",
+			form: map[string]string{
+				"CallSid": "exotel-call-sid-12345",
+				"Status":  "busy",
+			},
+			checkStatus: func(t *testing.T, info *internal_type.StatusInfo) {
+				require.NotNil(t, info)
+				assert.Equal(t, "busy", info.Event)
+				require.NotNil(t, info.Error)
+				assert.Equal(t, "failed", info.Error.Error)
+				assert.Equal(t, "busy", info.Error.Reason)
+			},
+		},
+		{
+			name: "cause overrides failed reason",
+			form: map[string]string{
+				"CallSid": "exotel-call-sid-12345",
+				"Status":  "failed",
+				"Cause":   "remote_busy",
+			},
+			checkStatus: func(t *testing.T, info *internal_type.StatusInfo) {
+				require.NotNil(t, info)
+				assert.Equal(t, "failed", info.Event)
+				require.NotNil(t, info.Error)
+				assert.Equal(t, "failed", info.Error.Error)
+				assert.Equal(t, "remote_busy", info.Error.Reason)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			formValues := url.Values{}
+			for key, value := range tt.form {
+				formValues.Add(key, value)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(formValues.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			c.Request = req
+
+			statusInfo, err := telephony.StatusCallback(c, nil, 1, 1)
+
+			require.NoError(t, err)
+			tt.checkStatus(t, statusInfo)
+		})
+	}
+}
+
+func TestCatchAllStatusCallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logger, err := commons.NewApplicationLogger()
+	require.NoError(t, err)
+	telephony, err := NewExotelTelephony(&config.AssistantConfig{}, logger)
+	require.NoError(t, err)
+
+	t.Run("valid Exotel global event", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		queryValues := url.Values{}
+		queryValues.Add("CallSid", "exotel-call-sid-12345")
+		queryValues.Add("Status", "no-answer")
+		c.Request = httptest.NewRequest(http.MethodGet, "/?"+queryValues.Encode(), nil)
+
+		statusInfo, err := telephony.CatchAllStatusCallback(c)
+
+		require.NoError(t, err)
+		require.NotNil(t, statusInfo)
+		assert.Equal(t, "no-answer", statusInfo.Event)
+		assert.Equal(t, "exotel-call-sid-12345", statusInfo.ChannelUUID)
+		require.NotNil(t, statusInfo.Error)
+		assert.Equal(t, "no-answer", statusInfo.Error.Reason)
+	})
+
+	t.Run("missing CallSid", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/?Status=completed", nil)
+
+		statusInfo, err := telephony.CatchAllStatusCallback(c)
+
+		assert.Error(t, err)
+		assert.Nil(t, statusInfo)
+	})
 }
 
 // TestReceiveCall_QueryParameterExtraction tests that all query parameters are captured in CallInfo payload

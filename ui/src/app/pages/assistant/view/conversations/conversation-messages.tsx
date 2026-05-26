@@ -3,7 +3,6 @@ import {
   AssistantConversation,
   AssistantConversationMessage,
 } from '@rapidaai/react';
-import { RapidaIcon } from '@/app/components/Icon/Rapida';
 import { FC, useCallback, useContext, useEffect, useRef } from 'react';
 import { AssistantChatContext } from '@/hooks/use-assistant-chat';
 import { useBoolean } from 'ahooks';
@@ -12,18 +11,11 @@ import { Renew, Download, Chat } from '@carbon/icons-react';
 import { GhostButton } from '@/app/components/carbon/button';
 import { Tag, DefinitionTooltip } from '@carbon/react';
 import { EmptyState } from '@/app/components/carbon/empty-state';
-import {
-  getMetadataValueOrDefault,
-  getStatusMetric,
-  getTotalTokenMetric,
-} from '@/utils/metadata';
+import { getStatusMetric } from '@/utils/metadata';
 import { CarbonStatusIndicator } from '@/app/components/carbon/status-indicator';
 import { toHumanReadableDateTime } from '@/utils/date';
 import { AudioPlayer } from '@/app/components/audio-player';
-import {
-  formatLatency,
-  getRoleVisual,
-} from '@/app/pages/assistant/view/conversations/conversation-messages.helpers';
+import { getRoleVisual } from '@/app/pages/assistant/view/conversations/conversation-messages.helpers';
 
 export const ConversationMessages: FC<{
   conversation: AssistantConversation;
@@ -181,41 +173,53 @@ export const ConversationMessages: FC<{
                     {x.getBody() || '-'}
                   </div>
                   <div className="px-4 py-2 flex flex-wrap items-center gap-1.5">
-                    {x.getMetricsList()?.filter(m => m?.getKey).map((m, mi) => {
-                      const key = m.getKey?.() || m.getName?.() || '';
-                      const val = m.getValue?.() || '';
-                      const tagType = key.includes('latency') ? 'teal'
-                        : key.includes('turn') ? 'purple'
-                        : 'blue';
-                      const displayVal = key.includes('latency') ? `${val} ms` : val;
-                      return (
-                        <DefinitionTooltip
-                          key={mi}
-                          definition={`${key}: ${val}`}
-                          openOnHover
-                        >
-                          <Tag size="sm" type={tagType} className="!cursor-help">
-                            {key}: {displayVal}
-                          </Tag>
-                        </DefinitionTooltip>
-                      );
-                    })}
-                    {x.getMetadataList()?.filter(m => m?.getKey).map((m, mi) => {
-                      const key = m.getKey();
-                      const val = m.getValue();
-                      const tagType = key === 'language' || key === 'language_code' ? 'warm-gray' : 'cool-gray';
-                      return (
-                        <DefinitionTooltip
-                          key={`md-${mi}`}
-                          definition={`${key}: ${val}`}
-                          openOnHover
-                        >
-                          <Tag size="sm" type={tagType} className="!cursor-help">
-                            {key}: {val}
-                          </Tag>
-                        </DefinitionTooltip>
-                      );
-                    })}
+                    {x
+                      .getMetricsList()
+                      ?.filter(m => m?.getName)
+                      .map((m, mi) => {
+                        const key = m.getName?.() || m.getName?.() || '';
+                        const val = m.getValue?.() || '';
+                        const displayVal = key.includes('latency')
+                          ? `${val} ms`
+                          : val;
+                        return (
+                          <DefinitionTooltip
+                            key={mi}
+                            definition={`${key}: ${val}`}
+                            openOnHover
+                          >
+                            <Tag size="sm" type="gray" className="!cursor-help">
+                              {key}: {displayVal}
+                            </Tag>
+                          </DefinitionTooltip>
+                        );
+                      })}
+                    {x
+                      .getMetadataList()
+                      ?.filter(m => m?.getKey)
+                      .map((m, mi) => {
+                        const key = m.getKey();
+                        const val = m.getValue();
+                        const tagType =
+                          key === 'language' || key === 'language_code'
+                            ? 'warm-gray'
+                            : 'cool-gray';
+                        return (
+                          <DefinitionTooltip
+                            key={`md-${mi}`}
+                            definition={`${key}: ${val}`}
+                            openOnHover
+                          >
+                            <Tag
+                              size="sm"
+                              type={tagType}
+                              className="!cursor-help"
+                            >
+                              {key}: {val}
+                            </Tag>
+                          </DefinitionTooltip>
+                        );
+                      })}
                   </div>
                 </div>
               </div>

@@ -246,15 +246,15 @@ func (r *audioRecorder) wallClockOffsetBytes() int {
 	return durationBytes(r.clock().Sub(r.startTime))
 }
 
-// Persist renders two WAV files — one per track. Both WAVs span the full
-// session duration (Start → Persist). Audio chunks are painted at their
-// recorded timeline positions; gaps are zero-filled (silence).
-func (r *audioRecorder) Persist() (userWAV, systemWAV []byte, err error) {
+// Persist renders user, assistant, and conversation WAV files. All outputs span
+// the full session duration (Start → Persist). Audio chunks are painted at
+// their recorded timeline positions; gaps are zero-filled (silence).
+func (r *audioRecorder) Persist() (userWAV, systemWAV, conversationWAV []byte, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if len(r.chunks) == 0 {
-		return nil, nil, fmt.Errorf("no audio chunks to persist")
+		return nil, nil, nil, fmt.Errorf("no audio chunks to persist")
 	}
 
 	totalLen := r.computeBufferLength()
@@ -283,15 +283,19 @@ func (r *audioRecorder) Persist() (userWAV, systemWAV []byte, err error) {
 		len(r.chunks),
 	))
 
-	userWAV, err = encodeWAV(trackPCM[trackUser])
+	userWAV, err = encodeWAV(trackPCM[trackUser], 1)
 	if err != nil {
-		return nil, nil, fmt.Errorf("encoding user WAV: %w", err)
+		return nil, nil, nil, fmt.Errorf("encoding user WAV: %w", err)
 	}
-	systemWAV, err = encodeWAV(trackPCM[trackSystem])
+	systemWAV, err = encodeWAV(trackPCM[trackSystem], 1)
 	if err != nil {
-		return nil, nil, fmt.Errorf("encoding system WAV: %w", err)
+		return nil, nil, nil, fmt.Errorf("encoding system WAV: %w", err)
 	}
-	return userWAV, systemWAV, nil
+	conversationWAV, err = encodeWAV(interleaveStereo(trackPCM[trackUser], trackPCM[trackSystem]), 2)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("encoding conversation WAV: %w", err)
+	}
+	return userWAV, systemWAV, conversationWAV, nil
 }
 
 // computeBufferLength returns the PCM buffer size needed to hold the entire
@@ -314,11 +318,22 @@ func (r *audioRecorder) computeBufferLength() int {
 	return totalLen
 }
 
+func interleaveStereo(leftPCM, rightPCM []byte) []byte {
+	samples := min(len(leftPCM), len(rightPCM)) / AudioBytesPerSample
+	stereo := make([]byte, samples*AudioBytesPerSample*2)
+	for i := 0; i < samples; i++ {
+		monoOffset := i * AudioBytesPerSample
+		stereoOffset := i * AudioBytesPerSample * 2
+		copy(stereo[stereoOffset:stereoOffset+AudioBytesPerSample], leftPCM[monoOffset:monoOffset+AudioBytesPerSample])
+		copy(stereo[stereoOffset+AudioBytesPerSample:stereoOffset+AudioBytesPerSample*2], rightPCM[monoOffset:monoOffset+AudioBytesPerSample])
+	}
+	return stereo
+}
+
 // encodeWAV wraps raw PCM data in a canonical WAV (RIFF) container.
 // Format: 16-bit LINEAR PCM at the configured sample rate and channel count.
-func encodeWAV(pcmData []byte) ([]byte, error) {
+func encodeWAV(pcmData []byte, channels int) ([]byte, error) {
 	sampleRate := audioConfig.SampleRate
-	channels := audioConfig.Channels
 	blockAlign := uint16(channels) * uint16(AudioBytesPerSample)
 	byteRate := uint32(sampleRate) * uint32(blockAlign)
 

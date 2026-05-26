@@ -190,7 +190,7 @@ func (r *genericRequestor) OnConnect(ctx context.Context, auth types.SimplePrinc
 		if r.sessionLifecycle.Current() != adapter_lifecycle.StateInitializing {
 			return
 		}
-		if r.Conversation() != nil {
+		if r.Ready() {
 			r.OnPacket(r.sessionCtx,
 				internal_type.ConversationEventPacket{
 					ContextID: r.GetID(),

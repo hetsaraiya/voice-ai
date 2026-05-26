@@ -299,6 +299,6 @@ type AssistantConversationService interface {
 		auth types.SimplePrinciple,
 		assistantId uint64,
 		assistantConversationId uint64,
-		user, system []byte,
+		user, assistant, conversation []byte,
 	) (*internal_conversation_entity.AssistantConversationRecording, error)
 }

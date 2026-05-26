@@ -12,11 +12,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rapidaai/api/assistant-api/config"
+	internal_vonage "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/vonage/internal"
 	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/types"
 	"github.com/rapidaai/pkg/utils"
+	"github.com/rapidaai/pkg/validator"
 	"github.com/rapidaai/protos"
 	"github.com/vonage/vonage-go-sdk"
 	"github.com/vonage/vonage-go-sdk/ncco"
@@ -65,29 +67,59 @@ func vonageAuth(vaultCredential *protos.VaultCredential) (vonage.Auth, error) {
 }
 
 func (vng *vonageTelephony) CatchAllStatusCallback(ctx *gin.Context) (*internal_type.StatusInfo, error) {
-	return nil, nil
+	eventDetails := map[string]interface{}{}
+	for key, values := range ctx.Request.URL.Query() {
+		if len(values) > 0 {
+			eventDetails[key] = values[0]
+		} else {
+			eventDetails[key] = nil
+		}
+	}
+
+	callback, err := internal_vonage.NewStatusCallback(eventDetails)
+	if err != nil {
+		vng.logger.Errorf("failed to parse status callback: %+v", err)
+		return nil, err
+	}
+	if !validator.NotBlank(callback.ChannelUUID) {
+		vng.logger.Errorf("uuid not found or invalid in catch-all payload")
+		return nil, fmt.Errorf("uuid not found in callback")
+	}
+
+	vng.logger.Debugf("catch-all event processed | status: %s, payload: %+v", callback.Status, eventDetails)
+	return callback.StatusInfo(), nil
 }
 
 func (vng *vonageTelephony) StatusCallback(c *gin.Context, auth types.SimplePrinciple, assistantId uint64, assistantConversationId uint64) (*internal_type.StatusInfo, error) {
-	body, err := c.GetRawData()
-	if err != nil {
-		vng.logger.Errorf("failed to read request body with error %+v", err)
-		return nil, fmt.Errorf("failed to read request body")
-	}
-
 	var payload map[string]interface{}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		vng.logger.Errorf("failed to parse request body: %+v", err)
-		return nil, fmt.Errorf("failed to parse request body")
+	if len(c.Request.URL.Query()) > 0 {
+		payload = make(map[string]interface{})
+		for key, values := range c.Request.URL.Query() {
+			if len(values) > 0 {
+				payload[key] = values[0]
+			} else {
+				payload[key] = nil
+			}
+		}
+	} else {
+		body, err := c.GetRawData()
+		if err != nil {
+			vng.logger.Errorf("failed to read request body with error %+v", err)
+			return nil, fmt.Errorf("failed to read request body")
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			vng.logger.Errorf("failed to parse request body: %+v", err)
+			return nil, fmt.Errorf("failed to parse request body")
+		}
 	}
 
-	status, ok := payload["status"].(string)
-	if !ok {
-		vng.logger.Errorf("status not found or invalid in payload")
-		return nil, fmt.Errorf("status not found in payload")
+	callback, err := internal_vonage.NewStatusCallback(payload)
+	if err != nil {
+		vng.logger.Errorf("failed to parse status callback: %+v", err)
+		return nil, err
 	}
-	vng.logger.Debugf("event processed | status: %s, payload: %+v", status, payload)
-	return &internal_type.StatusInfo{Event: status, Payload: payload}, nil
+	vng.logger.Debugf("event processed | status: %s, payload: %+v", callback.Status, payload)
+	return callback.StatusInfo(), nil
 }
 
 func (vng *vonageTelephony) OutboundCall(
@@ -124,9 +156,11 @@ func (vng *vonageTelephony) OutboundCall(
 	connectAction.AddAction(nccoConnect)
 	result, vErr, apiError := ct.CreateCall(
 		vonage.CreateCallOpts{
-			From: vonage.CallFrom{Type: "phone", Number: fromPhone},
-			To:   vonage.CallTo{Type: "phone", Number: toPhone},
-			Ncco: connectAction,
+			From:        vonage.CallFrom{Type: "phone", Number: fromPhone},
+			To:          vonage.CallTo{Type: "phone", Number: toPhone},
+			Ncco:        connectAction,
+			EventUrl:    []string{fmt.Sprintf("https://%s/%s", vng.appCfg.Assistant.Public, internal_type.GetContextEventPath(vonageProvider, contextID))},
+			EventMethod: "GET",
 		})
 
 	if apiError != nil {

@@ -169,6 +169,14 @@ func (conversationService *assistantConversationService) Get(
 						conversationService.logger.Warnf("unable to get user public url %+v", err)
 						continue
 					}
+					if recording.ConversationRecordingUrl != "" {
+						conversationUrl, err := conversationService.GetRecordingPublicUrl(ctx, recording.ConversationRecordingUrl)
+						if err != nil {
+							conversationService.logger.Warnf("unable to get conversation public url %+v", err)
+							continue
+						}
+						recording.ConversationRecordingUrl = *conversationUrl
+					}
 					recording.AssistantRecordingUrl = *assistantUrl
 					recording.UserRecordingUrl = *userUrl
 					assistantConversation.Recordings = append(assistantConversation.Recordings, recording)
@@ -541,7 +549,7 @@ func (conversationService *assistantConversationService) CreateConversationRecor
 	auth types.SimplePrinciple,
 	assistantId,
 	assistantConversationId uint64,
-	user, assistant []byte,
+	user, assistant, conversation []byte,
 ) (*internal_conversation_entity.AssistantConversationRecording, error) {
 	start := time.Now()
 	db := conversationService.postgres.DB(ctx)
@@ -551,11 +559,13 @@ func (conversationService *assistantConversationService) CreateConversationRecor
 
 	userKey := conversationService.ObjectKey(s3Prefix, assistantConversationId, fmt.Sprintf("user-%d.wav", recordingId))
 	assistantKey := conversationService.ObjectKey(s3Prefix, assistantConversationId, fmt.Sprintf("assistant-%d.wav", recordingId))
+	conversationKey := conversationService.ObjectKey(s3Prefix, assistantConversationId, fmt.Sprintf("conversation-%d.wav", recordingId))
 
 	// we know the file path so no need to wait for it
 	utils.Go(context.Background(), func() {
 		conversationService.storage.Store(ctx, userKey, user)
 		conversationService.storage.Store(ctx, assistantKey, assistant)
+		conversationService.storage.Store(ctx, conversationKey, conversation)
 	})
 
 	conversationRecording := &internal_conversation_entity.AssistantConversationRecording{
@@ -566,10 +576,11 @@ func (conversationService *assistantConversationService) CreateConversationRecor
 			ProjectId:      *auth.GetCurrentProjectId(),
 			OrganizationId: *auth.GetCurrentOrganizationId(),
 		},
-		AssistantId:             assistantId,
-		AssistantConversationId: assistantConversationId,
-		AssistantRecordingUrl:   assistantKey,
-		UserRecordingUrl:        userKey,
+		AssistantId:              assistantId,
+		AssistantConversationId:  assistantConversationId,
+		AssistantRecordingUrl:    assistantKey,
+		UserRecordingUrl:         userKey,
+		ConversationRecordingUrl: conversationKey,
 	}
 	if auth.GetUserId() != nil {
 		conversationRecording.Mutable.CreatedBy = *auth.GetUserId()

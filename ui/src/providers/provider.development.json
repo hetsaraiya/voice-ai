@@ -187,6 +187,23 @@
         ]
     },
     {
+        "code": "telnyx",
+        "name": "Telnyx",
+        "description": "Programmable telephony platform offering Call Control API and bidirectional WebSocket media streaming.",
+        "image": "https://cdn-01.rapida.ai/partners/telnyx.png",
+        "featureList": [
+            "telephony",
+            "external"
+        ],
+        "configurations": [
+            {
+                "name": "api_key",
+                "type": "string",
+                "label": "API key"
+            }
+        ]
+    },
+    {
         "code": "aws",
         "name": "AWS",
         "description": "Amazon Web Services (AWS) offers a broad set of global cloud-based products including compute, storage, databases, analytics, and AI services.",
@@ -728,6 +745,7 @@
     {
         "code": "datadog",
         "name": "Datadog",
+        "image": "https://cdn-01.rapida.ai/partners/datadog.jpg",
         "description": "Datadog tracing via OTLP-compatible collector.",
         "featureList": [
             "telemetry",
@@ -765,6 +783,7 @@
     {
         "code": "google_trace",
         "name": "Google Trace",
+        "image": "https://cdn-01.rapida.ai/partners/google-trace.png",
         "description": "Google Cloud Trace via OTLP collector.",
         "featureList": [
             "telemetry",
@@ -786,6 +805,7 @@
     {
         "code": "azure_monitor",
         "name": "Azure Monitor",
+        "image": "https://cdn-01.rapida.ai/partners/azure-monitor.jpeg",
         "description": "Azure Monitor / Application Insights via OTLP.",
         "featureList": [
             "telemetry",
@@ -803,7 +823,7 @@
         "code": "custom-llm",
         "name": "Custom LLM",
         "description": "Connect to any LLM server. Choose an API compatibility (OpenAI-compatible, Anthropic-compatible, or custom), provide a base URL and optional headers. Useful for self-hosted runtimes such as vLLM, Ollama, LM Studio, or Text Generation Inference.",
-        "image": "https://cdn-01.rapida.ai/providers/1987967168452493312.svg",
+        "image": "https://cdn-01.rapida.ai/partners/custom.png",
         "featureList": [
             "text",
             "external"
@@ -855,7 +875,7 @@
         "code": "custom-tts",
         "name": "Custom TTS",
         "description": "Connect to any websocket-based TTS service with configurable packet body templates, custom headers, and provider-defined voice/model settings.",
-        "image": "https://cdn-01.rapida.ai/providers/1987967168452493312.svg",
+        "image": "https://cdn-01.rapida.ai/partners/custom.png",
         "featureList": [
             "tts",
             "external"
@@ -889,7 +909,7 @@
         "code": "custom-stt",
         "name": "Custom STT",
         "description": "Connect to any websocket-based STT service with configurable query params, custom request packets, custom headers, and response parsing rules.",
-        "image": "https://cdn-01.rapida.ai/providers/1987967168452493312.svg",
+        "image": "https://cdn-01.rapida.ai/partners/custom.png",
         "featureList": [
             "stt",
             "external"

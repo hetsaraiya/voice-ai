@@ -155,7 +155,7 @@ func (m matcher) Run(values ...ConditionValue) (bool, error) {
 		switch key {
 		case "source":
 			inputValues[RuleTypeSource] = entry.Value
-		case "mode":
+		case "mode", "conversation_mode":
 			inputValues[RuleTypeMode] = entry.Value
 		case "direction":
 			inputValues[RuleTypeDirection] = entry.Value
@@ -208,7 +208,7 @@ func (parser) Parse(raw string) (Matcher, error) {
 				Operator: entry.Condition,
 				Source:   entry.Value,
 			})
-		case "mode":
+		case "mode", "conversation_mode":
 			parsedRules = append(parsedRules, ModeRule{
 				Operator: entry.Condition,
 				Mode:     entry.Value,

@@ -15,6 +15,7 @@ import (
 
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/connectors"
+	"github.com/rapidaai/pkg/validator"
 )
 
 // Store provides operations to save and retrieve call contexts from Postgres.
@@ -27,6 +28,7 @@ import (
 type Store interface {
 	Save(ctx context.Context, cc *CallContext) (string, error)
 	Get(ctx context.Context, contextID string) (*CallContext, error)
+	GetByChannelUUID(ctx context.Context, provider string, assistantID uint64, channelUUID string) (*CallContext, error)
 	Claim(ctx context.Context, contextID string) (*CallContext, error)
 	UpdateField(ctx context.Context, contextID, field, value string) error
 }
@@ -65,6 +67,28 @@ func (s *postgresStore) Get(ctx context.Context, contextID string) (*CallContext
 	var cc CallContext
 	if err := db.Where("context_id = ?", contextID).First(&cc).Error; err != nil {
 		return nil, fmt.Errorf("call context not found: %s: %w", contextID, err)
+	}
+	return &cc, nil
+}
+
+func (s *postgresStore) GetByChannelUUID(ctx context.Context, provider string, assistantID uint64, channelUUID string) (*CallContext, error) {
+	if !validator.NotBlank(provider) {
+		return nil, fmt.Errorf("provider is required to get call context by channel uuid")
+	}
+	if !validator.AllNonZero(assistantID) {
+		return nil, fmt.Errorf("assistant id is required to get call context by channel uuid")
+	}
+	if !validator.NotBlank(channelUUID) {
+		return nil, fmt.Errorf("channel uuid is required to get call context")
+	}
+
+	db := s.postgres.DB(ctx)
+	var cc CallContext
+	if err := db.
+		Where("provider = ? AND assistant_id = ? AND channel_uuid = ?", provider, assistantID, channelUUID).
+		Order("created_date DESC").
+		First(&cc).Error; err != nil {
+		return nil, fmt.Errorf("call context not found for provider=%s assistant=%d channel_uuid=%s: %w", provider, assistantID, channelUUID, err)
 	}
 	return &cc, nil
 }

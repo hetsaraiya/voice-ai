@@ -60,10 +60,17 @@ func TestParse_UnsupportedKey_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestParse_ConversationModeKey_ReturnsError(t *testing.T) {
-	_, err := Parse(`[{"key":"conversation_mode","condition":"=","value":"voice"}]`)
-	if err == nil {
-		t.Fatalf("expected conversation_mode key to be unsupported")
+func TestParse_ConversationModeKey_ReturnsModeRule(t *testing.T) {
+	parsed, err := Parse(`[{"key":"conversation_mode","condition":"=","value":"voice"}]`)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	rules := parsed.Rules()
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(rules))
+	}
+	if _, ok := rules[0].(ModeRule); !ok {
+		t.Fatalf("expected conversation_mode to parse as ModeRule, got %T", rules[0])
 	}
 }
 
@@ -101,6 +108,25 @@ func TestParseRun_SourceModeDirection_Match(t *testing.T) {
 	}
 	if !ok {
 		t.Fatalf("expected parse().run() to match")
+	}
+}
+
+func TestParseRun_SourceConversationModeDirection_Match(t *testing.T) {
+	raw := `[{"key":"source","condition":"=","value":"phone"},{"key":"conversation_mode","condition":"=","value":"voice"},{"key":"direction","condition":"=","value":"outbound"}]`
+	parsed, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("expected nil parse error, got %v", err)
+	}
+	ok, err := parsed.Run(
+		ConditionValue{RuleType: RuleTypeSource, Value: "phone-call"},
+		ConditionValue{RuleType: RuleTypeMode, Value: "audio"},
+		ConditionValue{RuleType: RuleTypeDirection, Value: "outbound"},
+	)
+	if err != nil {
+		t.Fatalf("expected nil run error, got %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected UI condition keys to match")
 	}
 }
 

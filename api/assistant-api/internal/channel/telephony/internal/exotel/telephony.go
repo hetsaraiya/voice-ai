@@ -23,6 +23,7 @@ import (
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/types"
 	"github.com/rapidaai/pkg/utils"
+	"github.com/rapidaai/pkg/validator"
 	"github.com/rapidaai/protos"
 )
 
@@ -41,26 +42,92 @@ func NewExotelTelephony(config *config.AssistantConfig, logger commons.Logger) (
 }
 
 func (exo *exotelTelephony) CatchAllStatusCallback(ctx *gin.Context) (*internal_type.StatusInfo, error) {
-	return nil, nil
+	eventDetails := utils.Option{}
+	if len(ctx.Request.URL.Query()) > 0 {
+		for key, values := range ctx.Request.URL.Query() {
+			if len(values) > 0 {
+				eventDetails[key] = values[0]
+			} else {
+				eventDetails[key] = nil
+			}
+		}
+	} else {
+		if err := ctx.Request.ParseForm(); err == nil && len(ctx.Request.PostForm) > 0 {
+			for key, values := range ctx.Request.PostForm {
+				if len(values) > 0 {
+					eventDetails[key] = values[0]
+				} else {
+					eventDetails[key] = nil
+				}
+			}
+		} else {
+			form, err := ctx.MultipartForm()
+			if err != nil {
+				exo.logger.Errorf("failed to parse callback form-data with error %+v", err)
+				return nil, fmt.Errorf("failed to parse callback form-data")
+			}
+			for key, values := range form.Value {
+				if len(values) > 0 {
+					eventDetails[key] = values[0]
+				} else {
+					eventDetails[key] = nil
+				}
+			}
+		}
+	}
+
+	callback, err := internal_exotel.NewStatusCallback(eventDetails)
+	if err != nil {
+		exo.logger.Errorf("failed to parse status callback: %+v", err)
+		return nil, err
+	}
+	if !validator.NotBlank(callback.ChannelUUID) {
+		exo.logger.Errorf("call sid not found or invalid in catch-all payload")
+		return nil, fmt.Errorf("call sid not found in callback")
+	}
+	return callback.StatusInfo(), nil
 }
 
 func (exo *exotelTelephony) StatusCallback(c *gin.Context, auth types.SimplePrinciple, assistantId uint64, assistantConversationId uint64) (*internal_type.StatusInfo, error) {
-	form, err := c.MultipartForm()
-	if err != nil {
-		exo.logger.Errorf("failed to parse multipart form-data with error %+v", err)
-		return nil, fmt.Errorf("failed to parse multipart form-data")
-	}
-
-	eventDetails := make(map[string]interface{})
-	for key, values := range form.Value {
-		if len(values) > 0 {
-			eventDetails[key] = values[0]
+	eventDetails := utils.Option{}
+	if len(c.Request.URL.Query()) > 0 {
+		for key, values := range c.Request.URL.Query() {
+			if len(values) > 0 {
+				eventDetails[key] = values[0]
+			} else {
+				eventDetails[key] = nil
+			}
+		}
+	} else {
+		if err := c.Request.ParseForm(); err == nil && len(c.Request.PostForm) > 0 {
+			for key, values := range c.Request.PostForm {
+				if len(values) > 0 {
+					eventDetails[key] = values[0]
+				} else {
+					eventDetails[key] = nil
+				}
+			}
 		} else {
-			eventDetails[key] = nil
+			form, err := c.MultipartForm()
+			if err != nil {
+				exo.logger.Errorf("failed to parse callback form-data with error %+v", err)
+				return nil, fmt.Errorf("failed to parse callback form-data")
+			}
+			for key, values := range form.Value {
+				if len(values) > 0 {
+					eventDetails[key] = values[0]
+				} else {
+					eventDetails[key] = nil
+				}
+			}
 		}
 	}
-	event := fmt.Sprintf("%v", eventDetails["Status"])
-	return &internal_type.StatusInfo{Event: event, Payload: eventDetails}, nil
+	callback, err := internal_exotel.NewStatusCallback(eventDetails)
+	if err != nil {
+		exo.logger.Errorf("failed to parse status callback: %+v", err)
+		return nil, err
+	}
+	return callback.StatusInfo(), nil
 }
 
 func (exo *exotelTelephony) ClientUrl(vaultCredential *protos.VaultCredential, opts utils.Option) (*string, error) {

@@ -12,11 +12,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rapidaai/api/assistant-api/config"
+	internal_twilio "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/twilio/internal"
 	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/types"
 	"github.com/rapidaai/pkg/utils"
+	"github.com/rapidaai/pkg/validator"
 	"github.com/rapidaai/protos"
 	"github.com/twilio/twilio-go"
 	openapi "github.com/twilio/twilio-go/rest/api/v2010"
@@ -72,35 +74,83 @@ func twilioClientParams(vaultCredential *protos.VaultCredential) (*twilio.Client
 }
 
 func (tpc *twilioTelephony) CatchAllStatusCallback(ctx *gin.Context) (*internal_type.StatusInfo, error) {
-	return nil, nil
-}
-func (tpc *twilioTelephony) StatusCallback(c *gin.Context, auth types.SimplePrinciple, assistantId uint64, assistantConversationId uint64) (*internal_type.StatusInfo, error) {
-	body, err := c.GetRawData()
-	if err != nil {
-		tpc.logger.Errorf("failed to read event body with error %+v", err)
-		return nil, fmt.Errorf("failed to read request body")
-	}
-
-	values, err := url.ParseQuery(string(body))
-	if err != nil {
-		tpc.logger.Errorf("failed to parse body with error %+v", err)
-		return nil, fmt.Errorf("failed to parse request body")
-	}
-
-	eventDetails := make(map[string]interface{})
-	for key, value := range values {
-		if len(value) > 0 {
-			eventDetails[key] = value[0]
-		} else {
-			eventDetails[key] = nil
+	eventDetails := utils.Option{}
+	if len(ctx.Request.URL.Query()) > 0 {
+		for key, values := range ctx.Request.URL.Query() {
+			if len(values) > 0 {
+				eventDetails[key] = values[0]
+			} else {
+				eventDetails[key] = nil
+			}
+		}
+	} else {
+		body, err := ctx.GetRawData()
+		if err != nil {
+			tpc.logger.Errorf("failed to read event body with error %+v", err)
+			return nil, fmt.Errorf("failed to read request body")
+		}
+		values, err := url.ParseQuery(string(body))
+		if err != nil {
+			tpc.logger.Errorf("failed to parse body with error %+v", err)
+			return nil, fmt.Errorf("failed to parse request body")
+		}
+		for key, value := range values {
+			if len(value) > 0 {
+				eventDetails[key] = value[0]
+			} else {
+				eventDetails[key] = nil
+			}
 		}
 	}
 
-	event := fmt.Sprintf("%v", eventDetails["CallStatus"])
-	if streamEvent, ok := eventDetails["StreamEvent"]; ok {
-		event = fmt.Sprintf("%v", streamEvent)
+	callback, err := internal_twilio.NewStatusCallback(eventDetails)
+	if err != nil {
+		tpc.logger.Errorf("failed to parse status callback: %+v", err)
+		return nil, err
 	}
-	return &internal_type.StatusInfo{Event: event, Payload: eventDetails}, nil
+	if !validator.NotBlank(callback.ChannelUUID) {
+		tpc.logger.Errorf("call sid not found or invalid in catch-all payload")
+		return nil, fmt.Errorf("call sid not found in callback")
+	}
+	return callback.StatusInfo(), nil
+}
+
+func (tpc *twilioTelephony) StatusCallback(c *gin.Context, auth types.SimplePrinciple, assistantId uint64, assistantConversationId uint64) (*internal_type.StatusInfo, error) {
+	eventDetails := utils.Option{}
+	if len(c.Request.URL.Query()) > 0 {
+		for key, values := range c.Request.URL.Query() {
+			if len(values) > 0 {
+				eventDetails[key] = values[0]
+			} else {
+				eventDetails[key] = nil
+			}
+		}
+	} else {
+		body, err := c.GetRawData()
+		if err != nil {
+			tpc.logger.Errorf("failed to read event body with error %+v", err)
+			return nil, fmt.Errorf("failed to read request body")
+		}
+		values, err := url.ParseQuery(string(body))
+		if err != nil {
+			tpc.logger.Errorf("failed to parse body with error %+v", err)
+			return nil, fmt.Errorf("failed to parse request body")
+		}
+		for key, value := range values {
+			if len(value) > 0 {
+				eventDetails[key] = value[0]
+			} else {
+				eventDetails[key] = nil
+			}
+		}
+	}
+
+	callback, err := internal_twilio.NewStatusCallback(eventDetails)
+	if err != nil {
+		tpc.logger.Errorf("failed to parse status callback: %+v", err)
+		return nil, err
+	}
+	return callback.StatusInfo(), nil
 }
 
 func (tpc *twilioTelephony) OutboundCall(auth types.SimplePrinciple, toPhone string, fromPhone string, assistant *internal_assistant_entity.Assistant, assistantConversationId uint64, vaultCredential *protos.VaultCredential, opts utils.Option) (*internal_type.CallInfo, error) {

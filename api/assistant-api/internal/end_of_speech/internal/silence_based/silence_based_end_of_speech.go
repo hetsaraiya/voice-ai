@@ -91,7 +91,6 @@ func NewSilenceBasedEndOfSpeech(
 	}
 
 	go endOfSpeech.worker()
-
 	if onPacket != nil && endOfSpeech.eventLevel == eventLevelDebug {
 		_ = onPacket(context.Background(), internal_type.ConversationEventPacket{
 			Name: "eos",

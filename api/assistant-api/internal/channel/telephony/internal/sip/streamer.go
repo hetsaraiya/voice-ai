@@ -217,6 +217,7 @@ func (s *Streamer) Send(response internal_type.Stream) error {
 			}
 		}
 	case *protos.ConversationDisconnection:
+		_ = s.Disconnect(data.GetType())
 		s.emitChannelEvent("disconnected", map[string]string{"reason": data.GetType().String()})
 		s.endSession() // notify SIP peer via BYE (equivalent of Output(data) in webrtc)
 		s.Close()

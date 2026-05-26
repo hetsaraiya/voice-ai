@@ -114,6 +114,9 @@ func (tws *twilioWebsocketStreamer) runWebSocketReader() {
 			_ = tws.handleMediaEvent(mediaEvent)
 		case "stop":
 			tws.Logger.Info("Twilio stream stopped")
+			if msg := tws.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER); msg != nil {
+				tws.Input(msg)
+			}
 			tws.Cancel()
 			return
 		default:
@@ -152,6 +155,7 @@ func (tws *twilioWebsocketStreamer) Send(response internal_type.Stream) error {
 		// Server-initiated disconnect: the talker already knows the reason
 		// (it called Notify with it). No need to round-trip back through
 		// CriticalCh — just notify the carrier via Hangup and clean up.
+		_ = tws.Disconnect(data.GetType())
 		if tws.GetConversationUuid() != "" {
 			if client, err := twilioClient(tws.VaultCredential()); err == nil {
 				params := &openapi.UpdateCallParams{}

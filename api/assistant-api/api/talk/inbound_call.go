@@ -17,29 +17,6 @@ import (
 	"github.com/rapidaai/pkg/types"
 )
 
-func (cApi *ConversationApi) UnviersalCallback(c *gin.Context) {
-	body, err := c.GetRawData()
-	if err != nil {
-		cApi.logger.Errorf("failed to read event body with error %+v", err)
-	}
-	cApi.logger.Debugf("event body: %s", string(body))
-}
-
-// CallbackByContext handles status callback webhooks using a contextId stored in Postgres.
-func (cApi *ConversationApi) CallbackByContext(c *gin.Context) {
-	contextID := c.Param("contextId")
-	if contextID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing contextId"})
-		return
-	}
-	if err := cApi.inboundDispatcher.HandleStatusCallbackByContext(c, contextID); err != nil {
-		cApi.logger.Errorf("status callback failed for context %s: %v", contextID, err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid event to process"})
-		return
-	}
-	c.Status(http.StatusCreated)
-}
-
 // CallReciever handles incoming calls for the given assistant.
 // Thin controller — business logic delegated to pipeline's handleCallReceived.
 func (cApi *ConversationApi) CallReciever(c *gin.Context) {

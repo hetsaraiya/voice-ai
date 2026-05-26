@@ -331,7 +331,7 @@ describe('UpdateAssistantAnalysis', () => {
                   }),
               },
               {
-                getKey: () => 'conditions',
+                getKey: () => 'analysis.condition',
                 getValue: () =>
                   JSON.stringify([
                     { key: 'source', condition: '=', value: 'all' },
@@ -481,7 +481,7 @@ describe('UpdateAssistantAnalysis', () => {
           }),
         },
         {
-          key: 'conditions',
+          key: 'analysis.condition',
           value: JSON.stringify([
             {
               key: 'conversation_mode',

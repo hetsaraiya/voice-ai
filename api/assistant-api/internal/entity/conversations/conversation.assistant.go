@@ -28,7 +28,6 @@ type AssistantConversation struct {
 	Metrics    []*AssistantConversationMetric    `json:"metrics" gorm:"foreignKey:AssistantConversationId"`
 	Options    []*AssistantConversationOption    `json:"options" gorm:"foreignKey:AssistantConversationId"`
 	Recordings []*AssistantConversationRecording `json:"recordings" gorm:"foreignKey:AssistantConversationId"`
-	// TelephonyEvents []*AssistantConversationTelephonyEvent `json:"telephonyEvents" gorm:"foreignKey:AssistantConversationId"`
 }
 
 func (ac *AssistantConversation) GetArguments() map[string]interface{} {
@@ -65,8 +64,9 @@ type AssistantConversationRecording struct {
 	gorm_model.Audited
 	gorm_model.Mutable
 	gorm_model.Organizational
-	AssistantId             uint64 `json:"assistantId" gorm:"type:bigint;not null"`
-	AssistantConversationId uint64 `json:"assistantConversationId" gorm:"type:bigint;not null"`
-	AssistantRecordingUrl   string `json:"assistantRecordingUrl" gorm:"type:string;not null"`
-	UserRecordingUrl        string `json:"userRecordingUrl" gorm:"type:string;not null"`
+	AssistantId              uint64 `json:"assistantId" gorm:"type:bigint;not null"`
+	AssistantConversationId  uint64 `json:"assistantConversationId" gorm:"type:bigint;not null"`
+	AssistantRecordingUrl    string `json:"assistantRecordingUrl" gorm:"type:string;not null"`
+	UserRecordingUrl         string `json:"userRecordingUrl" gorm:"type:string;not null"`
+	ConversationRecordingUrl string `json:"conversationRecordingUrl" gorm:"type:string"`
 }

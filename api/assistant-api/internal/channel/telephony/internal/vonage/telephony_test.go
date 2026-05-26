@@ -6,13 +6,17 @@
 package internal_vonage_telephony
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/rapidaai/api/assistant-api/config"
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
 	internal_telephony_base "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/base"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
@@ -74,6 +78,187 @@ func TestVonageAuth_MissingApplicationId(t *testing.T) {
 	_, err := vonageAuth(cred)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "application_id")
+}
+
+func TestCatchAllStatusCallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logger, err := commons.NewApplicationLogger()
+	require.NoError(t, err)
+	telephony, err := NewVonageTelephony(&config.AssistantConfig{}, logger)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		queryParams   map[string]string
+		expectedError bool
+		checkStatus   func(*testing.T, *internal_type.StatusInfo)
+	}{
+		{
+			name: "valid Vonage global event",
+			queryParams: map[string]string{
+				"status":            "completed",
+				"uuid":              "6fbb257e-75e5-4c68-a5f2-bc560fa200d3",
+				"conversation_uuid": "CON-dbde628c-2039-4fe3-83f2-9e757d3e9e13",
+				"direction":         "outbound",
+				"disconnected_by":   "user",
+				"detail":            "remote_busy",
+				"sip_code":          "486",
+			},
+			checkStatus: func(t *testing.T, statusInfo *internal_type.StatusInfo) {
+				require.NotNil(t, statusInfo)
+				assert.Equal(t, "completed", statusInfo.Event)
+				assert.Equal(t, "6fbb257e-75e5-4c68-a5f2-bc560fa200d3", statusInfo.ChannelUUID)
+				assert.Nil(t, statusInfo.Error)
+				payload, ok := statusInfo.Payload.(map[string]interface{})
+				require.True(t, ok, "Payload should be map[string]interface{}")
+				assert.Equal(t, "6fbb257e-75e5-4c68-a5f2-bc560fa200d3", payload["uuid"])
+				assert.Equal(t, "CON-dbde628c-2039-4fe3-83f2-9e757d3e9e13", payload["conversation_uuid"])
+				assert.Equal(t, "user", payload["disconnected_by"])
+				assert.Equal(t, "486", payload["sip_code"])
+			},
+		},
+		{
+			name: "failed completed event captures reason duration and price",
+			queryParams: map[string]string{
+				"status":   "completed",
+				"uuid":     "f9abbc8a-457a-40b2-a8bf-3717c0abc918",
+				"detail":   "remote_busy",
+				"duration": "0",
+				"price":    "0.00000000",
+				"sip_code": "486",
+			},
+			checkStatus: func(t *testing.T, statusInfo *internal_type.StatusInfo) {
+				require.NotNil(t, statusInfo)
+				assert.Equal(t, "completed", statusInfo.Event)
+				assert.Equal(t, "f9abbc8a-457a-40b2-a8bf-3717c0abc918", statusInfo.ChannelUUID)
+				require.NotNil(t, statusInfo.Duration)
+				assert.Equal(t, time.Duration(0), *statusInfo.Duration)
+				assert.Equal(t, "0.00000000", statusInfo.Price)
+				require.NotNil(t, statusInfo.Error)
+				assert.Equal(t, "failed", statusInfo.Error.Error)
+				assert.Equal(t, "remote_busy", statusInfo.Error.Reason)
+			},
+		},
+		{
+			name: "missing status",
+			queryParams: map[string]string{
+				"uuid":              "6fbb257e-75e5-4c68-a5f2-bc560fa200d3",
+				"conversation_uuid": "CON-dbde628c-2039-4fe3-83f2-9e757d3e9e13",
+			},
+			expectedError: true,
+		},
+		{
+			name: "empty status",
+			queryParams: map[string]string{
+				"status": "",
+				"uuid":   "6fbb257e-75e5-4c68-a5f2-bc560fa200d3",
+			},
+			expectedError: true,
+		},
+		{
+			name: "missing uuid",
+			queryParams: map[string]string{
+				"status": "completed",
+			},
+			expectedError: true,
+		},
+		{
+			name: "empty uuid",
+			queryParams: map[string]string{
+				"status": "completed",
+				"uuid":   "",
+			},
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+
+			queryValues := url.Values{}
+			for key, value := range tt.queryParams {
+				queryValues.Add(key, value)
+			}
+			c.Request = httptest.NewRequest(http.MethodGet, "/?"+queryValues.Encode(), nil)
+
+			statusInfo, err := telephony.CatchAllStatusCallback(c)
+
+			if tt.expectedError {
+				assert.Error(t, err)
+				assert.Nil(t, statusInfo)
+				return
+			}
+			assert.NoError(t, err)
+			if tt.checkStatus != nil {
+				tt.checkStatus(t, statusInfo)
+			}
+		})
+	}
+}
+
+func TestStatusCallback_QueryPayload(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logger, err := commons.NewApplicationLogger()
+	require.NoError(t, err)
+	telephony, err := NewVonageTelephony(&config.AssistantConfig{}, logger)
+	require.NoError(t, err)
+
+	queryValues := url.Values{}
+	queryValues.Add("status", "completed")
+	queryValues.Add("uuid", "f9abbc8a-457a-40b2-a8bf-3717c0abc918")
+	queryValues.Add("detail", "remote_busy")
+	queryValues.Add("duration", "0")
+	queryValues.Add("price", "0.00000000")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/?"+queryValues.Encode(), nil)
+
+	statusInfo, err := telephony.StatusCallback(c, nil, 1, 1)
+
+	require.NoError(t, err)
+	require.NotNil(t, statusInfo)
+	assert.Equal(t, "completed", statusInfo.Event)
+	assert.Equal(t, "f9abbc8a-457a-40b2-a8bf-3717c0abc918", statusInfo.ChannelUUID)
+	require.NotNil(t, statusInfo.Duration)
+	assert.Equal(t, time.Duration(0), *statusInfo.Duration)
+	assert.Equal(t, "0.00000000", statusInfo.Price)
+	require.NotNil(t, statusInfo.Error)
+	assert.Equal(t, "failed", statusInfo.Error.Error)
+	assert.Equal(t, "remote_busy", statusInfo.Error.Reason)
+}
+
+func TestStatusCallback_JSONNumericZeroDuration(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	logger, err := commons.NewApplicationLogger()
+	require.NoError(t, err)
+	telephony, err := NewVonageTelephony(&config.AssistantConfig{}, logger)
+	require.NoError(t, err)
+
+	body, err := json.Marshal(map[string]interface{}{
+		"status":   "completed",
+		"uuid":     "f9abbc8a-457a-40b2-a8bf-3717c0abc918",
+		"detail":   "remote_busy",
+		"duration": float64(0),
+		"price":    "0.00000000",
+	})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+
+	statusInfo, err := telephony.StatusCallback(c, nil, 1, 1)
+
+	require.NoError(t, err)
+	require.NotNil(t, statusInfo)
+	require.NotNil(t, statusInfo.Duration)
+	assert.Equal(t, time.Duration(0), *statusInfo.Duration)
+	require.NotNil(t, statusInfo.Error)
+	assert.Equal(t, "failed", statusInfo.Error.Error)
+	assert.Equal(t, "remote_busy", statusInfo.Error.Reason)
 }
 
 // TestReceiveCall tests the ReceiveCall method with Vonage webhook parameters

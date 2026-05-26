@@ -32,7 +32,8 @@ export function ForgotPasswordPage() {
       } else {
         let errorMessage = fpr?.getError();
         if (errorMessage) setError(errorMessage.getHumanmessage());
-        else setError('Unable to process your request. Please try again later.');
+        else
+          setError('Unable to process your request. Please try again later.');
         return;
       }
     },
@@ -45,10 +46,15 @@ export function ForgotPasswordPage() {
   };
 
   return (
-    <>
+    <Stack gap={6}>
       <Helmet title="Forgot your password" />
-      <h2 className="text-2xl font-light tracking-tight">Forgot Password</h2>
-
+      <Stack gap={2}>
+        <h1 className="m-0 text-[1.8rem] leading-tight">Forgot Password</h1>
+        <div
+          aria-hidden="true"
+          className={`h-px bg-gray-300 dark:bg-gray-900 mt-3`}
+        />
+      </Stack>
       <form className="mt-6" onSubmit={handleSubmit(onForgotPassword)}>
         <Stack gap={5}>
           <TextInput
@@ -65,7 +71,11 @@ export function ForgotPasswordPage() {
             <Notification kind="error" title="Error" subtitle={error} />
           )}
           {successMessage && (
-            <Notification kind="success" title="Email sent" subtitle={successMessage} />
+            <Notification
+              kind="success"
+              title="Email sent"
+              subtitle={successMessage}
+            />
           )}
           <PrimaryButton
             size="lg"
@@ -77,13 +87,19 @@ export function ForgotPasswordPage() {
             Send Email
           </PrimaryButton>
         </Stack>
+        <div
+          aria-hidden="true"
+          className={`h-px bg-gray-300 dark:bg-gray-900 mt-3`}
+        />
       </form>
 
-      <p className="mt-6 text-center">
-        <Link href="/auth/signin" className="text-sm">
-          Back to sign in?
-        </Link>
-      </p>
-    </>
+      <Stack gap={2}>
+        <p className="text-center">
+          <Link href="/auth/signin" className="text-sm">
+            Back to sign in?
+          </Link>
+        </p>
+      </Stack>
+    </Stack>
   );
 }

@@ -83,6 +83,10 @@ jest.mock('@/hooks/use-global-navigator', () => ({
   }),
 }));
 
+jest.mock('@/configs', () => ({
+  connectionConfig: {},
+}));
+
 jest.mock('@/app/components/helmet', () => ({
   Helmet: () => null,
 }));
@@ -91,33 +95,40 @@ jest.mock('@/app/components/carbon/button/social-button-group', () => ({
   SocialButtonGroup: () => <div data-testid="social-buttons" />,
 }));
 
-jest.mock('@/app/components/form/input', () => ({
-  Input: require('react').forwardRef((props: any, ref: any) => (
-    <input ref={ref} {...props} />
-  )),
+jest.mock('@/app/components/carbon/form', () => ({
+  Stack: ({ children }: any) => <div>{children}</div>,
+  TextInput: require('react').forwardRef(
+    ({ labelText: _labelText, ...props }: any, ref: any) => (
+      <input ref={ref} {...props} />
+    ),
+  ),
 }));
 
-jest.mock('@/app/components/form/error-message', () => ({
-  ErrorMessage: ({ message }: { message: string }) =>
-    message ? <div>{message}</div> : null,
+jest.mock('@/app/components/carbon/notification', () => ({
+  Notification: ({ subtitle }: { subtitle: string }) => <div>{subtitle}</div>,
 }));
 
 jest.mock('@/app/components/carbon/button', () => ({
-  PrimaryButton: ({ children, isLoading: _, renderIcon: _r, hasIconOnly: _h, iconDescription: _d, ...props }: any) => (
+  PrimaryButton: ({ children, isLoading: _i, renderIcon: _r, hasIconOnly: _h, iconDescription: _d, ...props }: any) => (
     <button {...props}>{children}</button>
   ),
 }));
 
-jest.mock('@/app/components/form-label', () => ({
-  FormLabel: ({ children }: { children: React.ReactNode }) => (
-    <label>{children}</label>
+jest.mock('@carbon/react', () => ({
+  Link: ({ href, inline: _inline, children, ...props }: any) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+  PasswordInput: require('react').forwardRef(
+    ({ labelText: _labelText, ...props }: any, ref: any) => (
+      <input ref={ref} {...props} />
+    ),
   ),
 }));
 
-jest.mock('@/app/components/form/fieldset', () => ({
-  FieldSet: ({ children, ...props }: any) => (
-    <fieldset {...props}>{children}</fieldset>
-  ),
+jest.mock('@carbon/icons-react', () => ({
+  ArrowRight: () => null,
 }));
 
 const renderWithAuth = (
@@ -192,6 +203,33 @@ describe('Authentication pages', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/dashboard');
   });
 
+  it('sign-in renders updated header and links', () => {
+    renderWithAuth(<SignInPage />);
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Signin' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Sign-up' })).toHaveAttribute(
+      'href',
+      '/auth/signup',
+    );
+    expect(screen.getByRole('link', { name: "Can't sign in?" })).toHaveAttribute(
+      'href',
+      '/auth/forgot-password',
+    );
+    expect(screen.getByTestId('social-buttons')).toBeInTheDocument();
+  });
+
+  it('sign-in hides sign-up prompt when workspace sign-up is disabled', () => {
+    mockWorkspace.authentication.signUp.enable = false;
+
+    renderWithAuth(<SignInPage />);
+
+    expect(
+      screen.queryByRole('link', { name: 'Sign-up' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('sign-in triggers social google auth when code/state are present', async () => {
     mockSearchParams = new URLSearchParams('state=google&code=abc123');
 
@@ -256,6 +294,25 @@ describe('Authentication pages', () => {
     expect(mockHideLoader).toHaveBeenCalled();
     expect(setAuthentication).toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/workspace/overview');
+  });
+
+  it('sign-up renders updated header and policy links', () => {
+    renderWithAuth(<SignUpPage />);
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Signup' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Sign-in' })).toHaveAttribute(
+      'href',
+      '/auth/signin',
+    );
+    expect(
+      screen.getByRole('link', { name: 'Terms and Conditions' }),
+    ).toHaveAttribute('href', '/static/terms-conditions');
+    expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute(
+      'href',
+      '/static/privacy-policy',
+    );
   });
 
   it('sign-up shows API human error message on register failure', async () => {

@@ -16,7 +16,7 @@ export function FlexBox(props: FlexBoxProps) {
     >
       <Header />
       <div className="flex flex-col flex-1 grow">{props.children}</div>
-      <GeneralFooter></GeneralFooter>
+      <GeneralFooter />
     </main>
   );
 }

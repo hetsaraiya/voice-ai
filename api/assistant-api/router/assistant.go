@@ -77,7 +77,7 @@ func AssistantConversationApiRoute(
 		))
 }
 
-func TalkCallbackApiRoute(
+func TalkApiRoute(
 	cfg *config.AssistantConfig, engine *gin.Engine, logger commons.Logger,
 	postgres connectors.PostgresConnector,
 	redis connectors.RedisConnector,
@@ -87,6 +87,9 @@ func TalkCallbackApiRoute(
 	apiv1 := engine.Group("v1/talk")
 	talkRpcApi := assistantTalkApi.NewConversationApi(cfg, logger, postgres, redis, opensearch, opensearch, sipServer)
 	{
+		apiv1.POST("/create-phone-call", talkRpcApi.CreatePhoneCallRest)
+		apiv1.POST("/create-bulk-phone-call", talkRpcApi.CreateBulkPhoneCallRest)
+
 		// global catch-all event logging
 		apiv1.GET("/:telephony/event/:assistantId", talkRpcApi.UnviersalCallback)
 		apiv1.POST("/:telephony/event/:assistantId", talkRpcApi.UnviersalCallback)

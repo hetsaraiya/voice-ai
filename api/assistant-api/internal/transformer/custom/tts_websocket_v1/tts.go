@@ -12,11 +12,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 
+	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
+	internal_audio_resampler "github.com/rapidaai/api/assistant-api/internal/audio/resampler"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	type_enums "github.com/rapidaai/pkg/types/enums"
@@ -43,6 +46,10 @@ type textToSpeech struct {
 	connectedAt    time.Time
 	turnStartedAt  time.Time
 	metricEmitted  bool
+
+	resampler         internal_type.AudioResampler
+	sourceAudioConfig *protos.AudioConfig
+	targetAudioConfig *protos.AudioConfig
 }
 
 type readErrorDisposition int
@@ -64,16 +71,34 @@ func NewTextToSpeech(
 	if err != nil {
 		return nil, err
 	}
+
+	sourceConfig := &protos.AudioConfig{
+		SampleRate:  uint32(config.SampleRate),
+		AudioFormat: parseAudioEncoding(config.Encoding),
+		Channels:    1,
+	}
+	targetConfig := internal_audio.RAPIDA_INTERNAL_AUDIO_CONFIG
+
+	var resampler internal_type.AudioResampler
+	if !isSameAudioConfig(sourceConfig, targetConfig) {
+		resampler, err = internal_audio_resampler.GetResampler(logger)
+		if err != nil {
+			return nil, fmt.Errorf("custom-tts websocket_v1: failed to initialize audio resampler: %w", err)
+		}
+	}
 	ctx2, cancel := context.WithCancel(ctx)
 
 	return &textToSpeech{
-		config:   config,
-		engine:   config.newEngine(),
-		ctx:      ctx2,
-		cancel:   cancel,
-		dialWS:   websocket.DefaultDialer.DialContext,
-		logger:   logger,
-		onPacket: onPacket,
+		config:            config,
+		engine:            config.newEngine(),
+		ctx:               ctx2,
+		cancel:            cancel,
+		dialWS:            websocket.DefaultDialer.DialContext,
+		logger:            logger,
+		onPacket:          onPacket,
+		resampler:         resampler,
+		sourceAudioConfig: sourceConfig,
+		targetAudioConfig: targetConfig,
 	}, nil
 }
 
@@ -513,10 +538,22 @@ func (transformer *textToSpeech) readLoop(conn *websocket.Conn, contextID string
 		}
 
 		if len(outcome.Audio) > 0 {
+			audio, err := transformer.normalizeAudioChunk(outcome.Audio)
+			if err != nil {
+				if err := transformer.onPacket(internal_type.TextToSpeechErrorPacket{
+					ContextID: resolvedContextID,
+					Error:     err,
+					Type:      internal_type.TTSUnknownError,
+				}); err != nil {
+					transformer.logger.Errorf("custom-tts websocket_v1: onPacket failed: %v", err)
+				}
+				continue
+			}
+
 			transformer.emitFirstAudioMetric(resolvedContextID)
 			if err := transformer.onPacket(internal_type.TextToSpeechAudioPacket{
 				ContextID:  resolvedContextID,
-				AudioChunk: outcome.Audio,
+				AudioChunk: audio,
 			}); err != nil {
 				transformer.logger.Errorf("custom-tts websocket_v1: onPacket failed: %v", err)
 			}
@@ -616,4 +653,33 @@ func (transformer *textToSpeech) emitFirstAudioMetric(contextID string) {
 	}); err != nil {
 		transformer.logger.Errorf("custom-tts websocket_v1: onPacket failed: %v", err)
 	}
+}
+
+func (transformer *textToSpeech) normalizeAudioChunk(audio []byte) ([]byte, error) {
+	if transformer.resampler == nil {
+		return audio, nil
+	}
+	audio, err := transformer.resampler.Resample(audio, transformer.sourceAudioConfig, transformer.targetAudioConfig)
+	if err != nil {
+		return nil, fmt.Errorf("custom-tts websocket_v1: failed to resample audio: %w", err)
+	}
+	return audio, nil
+}
+
+func parseAudioEncoding(encoding string) protos.AudioConfig_AudioFormat {
+	switch strings.ToLower(strings.TrimSpace(encoding)) {
+	case "mulaw", "mu-law", "mulaw8", "mu_law", "ulaw", "u-law", "pcmu", "g711_ulaw":
+		return protos.AudioConfig_MuLaw8
+	default:
+		return protos.AudioConfig_LINEAR16
+	}
+}
+
+func isSameAudioConfig(left, right *protos.AudioConfig) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	return left.GetSampleRate() == right.GetSampleRate() &&
+		left.GetAudioFormat() == right.GetAudioFormat() &&
+		left.GetChannels() == right.GetChannels()
 }

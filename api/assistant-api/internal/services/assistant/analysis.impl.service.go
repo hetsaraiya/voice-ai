@@ -264,7 +264,7 @@ func (eService *assistantAnalysisService) GetAll(ctx context.Context,
 		eService.logger.Errorf("not able to find any Webhooks %v", tx.Error)
 		return cnt, nil, tx.Error
 	}
-	eService.logger.Benchmark("WebhookService.GetAll", time.Since(start))
+	eService.logger.Benchmark("AnalysisService.GetAll", time.Since(start))
 	return cnt, analysises, nil
 }
 

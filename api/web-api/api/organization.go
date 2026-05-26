@@ -103,7 +103,7 @@ func (orgR *webOrganizationRPCApi) CreateOrganization(c *gin.Context) {
 		return
 	}
 
-	oRole, err := orgR.userService.CreateOrganizationRole(c, auth, "owner", auth.GetUserInfo().Id, aOrg.Id, type_enums.RECORD_ACTIVE)
+	oRole, err := orgR.userService.CreateOrganizationRole(c, auth, type_enums.ORGANIZATION_ROLE_OWNER.String(), auth.GetUserInfo().Id, aOrg.Id, type_enums.RECORD_ACTIVE)
 	if err != nil {
 		c.JSON(500, commons.Response{
 			Code:    500,
@@ -158,7 +158,7 @@ func (orgG *webOrganizationGRPCApi) CreateOrganization(c context.Context, irRequ
 	}
 
 	// creation of organization role
-	aRole, err := orgG.userService.CreateOrganizationRole(c, iAuth, "owner", iAuth.GetUserInfo().Id, aOrg.Id, type_enums.RECORD_ACTIVE)
+	aRole, err := orgG.userService.CreateOrganizationRole(c, iAuth, type_enums.ORGANIZATION_ROLE_OWNER.String(), iAuth.GetUserInfo().Id, aOrg.Id, type_enums.RECORD_ACTIVE)
 	if err != nil {
 		orgG.logger.Errorf("CreateOrganizationRole from grpc with erro %v", err)
 		return &protos.CreateOrganizationResponse{

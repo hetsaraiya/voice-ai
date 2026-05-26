@@ -51,7 +51,7 @@ func NewExecutor(logger commons.Logger, _ context.Context,
 }
 
 func (e *runtimeExecutor) Name() string {
-	return fmt.Sprintf("webhook-http-%s", e.webhook.Id)
+	return fmt.Sprintf("webhook-http-%d", e.webhook.Id)
 }
 
 func (e *runtimeExecutor) Options() utils.Option {

@@ -13,7 +13,6 @@ import (
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
-	"github.com/rapidaai/protos"
 )
 
 type DenoiserIdentifier string
@@ -25,12 +24,12 @@ const (
 )
 
 // logger, audioConfig, onPacket, opts
-func GetDenoiser(ctx context.Context, logger commons.Logger, inCfg *protos.AudioConfig, onPacket func(context.Context, ...internal_type.Packet) error, options utils.Option) (internal_type.Denoiser, error) {
+func GetDenoiser(ctx context.Context, logger commons.Logger, onPacket func(context.Context, ...internal_type.Packet) error, options utils.Option) (internal_type.VoiceDenoiserExecutor, error) {
 	provider, _ := options.GetString(DenoiserOptionsKeyProvider)
 	switch DenoiserIdentifier(provider) {
 	case KRISP:
-		return internal_denoiser_krisp.NewKrispDenoiser(ctx, logger, inCfg, onPacket, options)
+		return internal_denoiser_krisp.NewKrispDenoiser(ctx, logger, onPacket, options)
 	default:
-		return internal_denoiser_rnnoise.NewRnnoiseDenoiser(ctx, logger, inCfg, onPacket, options)
+		return internal_denoiser_rnnoise.NewRnnoiseDenoiser(ctx, logger, onPacket, options)
 	}
 }

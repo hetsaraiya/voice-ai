@@ -45,10 +45,6 @@ import (
 	"github.com/rapidaai/pkg/utils"
 )
 
-// =============================================================================
-// InteractionState — conversation turn state machine
-// =============================================================================
-
 const (
 	Unknown               = adapter_lifecycle.Unknown
 	Interrupt             = adapter_lifecycle.Interrupt
@@ -106,9 +102,6 @@ type genericRequestor struct {
 
 	// audio intelligence
 
-	vad      internal_type.VoiceActivityDetectorExecutor
-	denoiser internal_type.Denoiser
-
 	// output preprocessor + TTS
 	inputNormalizer  internal_type.PacketNormalizer
 	outputNormalizer internal_type.PacketNormalizer
@@ -121,6 +114,8 @@ type genericRequestor struct {
 	authenticationExecutor    internal_type.AuthenticationExecutor
 	assistantExecutor         internal_llm.AssistantExecutor
 	endOfSpeechExecutor       internal_type.EndOfSpeechExecutor
+	denoiserExecutor          internal_type.VoiceDenoiserExecutor
+	vadExecutor               internal_type.VoiceActivityDetectorExecutor
 	// states
 	assistant             *internal_assistant_entity.Assistant
 	assistantConversation *internal_conversation_entity.AssistantConversation
@@ -288,16 +283,6 @@ func (dm *genericRequestor) GetHistories() []internal_type.MessagePacket {
 	return dm.histories
 }
 
-func (gr *genericRequestor) CreateConversationRecording(_ context.Context, user, assistant []byte) error {
-	dbCtx, cancel := context.WithTimeout(context.Background(), dbWriteTimeout)
-	defer cancel()
-	if _, err := gr.conversationService.CreateConversationRecording(dbCtx, gr.auth, gr.assistant.Id, gr.assistantConversation.Id, user, assistant); err != nil {
-		gr.logger.Errorf("unable to create recording for the conversation id %d with error : %v", err)
-		return err
-	}
-	return nil
-}
-
 // =============================================================================
 // Interaction state methods — inline replacement for the former Messaging wrapper
 // =============================================================================
@@ -367,22 +352,6 @@ func (r *genericRequestor) canAcceptInput() bool {
 
 func (r *genericRequestor) canSwitchSession() bool {
 	return r.sessionLifecycle.CanBe(adapter_lifecycle.EventSwitchRequested)
-}
-
-func (r *genericRequestor) getInteractionState() adapter_lifecycle.MessageState {
-	return r.messageLifecycle.Current()
-}
-
-func (r *genericRequestor) setInteractionStateForTest(state adapter_lifecycle.MessageState) {
-	r.messageLifecycle = adapter_lifecycle.NewMessageLifecycleWithState(state, r.GetID(), r.GetMode(), nil)
-}
-
-func (r *genericRequestor) setContextIDForTest(contextID string) {
-	r.messageLifecycle.SetContextID(contextID)
-}
-
-func (r *genericRequestor) setModeForTest(mode type_enums.MessageMode) {
-	r.messageLifecycle.SetMode(mode)
 }
 
 // initializeCollectors builds EventCollector and MetricCollector from the
