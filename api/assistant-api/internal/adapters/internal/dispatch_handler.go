@@ -33,6 +33,7 @@ import (
 	pkg_types "github.com/rapidaai/pkg/types"
 	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
+	"github.com/rapidaai/pkg/validator"
 	"github.com/rapidaai/protos"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -646,14 +647,17 @@ func (h requestorDispatchHandler) HandleTextToSpeechEnd(ctx context.Context, p i
 }
 func (h requestorDispatchHandler) HandleLLMToolCall(ctx context.Context, p internal_type.LLMToolCallPacket) {
 	req, _ := json.Marshal(p)
-	h.r.OnPacket(ctx, internal_type.ConversationEventPacket{
-		ContextID: p.ContextID,
-		Name:      observe.ComponentTool,
-		Data:      map[string]string{observe.DataType: observe.EventToolCallStarted, "name": p.Name, "id": p.ToolID, "action": p.Action.String()},
-		Time:      time.Now(),
-	}, internal_type.ToolLogCreatePacket{
-		ContextID: p.ContextID, ToolID: p.ToolID, Name: p.Name, Request: req,
-	},
+	h.r.OnPacket(
+		ctx,
+		internal_type.ConversationEventPacket{
+			ContextID: p.ContextID,
+			Name:      observe.ComponentTool,
+			Data:      map[string]string{observe.DataType: observe.EventToolCallStarted, "name": p.Name, "id": p.ToolID, "action": p.Action.String()},
+			Time:      time.Now(),
+		},
+		internal_type.ToolLogCreatePacket{
+			ContextID: p.ContextID, ToolID: p.ToolID, Name: p.Name, Request: req,
+		},
 	)
 
 	if msg, ok := p.Arguments["message"]; ok && msg != "" {
@@ -884,11 +888,19 @@ func (h requestorDispatchHandler) HandleAssistantMessageMetadata(ctx context.Con
 	}
 }
 func (h requestorDispatchHandler) HandleToolLogCreate(ctx context.Context, p internal_type.ToolLogCreatePacket) {
+	if !validator.NotBlank(p.ToolID) {
+		h.r.logger.Errorf("tool logging with empty id ignore")
+		return
+	}
 	if err := h.r.CreateToolLog(ctx, p.ContextID, p.ToolID, p.Name, type_enums.RECORD_IN_PROGRESS, p.Request); err != nil {
 		h.r.logger.Errorf("error logging tool call start: %v", err)
 	}
 }
 func (h requestorDispatchHandler) HandleToolLogUpdate(ctx context.Context, p internal_type.ToolLogUpdatePacket) {
+	if !validator.NotBlank(p.ToolID) {
+		h.r.logger.Errorf("tool logging with empty id ignore")
+		return
+	}
 	if err := h.r.UpdateToolLog(ctx, p.ToolID, type_enums.RECORD_COMPLETE, p.Response); err != nil {
 		h.r.logger.Errorf("error logging tool call result: %v", err)
 	}
