@@ -48,19 +48,22 @@ func (s *Server) prepareOutboundCallLeg(ctx context.Context, cfg *Config, toUser
 	if s.state.Load() != int32(ServerStateRunning) {
 		return nil, fmt.Errorf("SIP server is not running")
 	}
+	setupContext := ctx
+	// Primary outbound calls outlive the API request that dispatches them.
+	callLifecycleContext := context.WithoutCancel(ctx)
 
 	request, err := NewOutboundInviteRequest(cfg, toUser, fromUser)
 	if err != nil {
 		return nil, err
 	}
 
-	session, err := s.createAndRegisterOutboundSession(ctx, cfg, "", opts.makeCallOptions)
+	session, err := s.createAndRegisterOutboundSession(callLifecycleContext, cfg, "", opts.makeCallOptions)
 	if err != nil {
 		return nil, err
 	}
 	s.applyOutboundLegMetadata(session, opts)
 
-	invite, err := s.sendOutboundInvite(ctx, session, request)
+	invite, err := s.sendOutboundInvite(setupContext, session, request)
 	if err != nil {
 		reportOutboundSetupFailure(opts.makeCallOptions.CallStatusObserver, session.GetCallID(), err)
 		_ = s.FailCall(session, LifecycleReasonOutboundSetupFailure, err)

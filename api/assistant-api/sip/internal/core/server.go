@@ -289,7 +289,7 @@ func NewServer(ctx context.Context, cfg *ServerConfig) (*Server, error) {
 			sip.WithTransactionLayerUnhandledResponseHandler(func(r *sip.Response) {
 				// Absorb retransmissions silently — these are expected when
 				// the remote side retransmits responses before the transaction completes
-				cfg.Logger.Debug("Unhandled SIP response (retransmission)",
+				cfg.Logger.Debugw("Unhandled SIP response (retransmission)",
 					"status", r.StatusCode,
 					"reason", r.Reason)
 			}),

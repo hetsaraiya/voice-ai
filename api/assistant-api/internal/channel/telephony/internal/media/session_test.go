@@ -375,6 +375,45 @@ func TestMediaSession_OutputPacer_EmitsEventOnOutputSendError(t *testing.T) {
 	}
 }
 
+func TestMediaSession_OutputPacer_DoesNotRecordBridgeAudioOnOutputSendError(t *testing.T) {
+	mediaEngine := &fakeMediaEngine{
+		outputFrames:  make(chan AssistantOutputFrame, 1),
+		frameDuration: 2 * time.Millisecond,
+	}
+	events := make(chan *protos.ConversationEvent, 1)
+	streams := make(chan internal_type.Stream, 1)
+	mediaSession := NewMediaSession(MediaSessionConfig{
+		Context:     context.Background(),
+		MediaEngine: mediaEngine,
+		OutputSink: func(frame AssistantOutputFrame) error {
+			return errors.New("rtp queue full")
+		},
+		StreamSink: func(stream internal_type.Stream) { streams <- stream },
+		EventSink:  func(event *protos.ConversationEvent) { events <- event },
+	})
+
+	mediaEngine.outputFrames <- AssistantOutputFrame{
+		ProviderAudio: []byte{1},
+		BridgeAudio:   []byte{2},
+	}
+	mediaSession.Start()
+	defer mediaSession.Shutdown()
+
+	select {
+	case event := <-events:
+		if event.GetData()["type"] != "output_send_error" {
+			t.Fatalf("event type=%q want output_send_error", event.GetData()["type"])
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timed out waiting send error event")
+	}
+	select {
+	case stream := <-streams:
+		t.Fatalf("send failure emitted bridge recording stream: %T", stream)
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
 func TestMediaSession_HandleInterrupt_ClearsAndSendsProviderClear(t *testing.T) {
 	mediaEngine := &fakeMediaEngine{}
 	var clearCount atomic.Int32

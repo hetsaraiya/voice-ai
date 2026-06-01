@@ -208,11 +208,52 @@ func TestOutboundDispatcher_PersistConnectTimeoutUsesDurableFailureStatus(t *tes
 	if store.lastStatus.FailureClass != internal_telephony_base.OutboundFailureClassNoAnswer {
 		t.Fatalf("expected no_answer failure class, got %q", store.lastStatus.FailureClass)
 	}
-	if store.lastStatus.DisconnectReason != internal_telephony_base.OutboundDisconnectReasonConnectTimeout {
+	if store.lastStatus.DisconnectReason != internal_telephony_base.OutboundDisconnectReasonNoAnswer {
 		t.Fatalf("expected connect timeout disconnect reason, got %q", store.lastStatus.DisconnectReason)
 	}
 	if !store.lastStatus.Retryable {
 		t.Fatal("expected connect timeout to be retryable")
+	}
+}
+
+func TestOutboundDispatcher_MonitorConnectTimeoutSurvivesRequestCancellation(t *testing.T) {
+	store := &outboundDispatcherTestStore{
+		callContext: &callcontext.CallContext{
+			ContextID: "ctx-monitor",
+			Provider:  SIP.String(),
+			Status:    callcontext.StatusPending,
+		},
+	}
+	dispatcher := &OutboundDispatcher{
+		store:                  store,
+		logger:                 newOutboundDispatcherTestLogger(t),
+		outboundConnectTimeout: 10 * time.Millisecond,
+	}
+	requestContext, cancelRequest := context.WithCancel(context.Background())
+	callMonitorContext := context.WithoutCancel(requestContext)
+	cancelRequest()
+
+	go dispatcher.monitorCallConnect(callMonitorContext, store.callContext.ContextID, store.callContext)
+
+	deadline := time.After(250 * time.Millisecond)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("expected answer monitor to persist no-answer after request context cancellation")
+		case <-ticker.C:
+			if store.updateCount == 0 {
+				continue
+			}
+			if store.callContext.FailureClass != internal_telephony_base.OutboundFailureClassNoAnswer {
+				t.Fatalf("expected no_answer failure class, got %q", store.callContext.FailureClass)
+			}
+			if store.callContext.DisconnectReason != internal_telephony_base.OutboundDisconnectReasonNoAnswer {
+				t.Fatalf("expected no_answer disconnect reason, got %q", store.callContext.DisconnectReason)
+			}
+			return
+		}
 	}
 }
 

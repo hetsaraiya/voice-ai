@@ -169,6 +169,7 @@ func (s *Server) beginBridgeLegLifecycle(session *Session, legRole string) error
 
 // forwardBridgeAudio reads audio from src and writes to dst, transcoding if needed.
 func (s *Server) forwardBridgeAudio(ctx context.Context, src <-chan []byte, dst chan<- []byte, needsTranscode bool, srcCodec, dstCodec *Codec, onAudio func([]byte)) {
+	var droppedFrames uint64
 	for {
 		select {
 		case <-ctx.Done():
@@ -181,13 +182,20 @@ func (s *Server) forwardBridgeAudio(ctx context.Context, src <-chan []byte, dst 
 			if needsTranscode {
 				data = s.transcodeG711(data, srcCodec, dstCodec)
 			}
+			bridgeFrameDelivered := false
 			select {
 			case dst <- data:
+				bridgeFrameDelivered = true
 			case <-ctx.Done():
 				return
 			default:
+				droppedFrames++
+				if s.logger != nil && (droppedFrames == 1 || droppedFrames%100 == 0) {
+					s.logger.Warnw("Bridge RTP output queue full; dropping frame",
+						"dropped_frames_total", droppedFrames)
+				}
 			}
-			if onAudio != nil {
+			if bridgeFrameDelivered && onAudio != nil {
 				onAudio(rawData)
 			}
 		}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
@@ -97,6 +98,51 @@ func TestMakeCall_InviteFailureEndsRegisteredSessionAndReportsFailure(t *testing
 	assert.Equal(t, LifecycleReasonOutboundSetupFailure.String(), statusUpdate.DisconnectReason)
 	_, ok := server.GetSession(requester.observedCallID())
 	assert.False(t, ok)
+}
+
+func TestMakeCall_SessionSurvivesRequestContextAfterInvite(t *testing.T) {
+	ua, err := sipgo.NewUA()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ua.Close() })
+
+	client, err := sipgo.NewClient(ua)
+	require.NoError(t, err)
+	requester := &sessionObservationRequester{delegate: newCancelTrackingRequester()}
+	client.TxRequester = requester
+
+	contact := sip.ContactHeader{
+		Address: sip.Uri{Scheme: "sip", User: "rapida", Host: "127.0.0.1", Port: 5060},
+	}
+	dialogClientCache := sipgo.NewDialogClientCache(client, contact)
+	server := &Server{
+		logger:            bridgeTestLogger(),
+		listenConfig:      outboundTestListenConfig(),
+		rtpAllocator:      &testRTPAllocator{nextPort: 19000},
+		newRTPHandler:     testOutboundRTPHandler,
+		dialogClientCache: dialogClientCache,
+		sessions:          make(map[string]*Session),
+		lifecycles:        make(map[string]*CallLifecycle),
+	}
+	requester.server = server
+	server.state.Store(int32(ServerStateRunning))
+
+	requestContext, cancelRequest := context.WithCancel(context.Background())
+	session, err := server.MakeCall(requestContext, testOutboundConfig(), "+15551234567", "+15557654321", MakeCallOptions{})
+
+	require.NoError(t, err)
+	require.NotNil(t, session)
+	cancelRequest()
+	time.Sleep(20 * time.Millisecond)
+	t.Cleanup(func() { _ = server.CancelCall(session, LifecycleReasonEndCall) })
+
+	select {
+	case <-session.Context().Done():
+		t.Fatal("session context should not close when the API request context closes after INVITE setup")
+	default:
+	}
+	assert.Equal(t, int32(0), requester.delegate.cancelRequests.Load())
+	assert.NotEqual(t, CallStateCancelled, session.GetInfo().State)
+	assert.NotEqual(t, CallStateEnded, session.GetInfo().State)
 }
 
 func TestPrepareOutboundCallLeg_AppliesTransferBridgeMetadata(t *testing.T) {

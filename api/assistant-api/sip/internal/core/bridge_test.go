@@ -259,6 +259,33 @@ func TestForwardBridgeAudio_DropsFrameWhenDstFull(t *testing.T) {
 	}
 }
 
+func TestForwardBridgeAudio_DoesNotRecordDroppedFrame(t *testing.T) {
+	t.Parallel()
+	srv := bridgeTestServer()
+
+	src := make(chan []byte, 1)
+	dst := make(chan []byte, 1)
+	recorded := make(chan []byte, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dst <- []byte{0xff}
+	go srv.forwardBridgeAudio(ctx, src, dst, false, &CodecPCMU, &CodecPCMU, func(audio []byte) {
+		recorded <- audio
+	})
+
+	src <- []byte{0x01}
+	require.Eventually(t, func() bool {
+		return len(src) == 0
+	}, 100*time.Millisecond, 5*time.Millisecond)
+
+	select {
+	case audio := <-recorded:
+		t.Fatalf("dropped bridge RTP frame was recorded: %v", audio)
+	default:
+	}
+}
+
 // =============================================================================
 // BridgeTransfer
 // =============================================================================
@@ -466,7 +493,7 @@ func TestBridgeTransfer_AudioForwardsBidirectionally(t *testing.T) {
 		done <- bridgeResult{r, err}
 	}()
 
-	// outbound → inbound (inbound→outbound is handled by streamer's forwardIncomingAudio)
+	// outbound → inbound (inbound→outbound is handled by the telephony media port)
 	outRTP.audioInChan <- []byte{0x03, 0x04}
 	select {
 	case frame := <-inRTP.audioOutChan:

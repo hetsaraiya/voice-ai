@@ -63,39 +63,38 @@ func (d *OutboundDispatcher) Dispatch(ctx context.Context, contextID string) err
 
 	d.logger.Infof("outbound dispatcher[%s]: call initiated for contextId=%s", cc.Provider, contextID)
 
-	// Monitor for unanswered calls — if context is still PENDING after timeout,
-	// the callee never answered and media never connected. Mark as failed.
-	go d.monitorCallConnect(ctx, contextID, cc)
+	// The answer monitor must outlive the API request that initiated the call.
+	callMonitorContext := context.WithoutCancel(ctx)
+	go d.monitorCallConnect(callMonitorContext, contextID, cc)
 
 	return nil
 }
 
 const defaultOutboundConnectTimeout = 2 * time.Minute
 
-// monitorCallConnect checks if the call context was claimed (media connected) within timeout.
-// If still PENDING, the callee declined/didn't answer — mark as CLAIMED and persist FAILED metric.
+// monitorCallConnect marks unclaimed outbound calls as no-answer after the provider timeout.
 func (d *OutboundDispatcher) monitorCallConnect(ctx context.Context, contextID string, cc *callcontext.CallContext) {
-	connectTimeout := d.providerOutboundConnectTimeout(cc.Provider)
+	outboundConnectTimeout := d.providerOutboundConnectTimeout(cc.Provider)
 	select {
 	case <-ctx.Done():
 		return
-	case <-time.After(connectTimeout):
+	case <-time.After(outboundConnectTimeout):
 	}
 
-	current, err := d.store.Get(ctx, contextID)
+	currentCallContext, err := d.store.Get(ctx, contextID)
 	if err != nil {
 		return
 	}
-	if current.Status != callcontext.StatusPending {
+	if currentCallContext.Status != callcontext.StatusPending {
 		return // Already claimed or processed
 	}
 
 	d.logger.Warnw("Outbound call not answered within timeout, marking as failed",
 		"contextId", contextID,
 		"provider", cc.Provider,
-		"timeout", connectTimeout)
+		"timeout", outboundConnectTimeout)
 
-	d.persistOutboundConnectTimeout(ctx, current)
+	d.persistOutboundConnectTimeout(ctx, currentCallContext)
 
 	if d.conversationService != nil {
 		auth := cc.ToAuth()
@@ -215,8 +214,8 @@ func (d *OutboundDispatcher) persistOutboundConnectTimeout(ctx context.Context, 
 	d.updateOutboundFailureIfNotTerminal(ctx, cc.ContextID, callcontext.CallStatusUpdate{
 		CallStatus:       internal_telephony_base.OutboundCallStatusFailed,
 		FailureClass:     internal_telephony_base.OutboundFailureClassNoAnswer,
-		FailureReason:    "outbound media was not claimed before timeout",
-		DisconnectReason: internal_telephony_base.OutboundDisconnectReasonConnectTimeout,
+		FailureReason:    internal_telephony_base.OutboundFailureReasonNoAnswer,
+		DisconnectReason: internal_telephony_base.OutboundDisconnectReasonNoAnswer,
 		Retryable:        true,
 	})
 }

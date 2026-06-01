@@ -35,6 +35,27 @@ func TestFreeSWITCHOutboundUsernamePassword(t *testing.T) {
 	waitForTerminalCallState(t, session, callTeardownTimeout)
 }
 
+func TestFreeSWITCHOutboundRequestContextCancellationDoesNotCancelCall(t *testing.T) {
+	trunk := loadOutboundTrunkConfig(t)
+	harness := newFreeSWITCHHarness(t, trunk.sipCredentialConfig)
+	requestContext, cancelRequest := context.WithCancel(context.Background())
+
+	session, err := harness.server.MakeCall(
+		requestContext,
+		harness.sipConfig,
+		trunk.answerUser,
+		trunk.fromUser,
+		sip_infra.MakeCallOptions{},
+	)
+	require.NoErrorf(t, err, "outbound call to %s failed", freeSWITCHOutboundTargetDescription(harness.config, trunk.answerUser))
+	require.NotNil(t, session)
+	cancelRequest()
+
+	waitForCallState(t, session, sip_infra.CallStateConnected, callSetupTimeout)
+	require.NoError(t, harness.server.EndCallWithReason(session, sip_infra.LifecycleReasonEndCall))
+	waitForTerminalCallState(t, session, callTeardownTimeout)
+}
+
 func TestFreeSWITCHOutboundUsernamePasswordHeaders(t *testing.T) {
 	trunk := loadOutboundTrunkConfig(t)
 	if trunk.headerAssertUser == "" {

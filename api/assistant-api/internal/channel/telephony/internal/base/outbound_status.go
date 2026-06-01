@@ -29,7 +29,9 @@ const (
 	OutboundDisconnectReasonSetupFailed      = "outbound_setup_failed"
 	OutboundDisconnectReasonHealthGate       = "outbound_health_gate_failed"
 	OutboundDisconnectReasonRequestCancelled = "outbound_request_cancelled"
-	OutboundDisconnectReasonConnectTimeout   = "outbound_connect_timeout"
+	OutboundDisconnectReasonNoAnswer         = "outbound_no_answer"
+
+	OutboundFailureReasonNoAnswer = "outbound_no_answer"
 )
 
 func ReportOutboundInitiated(statusReporter internal_type.ProviderCallStatusReporter, channelUUID string) {

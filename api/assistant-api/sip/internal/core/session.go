@@ -365,7 +365,7 @@ func (s *Session) GetInboundSetupPhase() InboundSetupPhase {
 }
 
 // SetRTPHandler sets the RTP handler for this session.
-// The Streamer reads/writes directly from/to the RTP handler's audio channels.
+// Telephony media owners read/write directly from/to the RTP handler's audio channels.
 func (s *Session) SetRTPHandler(handler *RTPHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
