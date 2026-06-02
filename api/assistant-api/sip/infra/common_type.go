@@ -17,18 +17,19 @@ import (
 )
 
 var (
-	ErrInvalidConfig            = internal_core.ErrInvalidConfig
-	ErrSessionNotFound          = internal_core.ErrSessionNotFound
-	ErrSessionClosed            = internal_core.ErrSessionClosed
-	ErrRTPNotInitialized        = internal_core.ErrRTPNotInitialized
-	ErrSDPParseFailed           = internal_core.ErrSDPParseFailed
-	ErrCodecNotSupported        = internal_core.ErrCodecNotSupported
-	ErrConnectionFailed         = internal_core.ErrConnectionFailed
-	ErrAuthRequired             = internal_core.ErrAuthRequired
-	ErrOutboundFromUserRequired = internal_core.ErrOutboundFromUserRequired
-	ErrInboundACKTimeout        = internal_core.ErrInboundACKTimeout
-	ErrInboundInviteCancelled   = internal_core.ErrInboundInviteCancelled
-	ErrBridgeLifecycleRejected  = internal_core.ErrBridgeLifecycleRejected
+	ErrInvalidConfig              = internal_core.ErrInvalidConfig
+	ErrSessionNotFound            = internal_core.ErrSessionNotFound
+	ErrSessionClosed              = internal_core.ErrSessionClosed
+	ErrRTPNotInitialized          = internal_core.ErrRTPNotInitialized
+	ErrSDPParseFailed             = internal_core.ErrSDPParseFailed
+	ErrCodecNotSupported          = internal_core.ErrCodecNotSupported
+	ErrConnectionFailed           = internal_core.ErrConnectionFailed
+	ErrAuthRequired               = internal_core.ErrAuthRequired
+	ErrOutboundFromUserRequired   = internal_core.ErrOutboundFromUserRequired
+	ErrInboundACKTimeout          = internal_core.ErrInboundACKTimeout
+	ErrInboundInviteCancelled     = internal_core.ErrInboundInviteCancelled
+	ErrInboundAnswerPolicyTimeout = internal_core.ErrInboundAnswerPolicyTimeout
+	ErrBridgeLifecycleRejected    = internal_core.ErrBridgeLifecycleRejected
 )
 
 type SIPError struct {
@@ -95,6 +96,13 @@ type Config struct {
 	InviteTimeout    time.Duration `json:"invite_timeout,omitempty" mapstructure:"invite_timeout"`
 	SessionTimeout   time.Duration `json:"session_timeout,omitempty" mapstructure:"session_timeout"`
 	KeepAliveEnabled bool          `json:"keepalive_enabled,omitempty" mapstructure:"keepalive_enabled"`
+
+	InboundAnswerMode                 InboundAnswerMode `json:"inbound_answer_mode,omitempty" mapstructure:"inbound_answer_mode"`
+	InboundMinRingDuration            time.Duration     `json:"inbound_min_ring_duration,omitempty" mapstructure:"inbound_min_ring_duration"`
+	InboundMaxRingDuration            time.Duration     `json:"inbound_max_ring_duration,omitempty" mapstructure:"inbound_max_ring_duration"`
+	InboundACKTimeout                 time.Duration     `json:"inbound_ack_timeout,omitempty" mapstructure:"inbound_ack_timeout"`
+	InboundAssistantAudioReadyTimeout time.Duration     `json:"inbound_assistant_audio_ready_timeout,omitempty" mapstructure:"inbound_assistant_audio_ready_timeout"`
+	InboundRequireAssistantAudioReady bool              `json:"inbound_require_assistant_audio_ready,omitempty" mapstructure:"inbound_require_assistant_audio_ready"`
 }
 
 func (c *Config) Validate() error {
@@ -116,6 +124,29 @@ func (c *Config) ApplyTimeoutDefaults(registerTimeout, inviteTimeout, sessionTim
 	}
 	coreConfig := c.toCore()
 	coreConfig.ApplyTimeoutDefaults(registerTimeout, inviteTimeout, sessionTimeout)
+	*c = configFromCore(coreConfig)
+}
+
+func (c *Config) ApplyInboundAnswerDefaults(
+	mode InboundAnswerMode,
+	minRingDuration time.Duration,
+	maxRingDuration time.Duration,
+	ackTimeout time.Duration,
+	assistantAudioReadyTimeout time.Duration,
+	requireAssistantAudioReady bool,
+) {
+	if c == nil {
+		return
+	}
+	coreConfig := c.toCore()
+	coreConfig.ApplyInboundAnswerDefaults(
+		internal_core.InboundAnswerMode(mode),
+		minRingDuration,
+		maxRingDuration,
+		ackTimeout,
+		assistantAudioReadyTimeout,
+		requireAssistantAudioReady,
+	)
 	*c = configFromCore(coreConfig)
 }
 
@@ -144,22 +175,28 @@ func (c *Config) toCore() *internal_core.Config {
 		return nil
 	}
 	return &internal_core.Config{
-		Server:            c.Server,
-		Username:          c.Username,
-		Password:          c.Password,
-		Realm:             c.Realm,
-		Domain:            c.Domain,
-		CallerID:          c.CallerID,
-		CustomHeaders:     c.CustomHeaders,
-		Port:              c.Port,
-		Transport:         internal_core.Transport(c.Transport),
-		RTPPortRangeStart: c.RTPPortRangeStart,
-		RTPPortRangeEnd:   c.RTPPortRangeEnd,
-		SRTPEnabled:       c.SRTPEnabled,
-		RegisterTimeout:   c.RegisterTimeout,
-		InviteTimeout:     c.InviteTimeout,
-		SessionTimeout:    c.SessionTimeout,
-		KeepAliveEnabled:  c.KeepAliveEnabled,
+		Server:                            c.Server,
+		Username:                          c.Username,
+		Password:                          c.Password,
+		Realm:                             c.Realm,
+		Domain:                            c.Domain,
+		CallerID:                          c.CallerID,
+		CustomHeaders:                     c.CustomHeaders,
+		Port:                              c.Port,
+		Transport:                         internal_core.Transport(c.Transport),
+		RTPPortRangeStart:                 c.RTPPortRangeStart,
+		RTPPortRangeEnd:                   c.RTPPortRangeEnd,
+		SRTPEnabled:                       c.SRTPEnabled,
+		RegisterTimeout:                   c.RegisterTimeout,
+		InviteTimeout:                     c.InviteTimeout,
+		SessionTimeout:                    c.SessionTimeout,
+		KeepAliveEnabled:                  c.KeepAliveEnabled,
+		InboundAnswerMode:                 internal_core.InboundAnswerMode(c.InboundAnswerMode),
+		InboundMinRingDuration:            c.InboundMinRingDuration,
+		InboundMaxRingDuration:            c.InboundMaxRingDuration,
+		InboundACKTimeout:                 c.InboundACKTimeout,
+		InboundAssistantAudioReadyTimeout: c.InboundAssistantAudioReadyTimeout,
+		InboundRequireAssistantAudioReady: c.InboundRequireAssistantAudioReady,
 	}
 }
 
@@ -168,22 +205,28 @@ func configFromCore(c *internal_core.Config) Config {
 		return Config{}
 	}
 	return Config{
-		Server:            c.Server,
-		Username:          c.Username,
-		Password:          c.Password,
-		Realm:             c.Realm,
-		Domain:            c.Domain,
-		CallerID:          c.CallerID,
-		CustomHeaders:     c.CustomHeaders,
-		Port:              c.Port,
-		Transport:         Transport(c.Transport),
-		RTPPortRangeStart: c.RTPPortRangeStart,
-		RTPPortRangeEnd:   c.RTPPortRangeEnd,
-		SRTPEnabled:       c.SRTPEnabled,
-		RegisterTimeout:   c.RegisterTimeout,
-		InviteTimeout:     c.InviteTimeout,
-		SessionTimeout:    c.SessionTimeout,
-		KeepAliveEnabled:  c.KeepAliveEnabled,
+		Server:                            c.Server,
+		Username:                          c.Username,
+		Password:                          c.Password,
+		Realm:                             c.Realm,
+		Domain:                            c.Domain,
+		CallerID:                          c.CallerID,
+		CustomHeaders:                     c.CustomHeaders,
+		Port:                              c.Port,
+		Transport:                         Transport(c.Transport),
+		RTPPortRangeStart:                 c.RTPPortRangeStart,
+		RTPPortRangeEnd:                   c.RTPPortRangeEnd,
+		SRTPEnabled:                       c.SRTPEnabled,
+		RegisterTimeout:                   c.RegisterTimeout,
+		InviteTimeout:                     c.InviteTimeout,
+		SessionTimeout:                    c.SessionTimeout,
+		KeepAliveEnabled:                  c.KeepAliveEnabled,
+		InboundAnswerMode:                 InboundAnswerMode(c.InboundAnswerMode),
+		InboundMinRingDuration:            c.InboundMinRingDuration,
+		InboundMaxRingDuration:            c.InboundMaxRingDuration,
+		InboundACKTimeout:                 c.InboundACKTimeout,
+		InboundAssistantAudioReadyTimeout: c.InboundAssistantAudioReadyTimeout,
+		InboundRequireAssistantAudioReady: c.InboundRequireAssistantAudioReady,
 	}
 }
 
@@ -237,14 +280,50 @@ type InboundSetupPhase string
 
 const (
 	InboundSetupPhaseInviteReceived   InboundSetupPhase = "invite_received"
+	InboundSetupPhaseTryingSent       InboundSetupPhase = "trying_sent"
+	InboundSetupPhaseRingingSent      InboundSetupPhase = "ringing_sent"
 	InboundSetupPhaseAuthenticated    InboundSetupPhase = "authenticated"
 	InboundSetupPhaseRouted           InboundSetupPhase = "routed"
 	InboundSetupPhaseMediaAllocated   InboundSetupPhase = "media_allocated"
 	InboundSetupPhaseApplicationReady InboundSetupPhase = "application_ready"
+	InboundSetupPhaseAnswerReady      InboundSetupPhase = "answer_ready"
 	InboundSetupPhaseAnswered         InboundSetupPhase = "answered"
 	InboundSetupPhaseACKConfirmed     InboundSetupPhase = "ack_confirmed"
 	InboundSetupPhaseMediaFlowing     InboundSetupPhase = "media_flowing"
 )
+
+type InboundAnswerMode string
+
+const (
+	InboundAnswerModeImmediate             InboundAnswerMode = "answer_immediately"
+	InboundAnswerModeAssistantReady        InboundAnswerMode = "answer_when_assistant_ready"
+	InboundAnswerModeAfterMinRingDuration  InboundAnswerMode = "answer_after_min_ring_ms"
+	InboundAnswerModeBeforeMaxRingDuration InboundAnswerMode = "answer_before_max_ring_ms"
+)
+
+type InboundSetupTimings struct {
+	InviteReceivedAt           time.Time
+	TryingSentAt               time.Time
+	RingingSentAt              time.Time
+	AnsweredAt                 time.Time
+	ACKConfirmedAt             time.Time
+	FirstRTPReceivedAt         time.Time
+	FirstAssistantAudioReadyAt time.Time
+	FirstAssistantAudioSentAt  time.Time
+}
+
+func inboundSetupTimingsFromCore(t internal_core.InboundSetupTimings) InboundSetupTimings {
+	return InboundSetupTimings{
+		InviteReceivedAt:           t.InviteReceivedAt,
+		TryingSentAt:               t.TryingSentAt,
+		RingingSentAt:              t.RingingSentAt,
+		AnsweredAt:                 t.AnsweredAt,
+		ACKConfirmedAt:             t.ACKConfirmedAt,
+		FirstRTPReceivedAt:         t.FirstRTPReceivedAt,
+		FirstAssistantAudioReadyAt: t.FirstAssistantAudioReadyAt,
+		FirstAssistantAudioSentAt:  t.FirstAssistantAudioSentAt,
+	}
+}
 
 type SessionInfo struct {
 	CallID           string        `json:"call_id"`

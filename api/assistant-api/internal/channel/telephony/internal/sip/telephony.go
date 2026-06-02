@@ -62,6 +62,15 @@ func (t *sipTelephony) parseConfig(vaultCredential *protos.VaultCredential) (*si
 			t.appCfg.SIPConfig.InviteTimeout,
 			t.appCfg.SIPConfig.SessionTimeout,
 		)
+		inboundConfig := t.appCfg.SIPConfig.Inbound
+		cfg.ApplyInboundAnswerDefaults(
+			sip_infra.InboundAnswerMode(inboundConfig.AnswerMode),
+			inboundConfig.MinRingDuration,
+			inboundConfig.MaxRingDuration,
+			inboundConfig.ACKTimeout,
+			inboundConfig.AssistantAudioReadyTimeout,
+			inboundConfig.RequireAssistantAudioReady,
+		)
 	}
 
 	if err := cfg.Validate(); err != nil {

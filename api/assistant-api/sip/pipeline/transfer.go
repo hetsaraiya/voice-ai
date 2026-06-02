@@ -171,7 +171,7 @@ func (d *Dispatcher) executeTransfer(ctx context.Context, v sip_infra.TransferIn
 	// are handled upstream via tool-result handling.
 	//
 	// Teardown order matters:
-	//   1. OnTeardown — calls streamer.ClearBridgeTarget which blocks until any
+	//   1. OnTeardown — calls streamer.DisconnectTransferMedia which blocks until any
 	//      in-flight ForwardUserAudio write to the outbound RTP has finished.
 	//   2. lifecycle ends outbound session, closing outbound RTP only after
 	//      channels; no streamer goroutine still holds a reference.

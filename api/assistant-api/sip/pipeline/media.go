@@ -21,6 +21,7 @@ type preparedSession struct {
 	stage    sip_infra.SessionEstablishedPipeline
 	setup    *CallSetupResult
 	observer *obs.ConversationObserver
+	runtime  PreparedCallRuntime
 }
 
 type sessionPreparationError struct {
@@ -72,10 +73,10 @@ func (d *Dispatcher) StartPreparedSession(ctx context.Context, v sip_infra.Sessi
 
 func (d *Dispatcher) DiscardPreparedSession(ctx context.Context, callID string) {
 	prepared := d.popPreparedSession(callID)
-	if prepared == nil || prepared.observer == nil {
+	if prepared == nil {
 		return
 	}
-	prepared.observer.Shutdown(ctx)
+	prepared.Close(ctx)
 }
 
 func (d *Dispatcher) popPreparedSession(callID string) *preparedSession {
@@ -155,7 +156,19 @@ func (d *Dispatcher) prepareSession(ctx context.Context, v sip_infra.SessionEsta
 			codec, sampleRate,
 		))
 	}
-	return &preparedSession{stage: v, setup: setup, observer: observer}, nil
+	var runtime PreparedCallRuntime
+	if v.Direction == sip_infra.CallDirectionInbound && d.onPrepareCallRuntime != nil {
+		var err error
+		runtime, err = d.onPrepareCallRuntime(ctx, v, setup, observer)
+		if err != nil {
+			if observer != nil {
+				observer.Shutdown(ctx)
+			}
+			d.logger.Error("Pipeline: runtime preparation failed", "call_id", v.ID, "error", err)
+			return nil, newSessionPreparationError(sip_infra.LifecycleReasonPipelineSetupFailed, err)
+		}
+	}
+	return &preparedSession{stage: v, setup: setup, observer: observer, runtime: runtime}, nil
 }
 
 func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *preparedSession) {
@@ -200,7 +213,12 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 				Reason:   reason,
 			})
 		}()
-		if err := d.onCallStart(ctx, v.Session, setup, v.VaultCredential, v.Config, string(v.Direction)); err != nil {
+		if prepared.runtime != nil {
+			if err := prepared.runtime.Start(ctx); err != nil {
+				reason = err.Error()
+				status = "FAILED"
+			}
+		} else if err := d.onCallStart(ctx, v.Session, setup, v.VaultCredential, v.Config, string(v.Direction)); err != nil {
 			reason = err.Error()
 			status = "FAILED"
 		}
@@ -229,6 +247,18 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 			}
 		}
 	}()
+}
+
+func (p *preparedSession) Close(ctx context.Context) {
+	if p == nil {
+		return
+	}
+	if p.runtime != nil {
+		p.runtime.Close(ctx)
+	}
+	if p.observer != nil {
+		p.observer.Shutdown(ctx)
+	}
 }
 
 func sessionPreparationReason(err error) sip_infra.LifecycleReason {

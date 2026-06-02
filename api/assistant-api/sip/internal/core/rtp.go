@@ -94,6 +94,8 @@ type RTPHandler struct {
 	packetsReceived atomic.Uint64
 	bytesReceived   atomic.Uint64
 	bytesSent       atomic.Uint64
+	firstPacketSeen atomic.Bool
+	onFirstPacket   func()
 }
 
 // RTPConfig holds configuration for RTP handler
@@ -624,6 +626,7 @@ func (h *RTPHandler) receiveLoop() {
 		// Update statistics
 		h.packetsReceived.Add(1)
 		h.bytesReceived.Add(uint64(len(packet.Payload)))
+		h.notifyFirstPacketReceived()
 		// running state and context together with the send.
 		if !h.running.Load() {
 			return
@@ -638,6 +641,24 @@ func (h *RTPHandler) receiveLoop() {
 				h.logger.Warnw("RTP: Audio input channel full, dropping packet", "seq", packet.SequenceNumber)
 			}
 		}
+	}
+}
+
+func (h *RTPHandler) SetOnFirstPacket(fn func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.onFirstPacket = fn
+}
+
+func (h *RTPHandler) notifyFirstPacketReceived() {
+	if !h.firstPacketSeen.CompareAndSwap(false, true) {
+		return
+	}
+	h.mu.RLock()
+	fn := h.onFirstPacket
+	h.mu.RUnlock()
+	if fn != nil {
+		fn()
 	}
 }
 

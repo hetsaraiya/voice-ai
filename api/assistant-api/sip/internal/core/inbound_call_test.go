@@ -273,6 +273,221 @@ func TestInboundCall_ApplicationReadyBeforeAnswerAndMediaStart(t *testing.T) {
 	assert.Equal(t, InboundSetupPhaseMediaFlowing, session.GetInboundSetupPhase())
 }
 
+func TestInboundCall_ProvisionalResponsesBeforeAnswer(t *testing.T) {
+	server := newServerForCommandTests(t)
+	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
+	server.newRTPHandler = inboundNoopRTPHandler(server)
+	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
+		return Allow(bridgeTestConfig()), nil
+	})
+	transaction := newActiveAckableTestServerTx()
+	request := newInboundInviteRequest("inbound-provisional-order")
+	transaction.PushACK(newACKRequest("inbound-provisional-order"))
+
+	server.handleInvite(request, transaction)
+
+	require.GreaterOrEqual(t, len(transaction.responses), 3)
+	assert.Equal(t, 100, transaction.responses[0].StatusCode)
+	assert.Equal(t, 180, transaction.responses[1].StatusCode)
+	assert.Equal(t, 200, transaction.responses[2].StatusCode)
+}
+
+func TestInboundCall_StartsRTPBeforeWaitingForACK(t *testing.T) {
+	server := newServerForCommandTests(t)
+	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
+	server.newRTPHandler = inboundNoopRTPHandler(server)
+	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
+		return Allow(bridgeTestConfig()), nil
+	})
+	transaction := newActiveAckableTestServerTx()
+	request := newInboundInviteRequest("inbound-rtp-before-ack")
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		server.handleInvite(request, transaction)
+	}()
+
+	require.Eventually(t, func() bool {
+		return transaction.lastStatus() == 200
+	}, time.Second, time.Millisecond)
+	session, exists := server.GetSession("inbound-rtp-before-ack")
+	require.True(t, exists)
+	require.NotNil(t, session.GetRTPHandler())
+	assert.True(t, session.GetRTPHandler().IsRunning())
+
+	transaction.PushACK(newACKRequest("inbound-rtp-before-ack"))
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for inbound INVITE handler")
+	}
+}
+
+func TestInboundCall_WaitsForApplicationReadyBeforeAnswer(t *testing.T) {
+	server := newServerForCommandTests(t)
+	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
+	server.newRTPHandler = inboundNoopRTPHandler(server)
+	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
+		return Allow(bridgeTestConfig()), nil
+	})
+	applicationReady := make(chan struct{})
+	server.SetOnApplicationReady(func(_ *Session, _, _ string) error {
+		<-applicationReady
+		return nil
+	})
+	transaction := newActiveAckableTestServerTx()
+	request := newInboundInviteRequest("inbound-waits-application-ready")
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		server.handleInvite(request, transaction)
+	}()
+
+	require.Eventually(t, func() bool {
+		return transaction.lastStatus() == 180
+	}, time.Second, time.Millisecond)
+	assertNoSIPStatus(t, transaction.responses, 200)
+
+	close(applicationReady)
+	transaction.PushACK(newACKRequest("inbound-waits-application-ready"))
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for inbound INVITE handler")
+	}
+	assert.Equal(t, 200, transaction.lastStatus())
+}
+
+func TestInboundCall_MinRingPolicyDelaysAnswer(t *testing.T) {
+	server := newServerForCommandTests(t)
+	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
+	server.newRTPHandler = inboundNoopRTPHandler(server)
+	minRingDuration := 25 * time.Millisecond
+	config := bridgeTestConfig()
+	config.InboundAnswerMode = InboundAnswerModeAfterMinRingDuration
+	config.InboundMinRingDuration = minRingDuration
+	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
+		return Allow(config), nil
+	})
+	transaction := newActiveAckableTestServerTx()
+	request := newInboundInviteRequest("inbound-min-ring")
+	transaction.PushACK(newACKRequest("inbound-min-ring"))
+
+	startedAt := time.Now()
+	server.handleInvite(request, transaction)
+
+	assert.GreaterOrEqual(t, time.Since(startedAt), minRingDuration)
+	assert.Equal(t, 200, transaction.lastStatus())
+}
+
+func TestInboundCall_AssistantAudioReadyPolicyAnswersWithoutWaitingForSentAudio(t *testing.T) {
+	server := newServerForCommandTests(t)
+	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
+	server.newRTPHandler = inboundNoopRTPHandler(server)
+	config := bridgeTestConfig()
+	config.InboundRequireAssistantAudioReady = true
+	config.InboundAssistantAudioReadyTimeout = time.Second
+	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
+		return Allow(config), nil
+	})
+	server.SetOnApplicationReady(func(session *Session, _, _ string) error {
+		require.True(t, session.MarkInboundAssistantAudioReady())
+		return nil
+	})
+	transaction := newActiveAckableTestServerTx()
+	request := newInboundInviteRequest("inbound-assistant-audio-ready")
+	transaction.PushACK(newACKRequest("inbound-assistant-audio-ready"))
+
+	server.handleInvite(request, transaction)
+
+	require.NotEmpty(t, transaction.responses)
+	assert.Equal(t, 200, transaction.lastStatus())
+	session, exists := server.GetSession("inbound-assistant-audio-ready")
+	require.True(t, exists)
+	timings := session.GetInboundSetupTimings()
+	assert.False(t, timings.FirstAssistantAudioReadyAt.IsZero())
+	assert.True(t, timings.FirstAssistantAudioSentAt.IsZero())
+	metrics := session.GetInboundLatencyMetrics()
+	assert.Contains(t, metrics, "assistant_audio_ready_to_answer_ms")
+	assert.NotContains(t, metrics, "answer_to_first_assistant_audio_sent_ms")
+}
+
+func TestInboundCall_AssistantAudioReadyPolicyTimesOutBeforeAnswer(t *testing.T) {
+	server := newServerForCommandTests(t)
+	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
+	server.newRTPHandler = inboundNoopRTPHandler(server)
+	config := bridgeTestConfig()
+	config.InboundRequireAssistantAudioReady = true
+	config.InboundAssistantAudioReadyTimeout = 25 * time.Millisecond
+	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
+		return Allow(config), nil
+	})
+	server.SetOnInvite(func(_ *Session, _, _ string) error {
+		t.Fatal("onInvite should not run when assistant audio readiness times out")
+		return nil
+	})
+	transaction := newActiveAckableTestServerTx()
+	request := newInboundInviteRequest("inbound-assistant-audio-ready-timeout")
+
+	server.handleInvite(request, transaction)
+
+	require.NotEmpty(t, transaction.responses)
+	assert.Equal(t, 408, transaction.lastStatus())
+	assertNoSIPStatus(t, transaction.responses, 200)
+	_, exists := server.GetSession("inbound-assistant-audio-ready-timeout")
+	assert.False(t, exists)
+}
+
+func TestInboundCall_UDPFinalResponseRetransmitsUntilACKTimeout(t *testing.T) {
+	server := newServerForCommandTests(t)
+	server.inboundACKTimeout = 35 * time.Millisecond
+	server.inboundFinalResponseRetryInitial = 5 * time.Millisecond
+	server.inboundFinalResponseRetryMax = 5 * time.Millisecond
+	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
+	server.newRTPHandler = inboundNoopRTPHandler(server)
+	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
+		return Allow(bridgeTestConfig()), nil
+	})
+	transaction := newActiveAckableTestServerTx()
+	request := newInboundInviteRequest("inbound-200-retry")
+
+	server.handleInvite(request, transaction)
+
+	okResponses := 0
+	for _, response := range transaction.responses {
+		if response.StatusCode == 200 {
+			okResponses++
+		}
+	}
+	assert.GreaterOrEqual(t, okResponses, 2)
+	_, exists := server.GetSession("inbound-200-retry")
+	assert.False(t, exists)
+}
+
+func TestInboundCall_RecordsInboundLatencyMetrics(t *testing.T) {
+	server := newServerForCommandTests(t)
+	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
+	server.newRTPHandler = inboundNoopRTPHandler(server)
+	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
+		return Allow(bridgeTestConfig()), nil
+	})
+	transaction := newActiveAckableTestServerTx()
+	request := newInboundInviteRequest("inbound-latency-metrics")
+	transaction.PushACK(newACKRequest("inbound-latency-metrics"))
+
+	server.handleInvite(request, transaction)
+
+	session, exists := server.GetSession("inbound-latency-metrics")
+	require.True(t, exists)
+	metrics := session.GetInboundLatencyMetrics()
+	assert.Contains(t, metrics, "invite_to_100_ms")
+	assert.Contains(t, metrics, "invite_to_180_ms")
+	assert.Contains(t, metrics, "180_to_200_ms")
+	assert.Contains(t, metrics, "200_to_ack_ms")
+}
+
 func TestInboundCall_ApplicationReadinessFailureRejectsBeforeAnswer(t *testing.T) {
 	server := newServerForCommandTests(t)
 	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}

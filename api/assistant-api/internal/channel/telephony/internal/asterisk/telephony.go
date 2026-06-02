@@ -65,36 +65,45 @@ func (apt *asteriskTelephony) CatchAllStatusCallback(ctx *gin.Context) (*interna
 }
 
 func (apt *asteriskTelephony) ReceiveCall(c *gin.Context) (*internal_type.CallInfo, error) {
-	clientNumber := c.Query("from")
-	if clientNumber == "" {
-		clientNumber = c.Query("callerid")
+	queryParams := make(map[string]string, len(c.Request.URL.Query()))
+	for key, values := range c.Request.URL.Query() {
+		if len(values) > 0 {
+			queryParams[key] = values[0]
+		}
 	}
-	if clientNumber == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing caller information — provide 'from' query parameter"})
+
+	callerNumber := queryParams["from"]
+	if callerNumber == "" {
+		callerNumber = queryParams["caller"]
+	}
+	if callerNumber == "" {
+		callerNumber = queryParams["callerid"]
+	}
+	if callerNumber == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing caller information; provide 'from' or 'caller' query parameter"})
 		return nil, fmt.Errorf("missing caller information in query params")
 	}
 
-	dialedNumber := c.Query("to")
+	dialedNumber := queryParams["to"]
 	if dialedNumber == "" {
-		dialedNumber = c.Query("extension")
+		dialedNumber = queryParams["extension"]
 	}
 	if dialedNumber == "" {
-		dialedNumber = c.Query("dnid")
+		dialedNumber = queryParams["dnid"]
 	}
-
-	payload := map[string]string{"from": clientNumber}
+	queryParams["from"] = callerNumber
 	if dialedNumber != "" {
-		payload["to"] = dialedNumber
+		queryParams["to"] = dialedNumber
 	}
 
 	info := &internal_type.CallInfo{
-		CallerNumber: clientNumber,
+		CallerNumber: callerNumber,
 		FromNumber:   dialedNumber,
 		Provider:     asteriskProvider,
 		Status:       "SUCCESS",
-		StatusInfo:   internal_type.StatusInfo{Event: "webhook", Payload: payload},
+		StatusInfo:   internal_type.StatusInfo{Event: "webhook", Payload: queryParams},
 	}
-	if channelID := c.Query("channel_id"); channelID != "" {
+	if channelID := queryParams["channel_id"]; channelID != "" {
 		info.ChannelUUID = channelID
 	}
 	return info, nil

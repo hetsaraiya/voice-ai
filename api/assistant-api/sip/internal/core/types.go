@@ -19,18 +19,19 @@ import (
 )
 
 var (
-	ErrInvalidConfig            = errors.New("invalid SIP configuration")
-	ErrSessionNotFound          = errors.New("SIP session not found")
-	ErrSessionClosed            = errors.New("SIP session is closed")
-	ErrRTPNotInitialized        = errors.New("RTP handler not initialized")
-	ErrSDPParseFailed           = errors.New("failed to parse SDP")
-	ErrCodecNotSupported        = errors.New("codec not supported")
-	ErrConnectionFailed         = errors.New("SIP connection failed")
-	ErrAuthRequired             = errors.New("SIP auth required but credentials are missing")
-	ErrOutboundFromUserRequired = errors.New("outbound From user is required")
-	ErrInboundACKTimeout        = errors.New("inbound ACK timeout")
-	ErrInboundInviteCancelled   = errors.New("inbound INVITE cancelled")
-	ErrBridgeLifecycleRejected  = errors.New("bridge lifecycle transition rejected")
+	ErrInvalidConfig              = errors.New("invalid SIP configuration")
+	ErrSessionNotFound            = errors.New("SIP session not found")
+	ErrSessionClosed              = errors.New("SIP session is closed")
+	ErrRTPNotInitialized          = errors.New("RTP handler not initialized")
+	ErrSDPParseFailed             = errors.New("failed to parse SDP")
+	ErrCodecNotSupported          = errors.New("codec not supported")
+	ErrConnectionFailed           = errors.New("SIP connection failed")
+	ErrAuthRequired               = errors.New("SIP auth required but credentials are missing")
+	ErrOutboundFromUserRequired   = errors.New("outbound From user is required")
+	ErrInboundACKTimeout          = errors.New("inbound ACK timeout")
+	ErrInboundInviteCancelled     = errors.New("inbound INVITE cancelled")
+	ErrInboundAnswerPolicyTimeout = errors.New("inbound answer policy timeout")
+	ErrBridgeLifecycleRejected    = errors.New("bridge lifecycle transition rejected")
 )
 
 // SIPError adds operation and call context to SIP failures.
@@ -102,6 +103,13 @@ type Config struct {
 	InviteTimeout    time.Duration `json:"invite_timeout,omitempty" mapstructure:"invite_timeout"`
 	SessionTimeout   time.Duration `json:"session_timeout,omitempty" mapstructure:"session_timeout"`
 	KeepAliveEnabled bool          `json:"keepalive_enabled,omitempty" mapstructure:"keepalive_enabled"`
+
+	InboundAnswerMode                 InboundAnswerMode `json:"inbound_answer_mode,omitempty" mapstructure:"inbound_answer_mode"`
+	InboundMinRingDuration            time.Duration     `json:"inbound_min_ring_duration,omitempty" mapstructure:"inbound_min_ring_duration"`
+	InboundMaxRingDuration            time.Duration     `json:"inbound_max_ring_duration,omitempty" mapstructure:"inbound_max_ring_duration"`
+	InboundACKTimeout                 time.Duration     `json:"inbound_ack_timeout,omitempty" mapstructure:"inbound_ack_timeout"`
+	InboundAssistantAudioReadyTimeout time.Duration     `json:"inbound_assistant_audio_ready_timeout,omitempty" mapstructure:"inbound_assistant_audio_ready_timeout"`
+	InboundRequireAssistantAudioReady bool              `json:"inbound_require_assistant_audio_ready,omitempty" mapstructure:"inbound_require_assistant_audio_ready"`
 }
 
 // Validate validates the shared SIP network configuration.
@@ -137,11 +145,100 @@ func (c *Config) ApplyTimeoutDefaults(registerTimeout, inviteTimeout, sessionTim
 	}
 }
 
+func (c *Config) ApplyInboundAnswerDefaults(
+	mode InboundAnswerMode,
+	minRingDuration time.Duration,
+	maxRingDuration time.Duration,
+	ackTimeout time.Duration,
+	assistantAudioReadyTimeout time.Duration,
+	requireAssistantAudioReady bool,
+) {
+	if c.InboundAnswerMode == "" && mode != "" {
+		c.InboundAnswerMode = mode
+	}
+	if c.InboundMinRingDuration <= 0 && minRingDuration > 0 {
+		c.InboundMinRingDuration = minRingDuration
+	}
+	if c.InboundMaxRingDuration <= 0 && maxRingDuration > 0 {
+		c.InboundMaxRingDuration = maxRingDuration
+	}
+	if c.InboundACKTimeout <= 0 && ackTimeout > 0 {
+		c.InboundACKTimeout = ackTimeout
+	}
+	if c.InboundAssistantAudioReadyTimeout <= 0 && assistantAudioReadyTimeout > 0 {
+		c.InboundAssistantAudioReadyTimeout = assistantAudioReadyTimeout
+	}
+	if !c.InboundRequireAssistantAudioReady {
+		c.InboundRequireAssistantAudioReady = requireAssistantAudioReady
+	}
+}
+
 func (c *Config) EffectiveRegisterTimeout() time.Duration {
 	if c != nil && c.RegisterTimeout > 0 {
 		return c.RegisterTimeout
 	}
 	return defaultRegisterTimeout
+}
+
+type InboundAnswerMode string
+
+const (
+	InboundAnswerModeImmediate             InboundAnswerMode = "answer_immediately"
+	InboundAnswerModeAssistantReady        InboundAnswerMode = "answer_when_assistant_ready"
+	InboundAnswerModeAfterMinRingDuration  InboundAnswerMode = "answer_after_min_ring_ms"
+	InboundAnswerModeBeforeMaxRingDuration InboundAnswerMode = "answer_before_max_ring_ms"
+)
+
+func (m InboundAnswerMode) IsValid() bool {
+	switch m {
+	case "", InboundAnswerModeImmediate, InboundAnswerModeAssistantReady, InboundAnswerModeAfterMinRingDuration, InboundAnswerModeBeforeMaxRingDuration:
+		return true
+	default:
+		return false
+	}
+}
+
+type InboundAnswerPolicy struct {
+	Mode                       InboundAnswerMode
+	MinRingDuration            time.Duration
+	MaxRingDuration            time.Duration
+	ACKTimeout                 time.Duration
+	AssistantAudioReadyTimeout time.Duration
+	RequireAssistantAudioReady bool
+}
+
+func DefaultInboundAnswerPolicy() InboundAnswerPolicy {
+	return InboundAnswerPolicy{
+		Mode:       InboundAnswerModeAssistantReady,
+		ACKTimeout: defaultInboundACKTimeout,
+	}
+}
+
+func (c *Config) EffectiveInboundAnswerPolicy(defaultACKTimeout time.Duration) InboundAnswerPolicy {
+	policy := DefaultInboundAnswerPolicy()
+	if defaultACKTimeout > 0 {
+		policy.ACKTimeout = defaultACKTimeout
+	}
+	if c == nil {
+		return policy
+	}
+	if c.InboundAnswerMode != "" {
+		policy.Mode = c.InboundAnswerMode
+	}
+	if c.InboundMinRingDuration > 0 {
+		policy.MinRingDuration = c.InboundMinRingDuration
+	}
+	if c.InboundMaxRingDuration > 0 {
+		policy.MaxRingDuration = c.InboundMaxRingDuration
+	}
+	if c.InboundACKTimeout > 0 {
+		policy.ACKTimeout = c.InboundACKTimeout
+	}
+	if c.InboundAssistantAudioReadyTimeout > 0 {
+		policy.AssistantAudioReadyTimeout = c.InboundAssistantAudioReadyTimeout
+	}
+	policy.RequireAssistantAudioReady = c.InboundRequireAssistantAudioReady
+	return policy
 }
 
 func (c *Config) ValidateRTP() error {
@@ -162,6 +259,9 @@ func (c *Config) ValidateRTP() error {
 	}
 	if !c.Transport.IsValid() && c.Transport != "" {
 		return fmt.Errorf("%w: invalid transport: %s", ErrInvalidConfig, c.Transport)
+	}
+	if !c.InboundAnswerMode.IsValid() {
+		return fmt.Errorf("%w: invalid inbound_answer_mode: %s", ErrInvalidConfig, c.InboundAnswerMode)
 	}
 	return nil
 }
@@ -223,14 +323,46 @@ type InboundSetupPhase string
 
 const (
 	InboundSetupPhaseInviteReceived   InboundSetupPhase = "invite_received"
+	InboundSetupPhaseTryingSent       InboundSetupPhase = "trying_sent"
+	InboundSetupPhaseRingingSent      InboundSetupPhase = "ringing_sent"
 	InboundSetupPhaseAuthenticated    InboundSetupPhase = "authenticated"
 	InboundSetupPhaseRouted           InboundSetupPhase = "routed"
 	InboundSetupPhaseMediaAllocated   InboundSetupPhase = "media_allocated"
 	InboundSetupPhaseApplicationReady InboundSetupPhase = "application_ready"
+	InboundSetupPhaseAnswerReady      InboundSetupPhase = "answer_ready"
 	InboundSetupPhaseAnswered         InboundSetupPhase = "answered"
 	InboundSetupPhaseACKConfirmed     InboundSetupPhase = "ack_confirmed"
 	InboundSetupPhaseMediaFlowing     InboundSetupPhase = "media_flowing"
 )
+
+type InboundSetupTimings struct {
+	InviteReceivedAt           time.Time
+	TryingSentAt               time.Time
+	RingingSentAt              time.Time
+	AnsweredAt                 time.Time
+	ACKConfirmedAt             time.Time
+	FirstRTPReceivedAt         time.Time
+	FirstAssistantAudioReadyAt time.Time
+	FirstAssistantAudioSentAt  time.Time
+}
+
+func (t InboundSetupTimings) LatencyMetrics() map[string]int64 {
+	metrics := make(map[string]int64)
+	addMetric := func(name string, start, end time.Time) {
+		if start.IsZero() || end.IsZero() {
+			return
+		}
+		metrics[name] = end.Sub(start).Milliseconds()
+	}
+	addMetric("invite_to_100_ms", t.InviteReceivedAt, t.TryingSentAt)
+	addMetric("invite_to_180_ms", t.InviteReceivedAt, t.RingingSentAt)
+	addMetric("180_to_200_ms", t.RingingSentAt, t.AnsweredAt)
+	addMetric("200_to_ack_ms", t.AnsweredAt, t.ACKConfirmedAt)
+	addMetric("answer_to_first_rtp_ms", t.AnsweredAt, t.FirstRTPReceivedAt)
+	addMetric("assistant_audio_ready_to_answer_ms", t.FirstAssistantAudioReadyAt, t.AnsweredAt)
+	addMetric("answer_to_first_assistant_audio_sent_ms", t.AnsweredAt, t.FirstAssistantAudioSentAt)
+	return metrics
+}
 
 type SessionInfo struct {
 	CallID           string        `json:"call_id"`

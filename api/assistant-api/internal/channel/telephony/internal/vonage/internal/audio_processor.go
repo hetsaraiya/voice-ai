@@ -25,19 +25,15 @@ import (
 type AudioProcessor struct {
 	logger commons.Logger
 
-	resampler internal_type.AudioResampler
-
+	resampler   internal_type.AudioResampler
 	audioConfig *protos.AudioConfig
 
-	inputBuffer internal_channel_input.InputBuffer
-
+	inputBuffer        internal_channel_input.InputBuffer
 	outputBuffer       internal_telephony_output.FrameBuffer
 	bridgeOutputBuffer internal_telephony_output.FrameBuffer
 
 	silenceFrame []byte
-
 	ambientMixer internal_ambient.Mixer
-
 	outputHealth *internal_telephony_output.HealthStats
 }
 

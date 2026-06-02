@@ -68,6 +68,7 @@ type Session struct {
 	// Outbound dialog phase tracks SIP answer progress independently from app call state.
 	outboundDialogPhase OutboundDialogPhase
 	inboundSetupPhase   InboundSetupPhase
+	inboundTimings      InboundSetupTimings
 
 	// User metadata for passing context between layers (e.g., outbound call info)
 	metadata map[string]interface{}
@@ -362,6 +363,75 @@ func (s *Session) GetInboundSetupPhase() InboundSetupPhase {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.inboundSetupPhase
+}
+
+func (s *Session) MarkInboundSetupTimestamp(phase InboundSetupPhase, at time.Time) {
+	if at.IsZero() {
+		at = time.Now()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch phase {
+	case InboundSetupPhaseInviteReceived:
+		s.inboundTimings.InviteReceivedAt = at
+	case InboundSetupPhaseTryingSent:
+		s.inboundTimings.TryingSentAt = at
+	case InboundSetupPhaseRingingSent:
+		s.inboundTimings.RingingSentAt = at
+	case InboundSetupPhaseAnswered:
+		s.inboundTimings.AnsweredAt = at
+	case InboundSetupPhaseACKConfirmed:
+		s.inboundTimings.ACKConfirmedAt = at
+	}
+}
+
+func (s *Session) MarkInboundFirstRTPReceived() bool {
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.inboundTimings.FirstRTPReceivedAt.IsZero() {
+		return false
+	}
+	s.inboundTimings.FirstRTPReceivedAt = now
+	return true
+}
+
+func (s *Session) MarkInboundAssistantAudioReady() bool {
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.inboundTimings.FirstAssistantAudioReadyAt.IsZero() {
+		return false
+	}
+	s.inboundTimings.FirstAssistantAudioReadyAt = now
+	return true
+}
+
+func (s *Session) MarkInboundFirstAssistantAudioSent() bool {
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.inboundTimings.FirstAssistantAudioSentAt.IsZero() {
+		return false
+	}
+	s.inboundTimings.FirstAssistantAudioSentAt = now
+	return true
+}
+
+func (s *Session) GetInboundSetupTimings() InboundSetupTimings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.inboundTimings
+}
+
+func (s *Session) GetInboundLatencyMetrics() map[string]int64 {
+	return s.GetInboundSetupTimings().LatencyMetrics()
+}
+
+func (s *Session) SetInboundSetupTimings(timings InboundSetupTimings) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.inboundTimings = timings
 }
 
 // SetRTPHandler sets the RTP handler for this session.

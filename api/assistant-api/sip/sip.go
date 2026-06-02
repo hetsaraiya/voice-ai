@@ -9,7 +9,6 @@ package assistant_sip
 import (
 	"context"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 	"sync"
@@ -167,6 +166,7 @@ func (m *SIPEngine) Connect(ctx context.Context) error {
 		OnCreateConversation: m.pipelineCreateConversation,
 		OnEnsureCallContext:  m.pipelineEnsureCallContext,
 		OnCallSetup:          m.pipelineCallSetup,
+		OnPrepareCallRuntime: m.prepareInboundCallRuntime,
 		OnCallStart:          m.pipelineCallStart,
 		OnCallEnd:            m.pipelineCallEnd,
 		OnCreateObserver:     m.createObserver,
@@ -189,11 +189,18 @@ func (m *SIPEngine) Connect(ctx context.Context) error {
 }
 
 // applySIPOperationalDefaults overlays the engine-level SIP defaults (port,
-// transport, RTP range) onto a per-DID vault config. Passed to the registration
-// manager as an injection point so the registration package stays decoupled
-// from the assistant-api config types.
+// transport, RTP range, timeouts, inbound answer policy) onto a per-DID vault
+// config. Passed to the registration manager as an injection point so the
+// registration package stays decoupled from the assistant-api config types.
 func (m *SIPEngine) applySIPOperationalDefaults(c *sip_infra.Config) {
 	if m.cfg == nil || m.cfg.SIPConfig == nil {
+		return
+	}
+	m.applySIPConfigDefaults(c)
+}
+
+func (m *SIPEngine) applySIPConfigDefaults(c *sip_infra.Config) {
+	if c == nil || m.cfg == nil || m.cfg.SIPConfig == nil {
 		return
 	}
 	c.ApplyOperationalDefaults(
@@ -206,6 +213,15 @@ func (m *SIPEngine) applySIPOperationalDefaults(c *sip_infra.Config) {
 		m.cfg.SIPConfig.RegisterTimeout,
 		m.cfg.SIPConfig.InviteTimeout,
 		m.cfg.SIPConfig.SessionTimeout,
+	)
+	inboundConfig := m.cfg.SIPConfig.Inbound
+	c.ApplyInboundAnswerDefaults(
+		sip_infra.InboundAnswerMode(inboundConfig.AnswerMode),
+		inboundConfig.MinRingDuration,
+		inboundConfig.MaxRingDuration,
+		inboundConfig.ACKTimeout,
+		inboundConfig.AssistantAudioReadyTimeout,
+		inboundConfig.RequireAssistantAudioReady,
 	)
 }
 
@@ -521,19 +537,7 @@ func (m *SIPEngine) fetchSIPConfigAndVaultCredential(auth types.SimplePrinciple,
 		sipConfig.CallerID = strings.TrimPrefix(did, "+")
 	}
 
-	if m.cfg.SIPConfig != nil {
-		sipConfig.ApplyOperationalDefaults(
-			m.cfg.SIPConfig.Port,
-			sip_infra.Transport(m.cfg.SIPConfig.Transport),
-			m.cfg.SIPConfig.RTPPortRangeStart,
-			m.cfg.SIPConfig.RTPPortRangeEnd,
-		)
-		sipConfig.ApplyTimeoutDefaults(
-			m.cfg.SIPConfig.RegisterTimeout,
-			m.cfg.SIPConfig.InviteTimeout,
-			m.cfg.SIPConfig.SessionTimeout,
-		)
-	}
+	m.applySIPConfigDefaults(sipConfig)
 
 	return sipConfig, vaultCred, nil
 }
@@ -769,15 +773,69 @@ func (m *SIPEngine) pipelineCallSetup(ctx context.Context, session *sip_infra.Se
 	return result, nil
 }
 
-// pipelineCallStart creates a streamer and talker, then blocks on talker.Talk
-// until the call ends. Returns error for setup failures (streamer/talker creation);
-// nil means the call connected and Talk() completed normally or via disconnect.
-func (m *SIPEngine) pipelineCallStart(ctx context.Context, session *sip_infra.Session, setup *sip_pipeline.CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
-	callID := session.GetCallID()
-	isOutbound := session.GetInfo().Direction == sip_infra.CallDirectionOutbound
+type sipPreparedCallRuntime struct {
+	logger      commons.Logger
+	session     *sip_infra.Session
+	auth        types.SimplePrinciple
+	callContext *callcontext.CallContext
+	talkContext context.Context
+	cancelTalk  context.CancelFunc
+	streamer    internal_type.SIPStreamer
+	talker      internal_type.Talking
+	direction   string
+	talkDone    chan error
+}
 
-	// Outbound: ensure lifecycle teardown so outboundCall can proceed.
-	// Skip if a bridge transfer is active; the pipeline transfer handler owns the session.
+func (runtime *sipPreparedCallRuntime) Start(_ context.Context) error {
+	if runtime.session.IsEnded() {
+		runtime.logger.Warnw("Session already ended before runtime start", "call_id", runtime.session.GetCallID())
+		return fmt.Errorf("session_ended_before_start")
+	}
+	runtime.streamer.StartAssistantOutput()
+	if runtime.talkDone != nil {
+		return <-runtime.talkDone
+	}
+	return runtime.runTalker()
+}
+
+func (runtime *sipPreparedCallRuntime) runTalker() error {
+	runtime.logger.Infow("SIP call started",
+		"call_id", runtime.session.GetCallID(),
+		"assistant_id", runtime.callContext.AssistantID,
+		"conversation_id", runtime.callContext.ConversationID,
+		"direction", runtime.direction)
+	if err := runtime.talker.Talk(runtime.talkContext, runtime.auth); err != nil {
+		runtime.logger.Warnw("SIP talker exited", "error", err, "call_id", runtime.session.GetCallID())
+	}
+	runtime.logger.Infow("SIP call ended", "call_id", runtime.session.GetCallID())
+	return nil
+}
+
+func (runtime *sipPreparedCallRuntime) Close(_ context.Context) {
+	if runtime == nil {
+		return
+	}
+	if runtime.cancelTalk != nil {
+		runtime.cancelTalk()
+	}
+	_ = runtime.streamer.Close()
+}
+
+func (m *SIPEngine) prepareInboundCallRuntime(ctx context.Context, stage sip_infra.SessionEstablishedPipeline, setup *sip_pipeline.CallSetupResult, _ *observe.ConversationObserver) (sip_pipeline.PreparedCallRuntime, error) {
+	runtime, err := m.prepareSIPCallRuntime(ctx, stage.Session, setup, stage.VaultCredential, stage.Config, string(stage.Direction))
+	if err != nil {
+		return nil, err
+	}
+	if err := runtime.StartBeforeAnswer(ctx, inboundRuntimeReadyTimeout(stage.Config)); err != nil {
+		runtime.Close(ctx)
+		return nil, err
+	}
+	return runtime, nil
+}
+
+// pipelineCallStart starts a prepared SIP runtime and blocks until Talk returns.
+func (m *SIPEngine) pipelineCallStart(ctx context.Context, session *sip_infra.Session, setup *sip_pipeline.CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
+	isOutbound := session.GetInfo().Direction == sip_infra.CallDirectionOutbound
 	if isOutbound {
 		defer func() {
 			if !session.IsEnded() {
@@ -789,247 +847,294 @@ func (m *SIPEngine) pipelineCallStart(ctx context.Context, session *sip_infra.Se
 			}
 		}()
 	}
+	runtime, err := m.prepareSIPCallRuntime(ctx, session, setup, vaultCred, sipConfig, direction)
+	if err != nil {
+		return err
+	}
+	return runtime.Start(ctx)
+}
 
+func (m *SIPEngine) prepareSIPCallRuntime(ctx context.Context, session *sip_infra.Session, setup *sip_pipeline.CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) (*sipPreparedCallRuntime, error) {
+	callID := session.GetCallID()
 	if session.IsEnded() {
-		m.logger.Warnw("Session already ended before call start", "call_id", callID)
-		return fmt.Errorf("session_ended_before_start")
+		m.logger.Warnw("Session already ended before call runtime preparation", "call_id", callID)
+		return nil, fmt.Errorf("session_ended_before_start")
 	}
-
 	auth := session.GetAuth()
+	resolvedCallContext := m.resolveSIPCallContext(session, setup, direction)
+	talkContext, cancelTalk := context.WithCancel(session.Context())
 
-	var cc *callcontext.CallContext
-	if setup.CallContext != nil {
-		cc = setup.CallContext
-		if cc.AssistantProviderId == 0 {
-			cc.AssistantProviderId = setup.AssistantProviderId
-		}
-		if cc.ProjectID == 0 {
-			cc.ProjectID = setup.ProjectID
-		}
-		if cc.OrganizationID == 0 {
-			cc.OrganizationID = setup.OrganizationID
-		}
-	} else {
-		m.logger.Warnw("setup.CallContext missing — reconstructing from session", "call_id", callID)
-		info := session.GetInfo()
-		clientPhone := sip_infra.ExtractDIDFromURI(info.RemoteURI)
-		if clientPhone == "" {
-			clientPhone = info.RemoteURI
-		}
-		cc = &callcontext.CallContext{
-			AssistantID:         setup.AssistantID,
-			ConversationID:      setup.ConversationID,
-			AssistantProviderId: setup.AssistantProviderId,
-			AuthToken:           setup.AuthToken,
-			AuthType:            setup.AuthType,
-			Direction:           direction,
-			Provider:            "sip",
-			CallerNumber:        clientPhone,
-			FromNumber:          sip_infra.ExtractDIDFromURI(info.LocalURI),
-			ChannelUUID:         callID,
-			ContextID:           callID,
-			ProjectID:           setup.ProjectID,
-			OrganizationID:      setup.OrganizationID,
-		}
-	}
-
-	callCtx, cancel := context.WithCancel(session.Context())
-	defer cancel()
-
-	// For outbound calls, lifecycle teardown is deferred until this function returns,
-	// but BYE cancels the dialog context — not the session context. Bridge the gap
-	// by watching ByeReceived() and cancelling callCtx so talker.Talk() can exit.
 	go func() {
 		select {
 		case <-session.ByeReceived():
-			cancel()
-		case <-callCtx.Done():
+			cancelTalk()
+		case <-talkContext.Done():
 		}
 	}()
 
 	select {
 	case <-session.ByeReceived():
-		m.logger.Infow("BYE received before call start", "call_id", callID)
-		return fmt.Errorf("bye_before_start")
+		cancelTalk()
+		m.logger.Infow("BYE received before call runtime preparation", "call_id", callID)
+		return nil, fmt.Errorf("bye_before_start")
 	default:
 	}
 
-	var vc *protos.VaultCredential
+	var vaultCredential *protos.VaultCredential
 	if v, ok := vaultCred.(*protos.VaultCredential); ok {
-		vc = v
+		vaultCredential = v
 	} else {
-		vc = session.GetVaultCredential()
+		vaultCredential = session.GetVaultCredential()
 	}
-
-	streamer, err := internal_telephony.Telephony(internal_telephony.SIP).
-		NewStreamer(m.logger, cc, vc, internal_telephony.StreamerOption{
-			Ctx:          callCtx,
-			SIPSession:   session,
-			SIPConfig:    sipConfig,
-			SIPLifecycle: m.lifecycleController(),
-		})
+	streamer, err := internal_telephony.NewSIPStreamer(
+		talkContext,
+		m.logger,
+		session,
+		m.lifecycleController(),
+		resolvedCallContext,
+		vaultCredential,
+	)
 	if err != nil {
+		cancelTalk()
 		m.logger.Error("Failed to create SIP streamer", "error", err, "call_id", callID)
-		return fmt.Errorf("streamer_failed: %w", err)
+		return nil, fmt.Errorf("streamer_failed: %w", err)
 	}
-
 	if session.IsEnded() {
-		if closeable, ok := streamer.(io.Closer); ok {
-			closeable.Close()
-		}
-		return fmt.Errorf("session_ended_after_streamer")
+		cancelTalk()
+		_ = streamer.Close()
+		return nil, fmt.Errorf("session_ended_after_streamer")
 	}
 
-	type transferable interface {
-		SetOnTransferInitiated(func(targets []string, postTransferAction string))
-		SetBridgeOutRTP(*sip_infra.RTPHandler)
-		ClearBridgeTarget()
-		StopRingback()
-		ExitTransferMode()
-		PushBridgeOperatorAudio([]byte)
-		PushToolCallResult(contextID, toolID, toolName string, action protos.ToolCallAction, result map[string]string)
-		Input(internal_type.Stream)
-	}
-	if ts, ok := streamer.(transferable); ok {
-		ts.SetOnTransferInitiated(func(targets []string, postTransferAction string) {
-			toolID, _ := session.GetMetadata("tool_id")
-			toolIDStr, _ := toolID.(string)
-			toolCtxID, _ := session.GetMetadata("tool_context_id")
-			toolCtxIDStr, _ := toolCtxID.(string)
-			primaryTarget := targets[0]
-			conversationID := strconv.FormatUint(cc.ConversationID, 10)
-			legID := string(session.GetInfo().Direction)
-			emitTransferEvent := func(eventType string, data map[string]string) {
-				payload := map[string]string{
-					"event_type":  eventType,
-					"call_id":     callID,
-					"leg_id":      legID,
-					"transfer_id": toolCtxIDStr,
-					"attempt_id":  "",
-					"from_state":  "",
-					"to_state":    "",
-					"reason":      "",
-					"sip_method":  "",
-					"sip_status":  "",
-					"target":      "",
-					"duration_ms": "",
-					"error":       "",
-				}
-				for k, v := range data {
-					payload[k] = v
-				}
-				ts.Input(&protos.ConversationEvent{
-					Id:   conversationID,
-					Name: observe.ComponentTelephony,
-					Data: payload,
-					Time: timestamppb.Now(),
-				})
-			}
-			m.dispatcher.OnPipeline(m.ctx, sip_infra.TransferInitiatedPipeline{
-				ID:                 callID,
-				Session:            session,
-				TargetURI:          primaryTarget,
-				Targets:            targets,
-				Config:             sipConfig,
-				PostTransferAction: postTransferAction,
-				OnAttempt: func(target string, attempt int, total int) {
-					emitTransferEvent("transfer_attempt", map[string]string{
-						observe.DataType:     observe.EventTransferring,
-						observe.DataProvider: "sip",
-						observe.DataTarget:   target,
-						"attempt_id":         strconv.Itoa(attempt),
-						"reason":             "dial_attempt",
-						"total":              strconv.Itoa(total),
-					})
-				},
-				OnConnected: func(outboundRTP *sip_infra.RTPHandler) {
-					ts.StopRingback()
-					ts.SetBridgeOutRTP(outboundRTP)
-					emitTransferEvent("transfer_connected", map[string]string{
-						"target":     primaryTarget,
-						"from_state": "transferring",
-						"to_state":   "bridge_connected",
-						"reason":     "target_answered",
-					})
-				},
-				OnFailed: func() {
-					ts.ExitTransferMode()
-					emitTransferEvent("transfer_failed", map[string]string{
-						"target": primaryTarget,
-						"reason": "dial_failed",
-						"error":  fmt.Sprintf("transfer to %s failed", primaryTarget),
-					})
-					if toolIDStr != "" {
-						ts.PushToolCallResult(toolCtxIDStr, toolIDStr, "transfer_call", protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION, map[string]string{
-							"status":      "failed",
-							"reason":      fmt.Sprintf("Transfer to %s failed", primaryTarget),
-							"next_action": postTransferAction,
-						})
-					}
-				},
-				OnTeardown: func() {
-					ts.ClearBridgeTarget()
-					durationMs := ""
-					if d, ok := session.GetMetadata(sip_infra.MetadataBridgeTransferDuration); ok {
-						if duration, ok := d.(string); ok && duration != "" {
-							if parsed, err := time.ParseDuration(duration); err == nil {
-								durationMs = strconv.FormatInt(parsed.Milliseconds(), 10)
-							}
-						}
-					}
-					emitTransferEvent("transfer_teardown", map[string]string{
-						"target":      primaryTarget,
-						"from_state":  "bridge_connected",
-						"to_state":    "connected",
-						"reason":      "bridge_end",
-						"duration_ms": durationMs,
-					})
-					if toolIDStr != "" {
-						status, _ := session.GetMetadata(sip_infra.MetadataBridgeTransferStatus)
-						statusStr, _ := status.(string)
-						ts.PushToolCallResult(toolCtxIDStr, toolIDStr, "transfer_call", protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION, map[string]string{
-							"status":      statusStr,
-							"reason":      fmt.Sprintf("Transfer to %s %s", primaryTarget, statusStr),
-							"next_action": postTransferAction,
-						})
-					}
-				},
-				OnResumeAI: func() {
-					ts.ExitTransferMode()
-					emitTransferEvent("transfer_resume_ai", map[string]string{
-						"target":     primaryTarget,
-						"from_state": "bridge_connected",
-						"to_state":   "connected",
-						"reason":     "handoff_to_ai",
-					})
-				},
-				OnOperatorAudio: func(audio []byte) { ts.PushBridgeOperatorAudio(audio) },
-			})
-		})
-	}
-
+	m.configureSIPTransfer(session, sipConfig, resolvedCallContext, streamer)
 	talker, err := internal_adapter.GetTalker(
-		utils.PhoneCall, callCtx, m.cfg, m.logger,
+		utils.PhoneCall, talkContext, m.cfg, m.logger,
 		m.postgres, m.opensearch, m.redis, m.storage, streamer,
 	)
 	if err != nil {
-		if closeable, ok := streamer.(io.Closer); ok {
-			closeable.Close()
-		}
+		cancelTalk()
+		_ = streamer.Close()
 		m.logger.Error("Failed to create SIP talker", "error", err, "call_id", callID)
-		return fmt.Errorf("talker_failed: %w", err)
+		return nil, fmt.Errorf("talker_failed: %w", err)
+	}
+	return &sipPreparedCallRuntime{
+		logger:      m.logger,
+		session:     session,
+		auth:        auth,
+		callContext: resolvedCallContext,
+		talkContext: talkContext,
+		cancelTalk:  cancelTalk,
+		streamer:    streamer,
+		talker:      talker,
+		direction:   direction,
+	}, nil
+}
+
+func (runtime *sipPreparedCallRuntime) StartBeforeAnswer(ctx context.Context, timeout time.Duration) error {
+	if runtime.talkDone != nil {
+		return nil
+	}
+	runtime.talkDone = make(chan error, 1)
+	go func() {
+		runtime.talkDone <- runtime.runTalker()
+	}()
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case err := <-runtime.talkDone:
+			runtime.talkDone <- err
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("SIP runtime exited before answer")
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-runtime.session.Context().Done():
+			return runtime.session.Context().Err()
+		case <-timer.C:
+			return fmt.Errorf("SIP runtime readiness timeout")
+		case <-ticker.C:
+			if runtime.talker.Assistant() != nil && runtime.talker.Conversation() != nil {
+				return nil
+			}
+		}
+	}
+}
+
+func inboundRuntimeReadyTimeout(config *sip_infra.Config) time.Duration {
+	if config != nil && config.InboundMaxRingDuration > 0 {
+		return config.InboundMaxRingDuration
+	}
+	return 30 * time.Second
+}
+
+func (m *SIPEngine) resolveSIPCallContext(session *sip_infra.Session, setup *sip_pipeline.CallSetupResult, direction string) *callcontext.CallContext {
+	callID := session.GetCallID()
+	if setup.CallContext != nil {
+		call := setup.CallContext
+		if call.AssistantProviderId == 0 {
+			call.AssistantProviderId = setup.AssistantProviderId
+		}
+		if call.ProjectID == 0 {
+			call.ProjectID = setup.ProjectID
+		}
+		if call.OrganizationID == 0 {
+			call.OrganizationID = setup.OrganizationID
+		}
+		return call
 	}
 
-	m.logger.Infow("SIP call started",
-		"call_id", callID,
-		"assistant_id", cc.AssistantID,
-		"conversation_id", cc.ConversationID,
-		"direction", direction)
-	if err := talker.Talk(callCtx, auth); err != nil {
-		m.logger.Warnw("SIP talker exited", "error", err, "call_id", callID)
+	m.logger.Warnw("setup.CallContext missing — reconstructing from session", "call_id", callID)
+	info := session.GetInfo()
+	clientPhone := sip_infra.ExtractDIDFromURI(info.RemoteURI)
+	if clientPhone == "" {
+		clientPhone = info.RemoteURI
 	}
-	m.logger.Infow("SIP call ended", "call_id", callID)
-	return nil
+	return &callcontext.CallContext{
+		AssistantID:         setup.AssistantID,
+		ConversationID:      setup.ConversationID,
+		AssistantProviderId: setup.AssistantProviderId,
+		AuthToken:           setup.AuthToken,
+		AuthType:            setup.AuthType,
+		Direction:           direction,
+		Provider:            "sip",
+		CallerNumber:        clientPhone,
+		FromNumber:          sip_infra.ExtractDIDFromURI(info.LocalURI),
+		ChannelUUID:         callID,
+		ContextID:           callID,
+		ProjectID:           setup.ProjectID,
+		OrganizationID:      setup.OrganizationID,
+	}
+}
+
+func (m *SIPEngine) configureSIPTransfer(session *sip_infra.Session, sipConfig *sip_infra.Config, call *callcontext.CallContext, transferStreamer internal_type.SIPTransferStreamer) {
+	callID := session.GetCallID()
+	transferStreamer.SetTransferRequestHandler(func(targets []string, postTransferAction string) {
+		toolID, _ := session.GetMetadata("tool_id")
+		toolIDStr, _ := toolID.(string)
+		toolCtxID, _ := session.GetMetadata("tool_context_id")
+		toolCtxIDStr, _ := toolCtxID.(string)
+		primaryTarget := targets[0]
+		conversationID := strconv.FormatUint(call.ConversationID, 10)
+		legID := string(session.GetInfo().Direction)
+		emitTransferEvent := func(eventType string, data map[string]string) {
+			payload := map[string]string{
+				"event_type":  eventType,
+				"call_id":     callID,
+				"leg_id":      legID,
+				"transfer_id": toolCtxIDStr,
+				"attempt_id":  "",
+				"from_state":  "",
+				"to_state":    "",
+				"reason":      "",
+				"sip_method":  "",
+				"sip_status":  "",
+				"target":      "",
+				"duration_ms": "",
+				"error":       "",
+			}
+			for k, v := range data {
+				payload[k] = v
+			}
+			transferStreamer.SendTransferEvent(&protos.ConversationEvent{
+				Id:   conversationID,
+				Name: observe.ComponentTelephony,
+				Data: payload,
+				Time: timestamppb.Now(),
+			})
+		}
+		m.dispatcher.OnPipeline(m.ctx, sip_infra.TransferInitiatedPipeline{
+			ID:                 callID,
+			Session:            session,
+			TargetURI:          primaryTarget,
+			Targets:            targets,
+			Config:             sipConfig,
+			PostTransferAction: postTransferAction,
+			OnAttempt: func(target string, attempt int, total int) {
+				emitTransferEvent("transfer_attempt", map[string]string{
+					observe.DataType:     observe.EventTransferring,
+					observe.DataProvider: "sip",
+					observe.DataTarget:   target,
+					"attempt_id":         strconv.Itoa(attempt),
+					"reason":             "dial_attempt",
+					"total":              strconv.Itoa(total),
+				})
+			},
+			OnConnected: func(outboundRTP *sip_infra.RTPHandler) {
+				outputCodecName := ""
+				if outboundRTP != nil {
+					if codec := outboundRTP.GetCodec(); codec != nil {
+						outputCodecName = codec.Name
+					}
+				}
+				transferStreamer.StopTransferRingback()
+				transferStreamer.ConnectTransferMedia(outboundRTP, outputCodecName)
+				emitTransferEvent("transfer_connected", map[string]string{
+					"target":     primaryTarget,
+					"from_state": "transferring",
+					"to_state":   "bridge_connected",
+					"reason":     "target_answered",
+				})
+			},
+			OnFailed: func() {
+				transferStreamer.ResumeAssistant()
+				emitTransferEvent("transfer_failed", map[string]string{
+					"target": primaryTarget,
+					"reason": "dial_failed",
+					"error":  fmt.Sprintf("transfer to %s failed", primaryTarget),
+				})
+				if toolIDStr != "" {
+					transferStreamer.SendTransferToolResult(toolCtxIDStr, toolIDStr, "transfer_call", protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION, map[string]string{
+						"status":      "failed",
+						"reason":      fmt.Sprintf("Transfer to %s failed", primaryTarget),
+						"next_action": postTransferAction,
+					})
+				}
+			},
+			OnTeardown: func() {
+				transferStreamer.DisconnectTransferMedia()
+				durationMs := ""
+				if d, ok := session.GetMetadata(sip_infra.MetadataBridgeTransferDuration); ok {
+					if duration, ok := d.(string); ok && duration != "" {
+						if parsed, err := time.ParseDuration(duration); err == nil {
+							durationMs = strconv.FormatInt(parsed.Milliseconds(), 10)
+						}
+					}
+				}
+				emitTransferEvent("transfer_teardown", map[string]string{
+					"target":      primaryTarget,
+					"from_state":  "bridge_connected",
+					"to_state":    "connected",
+					"reason":      "bridge_end",
+					"duration_ms": durationMs,
+				})
+				if toolIDStr != "" {
+					status, _ := session.GetMetadata(sip_infra.MetadataBridgeTransferStatus)
+					statusStr, _ := status.(string)
+					transferStreamer.SendTransferToolResult(toolCtxIDStr, toolIDStr, "transfer_call", protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION, map[string]string{
+						"status":      statusStr,
+						"reason":      fmt.Sprintf("Transfer to %s %s", primaryTarget, statusStr),
+						"next_action": postTransferAction,
+					})
+				}
+			},
+			OnResumeAI: func() {
+				transferStreamer.ResumeAssistant()
+				emitTransferEvent("transfer_resume_ai", map[string]string{
+					"target":     primaryTarget,
+					"from_state": "bridge_connected",
+					"to_state":   "connected",
+					"reason":     "handoff_to_ai",
+				})
+			},
+			OnOperatorAudio: func(audio []byte) { transferStreamer.RecordTransferOperatorAudio(audio) },
+		})
+	})
 }
 
 func (m *SIPEngine) pipelineCallEnd(callID string) {

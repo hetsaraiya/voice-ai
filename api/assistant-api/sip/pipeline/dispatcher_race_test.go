@@ -15,6 +15,7 @@ import (
 	"time"
 
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
+	"github.com/rapidaai/api/assistant-api/internal/observe"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/types"
@@ -58,6 +59,26 @@ func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
 		return false
 	case <-time.After(timeout):
 		return true
+	}
+}
+
+type fakePreparedCallRuntime struct {
+	started chan struct{}
+	closed  chan struct{}
+}
+
+func (f *fakePreparedCallRuntime) Start(_ context.Context) error {
+	select {
+	case f.started <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (f *fakePreparedCallRuntime) Close(_ context.Context) {
+	select {
+	case f.closed <- struct{}{}:
+	default:
 	}
 }
 
@@ -168,6 +189,84 @@ func TestPrepareSessionDefersCallStartUntilExplicitStart(t *testing.T) {
 		t.Fatal("timed out waiting for prepared call start")
 	}
 	require.Equal(t, int32(1), startCount.Load())
+}
+
+func TestPrepareSession_PreparesInboundRuntimeBeforeExplicitStart(t *testing.T) {
+	t.Parallel()
+
+	var prepareRuntimeCount atomic.Int32
+	var legacyStartCount atomic.Int32
+	runtime := &fakePreparedCallRuntime{started: make(chan struct{}, 1), closed: make(chan struct{}, 1)}
+
+	d := NewDispatcher(&DispatcherConfig{
+		Logger: newPipelineTestLogger(t),
+		OnCallSetup: func(ctx context.Context, session *sip_infra.Session, auth types.SimplePrinciple, assistantID uint64, conversationID uint64, cc *callcontext.CallContext) (*CallSetupResult, error) {
+			return &CallSetupResult{AssistantID: assistantID, ConversationID: conversationID}, nil
+		},
+		OnPrepareCallRuntime: func(ctx context.Context, stage sip_infra.SessionEstablishedPipeline, setup *CallSetupResult, observer *observe.ConversationObserver) (PreparedCallRuntime, error) {
+			prepareRuntimeCount.Add(1)
+			return runtime, nil
+		},
+		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
+			legacyStartCount.Add(1)
+			return nil
+		},
+	})
+
+	stage := sip_infra.SessionEstablishedPipeline{
+		ID:             "call-runtime-prepared",
+		Session:        newPipelineTestSession(t),
+		Direction:      sip_infra.CallDirectionInbound,
+		AssistantID:    1,
+		ConversationID: 42,
+	}
+
+	require.NoError(t, d.PrepareSession(context.Background(), stage))
+	require.Equal(t, int32(1), prepareRuntimeCount.Load())
+	require.Equal(t, int32(0), legacyStartCount.Load())
+
+	require.NoError(t, d.StartPreparedSession(context.Background(), stage))
+	select {
+	case <-runtime.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for prepared runtime start")
+	}
+	require.Equal(t, int32(0), legacyStartCount.Load())
+}
+
+func TestDiscardPreparedSessionClosesPreparedRuntime(t *testing.T) {
+	t.Parallel()
+
+	runtime := &fakePreparedCallRuntime{started: make(chan struct{}, 1), closed: make(chan struct{}, 1)}
+	d := NewDispatcher(&DispatcherConfig{
+		Logger: newPipelineTestLogger(t),
+		OnCallSetup: func(ctx context.Context, session *sip_infra.Session, auth types.SimplePrinciple, assistantID uint64, conversationID uint64, cc *callcontext.CallContext) (*CallSetupResult, error) {
+			return &CallSetupResult{AssistantID: assistantID, ConversationID: conversationID}, nil
+		},
+		OnPrepareCallRuntime: func(ctx context.Context, stage sip_infra.SessionEstablishedPipeline, setup *CallSetupResult, observer *observe.ConversationObserver) (PreparedCallRuntime, error) {
+			return runtime, nil
+		},
+		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
+			return nil
+		},
+	})
+	stage := sip_infra.SessionEstablishedPipeline{
+		ID:             "call-runtime-discarded",
+		Session:        newPipelineTestSession(t),
+		Direction:      sip_infra.CallDirectionInbound,
+		AssistantID:    1,
+		ConversationID: 42,
+	}
+
+	require.NoError(t, d.PrepareSession(context.Background(), stage))
+	d.DiscardPreparedSession(context.Background(), stage.ID)
+
+	select {
+	case <-runtime.closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for prepared runtime close")
+	}
+	require.Error(t, d.StartPreparedSession(context.Background(), stage))
 }
 
 func TestDiscardPreparedSessionPreventsLateStart(t *testing.T) {

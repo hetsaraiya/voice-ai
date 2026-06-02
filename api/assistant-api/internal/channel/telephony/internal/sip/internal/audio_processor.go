@@ -27,8 +27,8 @@ import (
 )
 
 type bridgeState struct {
-	outRTP    *sip_infra.RTPHandler
-	transcode func([]byte) []byte
+	outputTarget internal_type.SIPRTPBridgeTarget
+	transcode    func([]byte) []byte
 }
 
 // AudioProcessor owns SIP RTP codec conversion, buffering, pacing, bridge audio,
@@ -42,7 +42,7 @@ type AudioProcessor struct {
 	outputBuffer       internal_telephony_output.FrameBuffer
 	bridgeOutputBuffer internal_telephony_output.FrameBuffer
 
-	// bridgeMu orders ForwardUserAudio with ClearBridgeTarget so outbound RTP is
+	// bridgeMu orders ForwardUserAudio with DisconnectTransferMedia so outbound RTP is
 	// not closed while a bridge send is in flight.
 	bridgeMu         sync.Mutex
 	bridge           atomic.Pointer[bridgeState]
@@ -291,15 +291,15 @@ func (p *AudioProcessor) IsBridgeActive() bool {
 	return p.bridge.Load() != nil
 }
 
-func (p *AudioProcessor) SetBridgeTarget(rtp *sip_infra.RTPHandler, inCodec, outCodec *sip_infra.Codec) {
-	if rtp == nil {
+func (p *AudioProcessor) ConnectTransferMedia(target internal_type.SIPRTPBridgeTarget, inputCodec *sip_infra.Codec, outputCodecName string) {
+	if target == nil {
 		return
 	}
-	state := &bridgeState{outRTP: rtp}
-	if inCodec != nil && outCodec != nil && inCodec.Name != outCodec.Name {
-		if inCodec.Name == sip_infra.CodecPCMA.Name && outCodec.Name == sip_infra.CodecPCMU.Name {
+	state := &bridgeState{outputTarget: target}
+	if inputCodec != nil && outputCodecName != "" && inputCodec.Name != outputCodecName {
+		if inputCodec.Name == sip_infra.CodecPCMA.Name && outputCodecName == sip_infra.CodecPCMU.Name {
 			state.transcode = internal_audio.AlawToUlaw
-		} else if inCodec.Name == sip_infra.CodecPCMU.Name && outCodec.Name == sip_infra.CodecPCMA.Name {
+		} else if inputCodec.Name == sip_infra.CodecPCMU.Name && outputCodecName == sip_infra.CodecPCMA.Name {
 			state.transcode = internal_audio.UlawToAlaw
 		}
 	}
@@ -308,8 +308,8 @@ func (p *AudioProcessor) SetBridgeTarget(rtp *sip_infra.RTPHandler, inCodec, out
 	p.bridgeMu.Unlock()
 }
 
-// ClearBridgeTarget returns only after in-flight bridge sends finish.
-func (p *AudioProcessor) ClearBridgeTarget() {
+// DisconnectTransferMedia returns only after in-flight bridge sends finish.
+func (p *AudioProcessor) DisconnectTransferMedia() {
 	p.bridgeMu.Lock()
 	p.bridge.Store(nil)
 	p.bridgeMu.Unlock()
@@ -329,7 +329,7 @@ func (p *AudioProcessor) ForwardUserAudio(audioData []byte) bool {
 	}
 	bridgeFrameDelivered := false
 	select {
-	case state.outRTP.AudioOut() <- audioData:
+	case state.outputTarget.AudioOut() <- audioData:
 		bridgeFrameDelivered = true
 	default:
 	}
@@ -356,8 +356,8 @@ func (p *AudioProcessor) ForwardUserAudio(audioData []byte) bool {
 	return true
 }
 
-// PushOperatorAudio queues transfer target audio for recording.
-func (p *AudioProcessor) PushOperatorAudio(audio []byte) {
+// RecordTransferOperatorAudio queues transfer target audio for recording.
+func (p *AudioProcessor) RecordTransferOperatorAudio(audio []byte) {
 	select {
 	case p.bridgeOperatorCh <- audio:
 	default:

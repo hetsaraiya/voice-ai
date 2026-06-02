@@ -90,6 +90,22 @@ func (s *Session) GetInboundSetupPhase() InboundSetupPhase {
 	return InboundSetupPhase(s.inner.GetInboundSetupPhase())
 }
 
+func (s *Session) MarkInboundAssistantAudioReady() bool {
+	return s.inner.MarkInboundAssistantAudioReady()
+}
+
+func (s *Session) MarkInboundFirstAssistantAudioSent() bool {
+	return s.inner.MarkInboundFirstAssistantAudioSent()
+}
+
+func (s *Session) GetInboundSetupTimings() InboundSetupTimings {
+	return inboundSetupTimingsFromCore(s.inner.GetInboundSetupTimings())
+}
+
+func (s *Session) GetInboundLatencyMetrics() map[string]int64 {
+	return s.inner.GetInboundLatencyMetrics()
+}
+
 func (s *Session) SetRTPHandler(handler *RTPHandler) {
 	s.inner.SetRTPHandler(handler.unwrap())
 }

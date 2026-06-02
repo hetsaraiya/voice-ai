@@ -58,3 +58,32 @@ func TestReceiveCall_PopulatesDialedNumberFromFallbackParams(t *testing.T) {
 		t.Fatalf("expected status payload to=18005550100, got %q", got)
 	}
 }
+
+func TestReceiveCall_PopulatesCallerNumberFromCallerParam(t *testing.T) {
+	tel := newAsteriskTelephonyForTest(t)
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest("GET", "/?caller=15557654321&to=18005550101", nil)
+	c.Request = req
+
+	info, err := tel.ReceiveCall(c)
+	if err != nil {
+		t.Fatalf("ReceiveCall() error = %v", err)
+	}
+
+	if info.CallerNumber != "15557654321" {
+		t.Fatalf("expected CallerNumber 15557654321, got %q", info.CallerNumber)
+	}
+	if info.FromNumber != "18005550101" {
+		t.Fatalf("expected FromNumber 18005550101, got %q", info.FromNumber)
+	}
+	payload, ok := info.StatusInfo.Payload.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string payload, got %T", info.StatusInfo.Payload)
+	}
+	if got := payload["caller"]; got != "15557654321" {
+		t.Fatalf("expected status payload caller=15557654321, got %q", got)
+	}
+}

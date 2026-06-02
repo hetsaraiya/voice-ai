@@ -139,6 +139,37 @@ func TestParseConfig_AppliesPlatformTimeouts(t *testing.T) {
 	}
 }
 
+func TestParseConfig_AppliesInboundAnswerPolicyDefaults(t *testing.T) {
+	telephony := newSIPTelephonyForTest()
+	telephony.appCfg.SIPConfig.Inbound = config.SIPInboundConfig{
+		AnswerMode:                 string(sip_infra.InboundAnswerModeAfterMinRingDuration),
+		MinRingDuration:            50 * time.Millisecond,
+		MaxRingDuration:            5 * time.Second,
+		ACKTimeout:                 2 * time.Second,
+		AssistantAudioReadyTimeout: 250 * time.Millisecond,
+		RequireAssistantAudioReady: true,
+	}
+	cred := vaultCredential(t, map[string]interface{}{
+		"host": "example.org:5060",
+	})
+
+	cfg, err := telephony.parseConfig(cred)
+	if err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+
+	if cfg.InboundAnswerMode != sip_infra.InboundAnswerModeAfterMinRingDuration {
+		t.Fatalf("expected inbound answer mode from app config, got %q", cfg.InboundAnswerMode)
+	}
+	if cfg.InboundMinRingDuration != 50*time.Millisecond ||
+		cfg.InboundMaxRingDuration != 5*time.Second ||
+		cfg.InboundACKTimeout != 2*time.Second ||
+		cfg.InboundAssistantAudioReadyTimeout != 250*time.Millisecond ||
+		!cfg.InboundRequireAssistantAudioReady {
+		t.Fatalf("expected inbound answer policy defaults from app config, got %#v", cfg)
+	}
+}
+
 func TestOutboundHealthGateEnabled_DefaultsOn(t *testing.T) {
 	if !outboundHealthGateEnabled(nil) {
 		t.Fatal("expected health gate enabled for nil app config")

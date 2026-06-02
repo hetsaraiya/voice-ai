@@ -16,20 +16,30 @@ import (
 	"github.com/spf13/viper"
 )
 
-// SIPConfig holds the SIP server configuration
+type SIPInboundConfig struct {
+	AnswerMode                 string        `mapstructure:"answer_mode"`
+	MinRingDuration            time.Duration `mapstructure:"min_ring_duration"`
+	MaxRingDuration            time.Duration `mapstructure:"max_ring_duration"`
+	ACKTimeout                 time.Duration `mapstructure:"ack_timeout"`
+	AssistantAudioReadyTimeout time.Duration `mapstructure:"assistant_audio_ready_timeout"`
+	RequireAssistantAudioReady bool          `mapstructure:"require_assistant_audio_ready"`
+}
+
+// SIPConfig holds the SIP server configuration.
 type SIPConfig struct {
-	Server                  string        `mapstructure:"server"`
-	InstanceID              string        `mapstructure:"instance_id"` // Unique identifier for this SIP server instance (defaults to external_ip)
-	ExternalIP              string        `mapstructure:"external_ip"` // Public/reachable IP for outbound SDP and SIP Contact headers
-	AllowLoopbackExternalIP bool          `mapstructure:"allow_loopback_external_ip"`
-	Port                    int           `mapstructure:"port"`
-	Transport               string        `mapstructure:"transport"`
-	RTPPortRangeStart       int           `mapstructure:"rtp_port_range_start"`
-	RTPPortRangeEnd         int           `mapstructure:"rtp_port_range_end"`
-	RegisterTimeout         time.Duration `mapstructure:"register_timeout"`
-	InviteTimeout           time.Duration `mapstructure:"invite_timeout"`
-	SessionTimeout          time.Duration `mapstructure:"session_timeout"`
-	OutboundHealthGate      *bool         `mapstructure:"outbound_health_gate"`
+	Server                  string           `mapstructure:"server"`
+	InstanceID              string           `mapstructure:"instance_id"` // Unique identifier for this SIP server instance (defaults to external_ip)
+	ExternalIP              string           `mapstructure:"external_ip"` // Public/reachable IP for outbound SDP and SIP Contact headers
+	AllowLoopbackExternalIP bool             `mapstructure:"allow_loopback_external_ip"`
+	Port                    int              `mapstructure:"port"`
+	Transport               string           `mapstructure:"transport"`
+	RTPPortRangeStart       int              `mapstructure:"rtp_port_range_start"`
+	RTPPortRangeEnd         int              `mapstructure:"rtp_port_range_end"`
+	RegisterTimeout         time.Duration    `mapstructure:"register_timeout"`
+	InviteTimeout           time.Duration    `mapstructure:"invite_timeout"`
+	SessionTimeout          time.Duration    `mapstructure:"session_timeout"`
+	OutboundHealthGate      *bool            `mapstructure:"outbound_health_gate"`
+	Inbound                 SIPInboundConfig `mapstructure:"inbound"`
 }
 
 // WebRTCConfig holds WebRTC ICE configuration for production cloud deployments.

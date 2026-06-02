@@ -67,6 +67,16 @@ document:
   host: "http://localhost:9010"
 ui:
   host: "http://localhost:3000"
+sip:
+  server: "0.0.0.0"
+  port: 5070
+  inbound:
+    answer_mode: "answer_when_assistant_ready"
+    min_ring_duration: 0s
+    max_ring_duration: 30s
+    ack_timeout: 5s
+    assistant_audio_ready_timeout: 2s
+    require_assistant_audio_ready: true
 `
 
 func TestInitConfig(t *testing.T) {
@@ -100,6 +110,18 @@ func TestInitConfig(t *testing.T) {
 	}
 	if appConfig.Assistant.Public != "integral-presently-cub.ngrok-free.app" {
 		t.Errorf("Expected Assistant.Public to be 'integral-presently-cub.ngrok-free.app', but got %v", appConfig.Assistant.Public)
+	}
+	if appConfig.SIPConfig == nil {
+		t.Fatal("Expected SIPConfig to be parsed")
+	}
+	if appConfig.SIPConfig.Inbound.AnswerMode != "answer_when_assistant_ready" {
+		t.Errorf("Expected nested SIP inbound answer mode, got %q", appConfig.SIPConfig.Inbound.AnswerMode)
+	}
+	if appConfig.SIPConfig.Inbound.ACKTimeout.String() != "5s" {
+		t.Errorf("Expected nested SIP inbound ack timeout 5s, got %s", appConfig.SIPConfig.Inbound.ACKTimeout)
+	}
+	if !appConfig.SIPConfig.Inbound.RequireAssistantAudioReady {
+		t.Error("Expected nested SIP inbound require assistant audio ready to be true")
 	}
 }
 

@@ -64,8 +64,8 @@ const (
 )
 
 // Config wires the manager's external dependencies. ApplyOpDefaults overlays
-// the operational SIP defaults (port, transport, RTP range) onto the per-DID
-// vault config and is supplied by the SIP engine.
+// platform SIP defaults onto the per-DID vault config and is supplied by the
+// SIP engine.
 type Config struct {
 	Logger             commons.Logger
 	Postgres           connectors.PostgresConnector

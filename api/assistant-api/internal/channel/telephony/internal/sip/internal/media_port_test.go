@@ -93,7 +93,9 @@ func TestMediaPort_AssistantAudioReachesRTPOutput(t *testing.T) {
 
 	mediaPort.Start()
 	defer func() { require.NoError(t, mediaPort.Close()) }()
+	assert.True(t, mediaPort.session.GetInboundSetupTimings().FirstAssistantAudioSentAt.IsZero())
 	require.NoError(t, mediaPort.HandleAssistantAudio(make([]byte, BridgeOutputFrameSize), false))
+	assert.False(t, mediaPort.session.GetInboundSetupTimings().FirstAssistantAudioSentAt.IsZero())
 
 	select {
 	case frame := <-audioOut:
@@ -114,7 +116,7 @@ func TestMediaPort_TransferModeSuppressesAssistantAudio(t *testing.T) {
 		t.Fatalf("assistant audio was queued during transfer mode: %v", frame)
 	default:
 	}
-	require.True(t, mediaPort.ExitTransferMode())
+	require.True(t, mediaPort.ResumeAssistant())
 	require.NoError(t, mediaPort.Close())
 }
 
@@ -145,7 +147,7 @@ func TestMediaPort_InterruptPreservesBufferedInput(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
-func TestMediaPort_SetBridgeTargetForwardsCallerAudio(t *testing.T) {
+func TestMediaPort_ConnectTransferMediaForwardsCallerAudio(t *testing.T) {
 	streams := make(chan internal_type.Stream, 1)
 	mediaPort, audioIn, _ := newMediaPortForTest(t, func(stream internal_type.Stream) {
 		streams <- stream
@@ -154,7 +156,7 @@ func TestMediaPort_SetBridgeTargetForwardsCallerAudio(t *testing.T) {
 
 	mediaPort.Start()
 	defer func() { require.NoError(t, mediaPort.Close()) }()
-	mediaPort.SetBridgeTarget(bridgeRTP)
+	mediaPort.ConnectTransferMedia(bridgeRTP, sip_infra.CodecPCMU.Name)
 	audioIn <- []byte{0x01, 0x02, 0x03}
 
 	select {

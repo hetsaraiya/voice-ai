@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
@@ -36,7 +37,10 @@ type inboundCall struct {
 	localRTPPort     int
 	externalIP       string
 	setupPhase       InboundSetupPhase
-	finalResponse    bool
+	setupTimings     InboundSetupTimings
+	answerPolicy     InboundAnswerPolicy
+	answerController *inboundAnswerController
+	rtpStarted       bool
 }
 
 func newInboundCall(server *Server, request *sip.Request, transaction sip.ServerTransaction) *inboundCall {
@@ -103,7 +107,16 @@ func (inboundCall *inboundCall) run() {
 		inboundCall.failSetup(500, internal_inbound.FailureDialog, LifecycleReasonInboundInviteFailed, err)
 		return
 	}
+	inboundCall.createAnswerController()
+	if err := inboundCall.answerController.SendTrying(); err != nil {
+		inboundCall.failSetup(500, internal_inbound.FailureDialog, LifecycleReasonInboundInviteFailed, err)
+		return
+	}
 	server.TransitionCall(inboundCall.session, CallStateRinging, LifecycleReasonInboundInviteRinging)
+	if err := inboundCall.answerController.SendRinging(); err != nil {
+		inboundCall.failSetup(500, internal_inbound.FailureDialog, LifecycleReasonInboundInviteFailed, err)
+		return
+	}
 
 	if err := inboundCall.setupRTP(); err != nil {
 		inboundCall.failSetup(503, internal_inbound.FailureRTP, LifecycleReasonInboundInviteFailed, err)
@@ -119,6 +132,17 @@ func (inboundCall *inboundCall) run() {
 	if inboundCall.cancelIfRequested(LifecycleReasonInviteCancelledBeforeAnswer) {
 		return
 	}
+	if err := inboundCall.answerController.WaitUntilAnswerReady(server.ctx); err != nil {
+		inboundCall.failSetup(408, internal_inbound.FailureSetup, LifecycleReasonInboundAnswerPolicyTimeout, err)
+		return
+	}
+	if inboundCall.cancelIfRequested(LifecycleReasonInviteCancelledBeforeAnswer) {
+		return
+	}
+	if err := inboundCall.startRTP(); err != nil {
+		inboundCall.failSetup(503, internal_inbound.FailureRTP, LifecycleReasonInboundInviteFailed, err)
+		return
+	}
 	if err := inboundCall.answer(); err != nil {
 		if errors.Is(err, ErrInboundInviteCancelled) {
 			return
@@ -130,9 +154,8 @@ func (inboundCall *inboundCall) run() {
 		inboundCall.failSetup(500, internal_inbound.FailureDialog, LifecycleReasonInboundInviteFailed, err)
 		return
 	}
-	if err := inboundCall.startRTP(); err != nil {
-		inboundCall.failSetup(503, internal_inbound.FailureRTP, LifecycleReasonInboundInviteFailed, err)
-		return
+	if inboundCall.rtpStarted {
+		inboundCall.recordPhase(InboundSetupPhaseMediaFlowing, LifecycleReasonInboundMediaFlowing)
 	}
 
 	inboundCall.dispatchInvite()
@@ -361,6 +384,7 @@ func (inboundCall *inboundCall) resolveConfig() error {
 	}
 
 	inboundCall.resolvedConfig = resolvedConfig
+	inboundCall.answerPolicy = resolvedConfig.config.EffectiveInboundAnswerPolicy(server.effectiveInboundACKTimeout())
 	server.logger.Debugw("SIP INVITE authenticated",
 		"call_id", inboundCall.identity.callID,
 		"assistant_id", requestContext.AssistantID,
@@ -389,6 +413,7 @@ func (inboundCall *inboundCall) createSession() error {
 	if inboundCall.setupPhase != "" {
 		session.SetInboundSetupPhase(inboundCall.setupPhase)
 	}
+	session.SetInboundSetupTimings(inboundCall.setupTimings)
 
 	inboundCall.session = session
 	return nil
@@ -401,14 +426,19 @@ func (inboundCall *inboundCall) createDialog() error {
 	}
 	inboundCall.dialogSession = dialogSession
 	inboundCall.session.SetDialogServerSession(dialogSession)
-
-	if err := dialogSession.Respond(100, "Trying", nil); err != nil {
-		return fmt.Errorf("failed to send 100 Trying: %w", err)
-	}
-	if err := dialogSession.Respond(180, "Ringing", nil); err != nil {
-		return fmt.Errorf("failed to send 180 Ringing: %w", err)
-	}
 	return nil
+}
+
+func (inboundCall *inboundCall) createAnswerController() {
+	inboundCall.answerController = newInboundAnswerController(
+		inboundCall.server,
+		inboundCall.session,
+		inboundCall.request,
+		inboundCall.transaction,
+		inboundCall.dialogSession,
+		inboundCall.answerPolicy,
+		inboundCall.identity.callID,
+	)
 }
 
 func (inboundCall *inboundCall) setupRTP() error {
@@ -439,6 +469,13 @@ func (inboundCall *inboundCall) setupRTP() error {
 
 	rtpHandler.SetRemoteAddr(inboundCall.mediaOffer.sdpInfo.ConnectionIP, inboundCall.mediaOffer.sdpInfo.AudioPort)
 	rtpHandler.SetCodec(negotiatedCodec)
+	rtpHandler.SetOnFirstPacket(func() {
+		if inboundCall.session != nil && inboundCall.session.MarkInboundFirstRTPReceived() {
+			inboundCall.server.logger.Infow("Inbound SIP first RTP received",
+				"call_id", inboundCall.identity.callID,
+				"reason", LifecycleReasonInboundFirstRTPReceived)
+		}
+	})
 
 	_, localPort := rtpHandler.LocalAddr()
 	externalIP := server.listenConfig.GetExternalIP()
@@ -473,7 +510,11 @@ func (inboundCall *inboundCall) startRTP() error {
 	if inboundCall.rtpHandler == nil {
 		return ErrRTPNotInitialized
 	}
+	if inboundCall.rtpStarted {
+		return nil
+	}
 	inboundCall.rtpHandler.Start()
+	inboundCall.rtpStarted = true
 	inboundCall.recordPhase(InboundSetupPhaseMediaFlowing, LifecycleReasonInboundMediaFlowing)
 	return nil
 }
@@ -486,22 +527,8 @@ func (inboundCall *inboundCall) answer() error {
 	)
 	sdpBody := inboundCall.server.GenerateSDP(sdpConfig)
 
-	inboundCall.finalResponse = true
-	if !inboundCall.server.beginPendingInviteFinalResponse(inboundCall.identity.callID) {
-		return ErrInboundInviteCancelled
-	}
-	inboundCall.recordPhase(InboundSetupPhaseAnswered, LifecycleReasonInboundInviteAnswered)
-	if err := inboundCall.server.sendSDPResponseAndWaitACK(
-		inboundCall.transaction,
-		inboundCall.request,
-		inboundCall.session,
-		sdpBody,
-		LifecycleReasonInboundInviteACKReceived,
-	); err != nil {
-		if err == ErrInboundACKTimeout {
-			return fmt.Errorf("%w: initial INVITE ACK not received", ErrInboundACKTimeout)
-		}
-		return fmt.Errorf("failed to send inbound 200 OK: %w", err)
+	if err := inboundCall.answerController.AnswerAndWaitACK(inboundCall.server.ctx, sdpBody); err != nil {
+		return err
 	}
 
 	inboundCall.server.logger.Infow("SIP call answered",
@@ -530,8 +557,11 @@ func (inboundCall *inboundCall) dispatchInvite() {
 
 func (inboundCall *inboundCall) recordPhase(phase InboundSetupPhase, reason LifecycleReason) {
 	inboundCall.setupPhase = phase
+	timestamp := time.Now()
+	inboundCall.markSetupTimestamp(phase, timestamp)
 	if inboundCall.session != nil {
 		inboundCall.session.SetInboundSetupPhase(phase)
+		inboundCall.session.MarkInboundSetupTimestamp(phase, timestamp)
 	}
 	inboundCall.server.logger.Infow("Inbound SIP setup phase",
 		"call_id", inboundCall.identity.callID,
@@ -539,16 +569,34 @@ func (inboundCall *inboundCall) recordPhase(phase InboundSetupPhase, reason Life
 		"reason", reason)
 }
 
+func (inboundCall *inboundCall) markSetupTimestamp(phase InboundSetupPhase, at time.Time) {
+	switch phase {
+	case InboundSetupPhaseInviteReceived:
+		inboundCall.setupTimings.InviteReceivedAt = at
+	case InboundSetupPhaseTryingSent:
+		inboundCall.setupTimings.TryingSentAt = at
+	case InboundSetupPhaseRingingSent:
+		inboundCall.setupTimings.RingingSentAt = at
+	case InboundSetupPhaseAnswered:
+		inboundCall.setupTimings.AnsweredAt = at
+	case InboundSetupPhaseACKConfirmed:
+		inboundCall.setupTimings.ACKConfirmedAt = at
+	}
+}
+
 func (inboundCall *inboundCall) cancelIfRequested(reason LifecycleReason) bool {
 	if !inboundCall.server.isInviteCancelled(inboundCall.identity.callID) {
 		return false
 	}
-	inboundCall.server.terminatePendingInvite(inboundCall.identity.callID, 487)
+	if inboundCall.answerController != nil {
+		inboundCall.answerController.CancelBeforeAnswer(reason)
+	} else {
+		inboundCall.server.terminatePendingInvite(inboundCall.identity.callID, 487)
+	}
 	if inboundCall.session != nil {
 		inboundCall.cleanupApplication()
 		_ = inboundCall.server.CancelInboundCall(inboundCall.session, reason)
 	}
-	inboundCall.finalResponse = true
 	return true
 }
 
@@ -577,13 +625,15 @@ func (inboundCall *inboundCall) failSetup(statusCode int, failureClass internal_
 			reason,
 			err,
 		)
-		inboundCall.finalResponse = true
 		return
 	}
 
 	inboundCall.releaseUnownedRTPPort()
-	if !inboundCall.finalResponse {
-		inboundCall.sendSessionFinalResponse(statusCode)
+	if inboundCall.answerController == nil {
+		inboundCall.createAnswerController()
+	}
+	if !inboundCall.answerController.FinalResponseStarted() {
+		inboundCall.answerController.FailBeforeAnswer(statusCode, failureClass, reason, err)
 	}
 	inboundCall.cleanupApplication()
 	_ = inboundCall.server.FailInboundCall(inboundCall.session, reason, err)
@@ -604,38 +654,7 @@ func (inboundCall *inboundCall) failSetupError(statusCode int, failureClass inte
 }
 
 func (inboundCall *inboundCall) sendFinalResponse(statusCode int) {
-	if inboundCall.finalResponse {
-		return
-	}
 	inboundCall.server.sendResponse(inboundCall.transaction, inboundCall.request, statusCode)
-	inboundCall.finalResponse = true
-}
-
-func (inboundCall *inboundCall) sendSessionFinalResponse(statusCode int) {
-	if inboundCall.finalResponse {
-		return
-	}
-	if inboundCall.dialogSession == nil || inboundCall.dialogSession.InviteRequest == nil {
-		inboundCall.server.logger.Errorw("Inbound session final response skipped without dialog ownership",
-			"call_id", inboundCall.identity.callID,
-			"status_code", statusCode)
-		inboundCall.finalResponse = true
-		return
-	}
-
-	response := sip.NewResponseFromRequest(inboundCall.dialogSession.InviteRequest, statusCode, "", nil)
-	if response.Contact() == nil {
-		contactHeader := buildSIPContactHeader(inboundCall.server.listenConfig)
-		response.AppendHeader(&contactHeader)
-	}
-	inboundCall.dialogSession.InviteResponse = response
-	if err := inboundCall.transaction.Respond(response); err != nil {
-		inboundCall.server.logger.Errorw("Failed to send inbound dialog final response",
-			"error", err,
-			"call_id", inboundCall.identity.callID,
-			"status_code", statusCode)
-	}
-	inboundCall.finalResponse = true
 }
 
 func (inboundCall *inboundCall) releaseUnownedRTPPort() {

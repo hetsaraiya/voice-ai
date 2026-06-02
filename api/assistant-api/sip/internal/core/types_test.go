@@ -253,3 +253,50 @@ func TestApplyTimeoutDefaults_DoesNotOverwrite(t *testing.T) {
 	assert.Equal(t, 10*time.Second, cfg.InviteTimeout)
 	assert.Equal(t, 20*time.Minute, cfg.SessionTimeout)
 }
+
+func TestApplyInboundAnswerDefaults(t *testing.T) {
+	cfg := &Config{}
+
+	cfg.ApplyInboundAnswerDefaults(
+		InboundAnswerModeAfterMinRingDuration,
+		50*time.Millisecond,
+		5*time.Second,
+		2*time.Second,
+		250*time.Millisecond,
+		true,
+	)
+
+	assert.Equal(t, InboundAnswerModeAfterMinRingDuration, cfg.InboundAnswerMode)
+	assert.Equal(t, 50*time.Millisecond, cfg.InboundMinRingDuration)
+	assert.Equal(t, 5*time.Second, cfg.InboundMaxRingDuration)
+	assert.Equal(t, 2*time.Second, cfg.InboundACKTimeout)
+	assert.Equal(t, 250*time.Millisecond, cfg.InboundAssistantAudioReadyTimeout)
+	assert.True(t, cfg.InboundRequireAssistantAudioReady)
+}
+
+func TestApplyInboundAnswerDefaults_DoesNotOverwrite(t *testing.T) {
+	cfg := &Config{
+		InboundAnswerMode:                 InboundAnswerModeImmediate,
+		InboundMinRingDuration:            10 * time.Millisecond,
+		InboundMaxRingDuration:            time.Second,
+		InboundACKTimeout:                 500 * time.Millisecond,
+		InboundAssistantAudioReadyTimeout: 100 * time.Millisecond,
+		InboundRequireAssistantAudioReady: true,
+	}
+
+	cfg.ApplyInboundAnswerDefaults(
+		InboundAnswerModeAfterMinRingDuration,
+		50*time.Millisecond,
+		5*time.Second,
+		2*time.Second,
+		250*time.Millisecond,
+		false,
+	)
+
+	assert.Equal(t, InboundAnswerModeImmediate, cfg.InboundAnswerMode)
+	assert.Equal(t, 10*time.Millisecond, cfg.InboundMinRingDuration)
+	assert.Equal(t, time.Second, cfg.InboundMaxRingDuration)
+	assert.Equal(t, 500*time.Millisecond, cfg.InboundACKTimeout)
+	assert.Equal(t, 100*time.Millisecond, cfg.InboundAssistantAudioReadyTimeout)
+	assert.True(t, cfg.InboundRequireAssistantAudioReady)
+}

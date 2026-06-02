@@ -53,18 +53,19 @@ func newSessionPipeline(ctx context.Context, cfg *config.AssistantConfig, logger
 		TelephonyOpt:        channel_telephony.TelephonyOption{},
 	})
 
-	d := channel_pipeline.NewDispatcher(&channel_pipeline.DispatcherConfig{
+	dispatcher := channel_pipeline.NewDispatcher(&channel_pipeline.DispatcherConfig{
 		Logger: logger,
 		OnResolveSession: func(ctx context.Context, contextID string) (*callcontext.CallContext, *protos.VaultCredential, error) {
 			return inbound.ResolveCallSessionByContext(ctx, contextID)
 		},
 		OnCreateStreamer: func(ctx context.Context, cc *callcontext.CallContext, vc *protos.VaultCredential, ws *websocket.Conn, conn net.Conn, reader *bufio.Reader, writer *bufio.Writer) (internal_type.Streamer, error) {
-			return channel_telephony.Telephony(cc.Provider).NewStreamer(logger, cc, vc, channel_telephony.StreamerOption{
-				WebSocketConn:     ws,
-				AudioSocketConn:   conn,
-				AudioSocketReader: reader,
-				AudioSocketWriter: writer,
-			})
+			return channel_telephony.Telephony(cc.Provider).NewStreamer(
+				logger,
+				cc,
+				vc,
+				channel_telephony.WithWebSocketStreamer(ws),
+				channel_telephony.WithAudioSocketStreamer(conn, reader, writer),
+			)
 		},
 		OnCreateTalker: func(ctx context.Context, streamer internal_type.Streamer) (internal_type.Talking, error) {
 			return internal_adapter.GetTalker(utils.PhoneCall, ctx, cfg, logger, postgres, opensearch, redis, fileStorage, streamer)
@@ -78,8 +79,8 @@ func newSessionPipeline(ctx context.Context, cfg *config.AssistantConfig, logger
 		},
 	})
 
-	d.Start(ctx)
-	return d
+	dispatcher.Start(ctx)
+	return dispatcher
 }
 
 func newObserverFactory(cfg *config.AssistantConfig, logger commons.Logger, opensearch connectors.OpenSearchConnector, conversationService internal_services.AssistantConversationService) channel_pipeline.OnCreateObserverFunc {

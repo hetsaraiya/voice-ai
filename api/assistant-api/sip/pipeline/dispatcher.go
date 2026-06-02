@@ -50,6 +50,7 @@ type Dispatcher struct {
 	onCreateConversation OnCreateConversationFunc
 	onEnsureCallContext  OnEnsureCallContextFunc
 	onCallSetup          OnCallSetupFunc
+	onPrepareCallRuntime OnPrepareCallRuntimeFunc
 	onCallStart          OnCallStartFunc
 	onCallEnd            OnCallEndFunc
 	onCreateObserver     OnCreateObserverFunc
@@ -93,6 +94,13 @@ type OnCallStartFunc func(ctx context.Context, session *sip_infra.Session, setup
 type OnCallEndFunc func(callID string)
 type OnCreateObserverFunc func(ctx context.Context, setup *CallSetupResult, auth types.SimplePrinciple) *observe.ConversationObserver
 
+type PreparedCallRuntime interface {
+	Start(ctx context.Context) error
+	Close(ctx context.Context)
+}
+
+type OnPrepareCallRuntimeFunc func(ctx context.Context, stage sip_infra.SessionEstablishedPipeline, setup *CallSetupResult, observer *observe.ConversationObserver) (PreparedCallRuntime, error)
+
 type DispatcherConfig struct {
 	Logger               commons.Logger
 	Server               *sip_infra.Server
@@ -102,6 +110,7 @@ type DispatcherConfig struct {
 	OnCreateConversation OnCreateConversationFunc
 	OnEnsureCallContext  OnEnsureCallContextFunc
 	OnCallSetup          OnCallSetupFunc
+	OnPrepareCallRuntime OnPrepareCallRuntimeFunc
 	OnCallStart          OnCallStartFunc
 	OnCallEnd            OnCallEndFunc
 	OnCreateObserver     OnCreateObserverFunc
@@ -128,6 +137,7 @@ func NewDispatcher(cfg *DispatcherConfig) *Dispatcher {
 		onCreateConversation: cfg.OnCreateConversation,
 		onEnsureCallContext:  cfg.OnEnsureCallContext,
 		onCallSetup:          cfg.OnCallSetup,
+		onPrepareCallRuntime: cfg.OnPrepareCallRuntime,
 		onCallStart:          cfg.OnCallStart,
 		onCallEnd:            cfg.OnCallEnd,
 		onCreateObserver:     cfg.OnCreateObserver,

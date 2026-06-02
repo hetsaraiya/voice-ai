@@ -306,7 +306,7 @@ func TestSIPCommand_InitialAnswerRequiresDialogOwnership(t *testing.T) {
 	req := newInboundInviteRequest("call-ack-timeout")
 	tx := newAckableTestServerTx()
 
-	err := s.sendSDPResponseAndWaitACK(tx, req, session, validInboundOfferSDP(), LifecycleReasonInboundInviteACKReceived)
+	err := s.sendSDPResponseAndWaitACK(tx, req, session, validInboundOfferSDP(), LifecycleReasonInboundInviteACKReceived, s.effectiveInboundACKTimeout())
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires dialog ownership")
@@ -321,7 +321,7 @@ func TestSIPCommand_InitialAnswerAcceptsACKHandledOutsideTransaction(t *testing.
 	req := session.GetDialogServerSession().InviteRequest
 	tx := newAckableTestServerTx()
 
-	err := s.sendSDPResponseAndWaitACK(tx, req, session, validInboundOfferSDP(), LifecycleReasonInboundInviteACKReceived)
+	err := s.sendSDPResponseAndWaitACK(tx, req, session, validInboundOfferSDP(), LifecycleReasonInboundInviteACKReceived, s.effectiveInboundACKTimeout())
 
 	require.NoError(t, err)
 	require.NotEmpty(t, tx.responses)

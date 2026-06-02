@@ -14,7 +14,11 @@ import (
 	internal_inbound "github.com/rapidaai/api/assistant-api/sip/internal/inbound"
 )
 
-const defaultInboundACKTimeout = 5 * time.Second
+const (
+	defaultInboundACKTimeout                = 5 * time.Second
+	defaultInboundFinalResponseRetryInitial = 500 * time.Millisecond
+	defaultInboundFinalResponseRetryMax     = 4 * time.Second
+)
 
 func (s *Server) handleInvite(req *sip.Request, tx sip.ServerTransaction) {
 	newInboundCall(s, req, tx).run()
@@ -131,7 +135,7 @@ func (s *Server) respondWithCurrentSDP(tx sip.ServerTransaction, req *sip.Reques
 	sdpBody := s.GenerateSDP(sdpConfig)
 	if req.Method == sip.INVITE {
 		session.BeginReInviteACKWait()
-		if err := s.sendSDPResponseAndWaitACK(tx, req, session, sdpBody, LifecycleReasonInboundReinviteACKReceived); err != nil {
+		if err := s.sendSDPResponseAndWaitACK(tx, req, session, sdpBody, LifecycleReasonInboundReinviteACKReceived, s.effectiveInboundACKTimeout()); err != nil {
 			s.logger.Warnw("re-INVITE ACK wait failed",
 				"call_id", session.GetCallID(),
 				"error", err)
@@ -330,7 +334,7 @@ func (s *Server) handleCancel(req *sip.Request, tx sip.ServerTransaction) {
 
 func inboundFinalAnswerStarted(phase InboundSetupPhase) bool {
 	switch phase {
-	case InboundSetupPhaseAnswered, InboundSetupPhaseACKConfirmed, InboundSetupPhaseMediaFlowing:
+	case InboundSetupPhaseAnswered, InboundSetupPhaseACKConfirmed:
 		return true
 	default:
 		return false
@@ -663,6 +667,7 @@ func (s *Server) sendSDPResponseAndWaitACK(
 	session *Session,
 	sdpBody string,
 	ackReason LifecycleReason,
+	ackTimeout time.Duration,
 ) error {
 	ackAccepted := false
 	defer func() {
@@ -674,7 +679,7 @@ func (s *Server) sendSDPResponseAndWaitACK(
 	s.logger.Debugw("Sending SIP response with SDP and waiting for ACK",
 		"call_id", req.CallID().Value(),
 		"method", req.Method,
-		"ack_timeout_ms", s.effectiveInboundACKTimeout().Milliseconds(),
+		"ack_timeout_ms", ackTimeout.Milliseconds(),
 		"sdp_body", sdpBody)
 
 	responseRequest := req
@@ -693,33 +698,63 @@ func (s *Server) sendSDPResponseAndWaitACK(
 		return err
 	}
 
-	timer := time.NewTimer(s.effectiveInboundACKTimeout())
-	defer timer.Stop()
-
-	select {
-	case ackRequest := <-tx.Acks():
-		if ackRequest == nil {
-			return fmt.Errorf("inbound ACK request is nil")
-		}
-		s.acceptInboundACKWithReason(ackRequest, tx, session, ackReason)
-		ackAccepted = true
-		return nil
-	case <-tx.Done():
-		if inboundACKAlreadyAccepted(session, ackReason) {
-			ackAccepted = true
-			return nil
-		}
-		if err := tx.Err(); err != nil {
-			return err
-		}
-		return ErrInboundACKTimeout
-	case <-timer.C:
-		if inboundACKAlreadyAccepted(session, ackReason) {
-			ackAccepted = true
-			return nil
-		}
-		return ErrInboundACKTimeout
+	if ackTimeout <= 0 {
+		ackTimeout = s.effectiveInboundACKTimeout()
 	}
+	ackTimer := time.NewTimer(ackTimeout)
+	defer ackTimer.Stop()
+	retryFinalResponse := ackReason == LifecycleReasonInboundInviteACKReceived && s.shouldRetryInboundFinalResponse()
+	retryInterval := s.effectiveInboundFinalResponseRetryInitial()
+	var retryTimer *time.Timer
+	var retryC <-chan time.Time
+	if retryFinalResponse {
+		retryTimer = time.NewTimer(retryInterval)
+		retryC = retryTimer.C
+		defer retryTimer.Stop()
+	}
+
+	for {
+		select {
+		case ackRequest := <-tx.Acks():
+			if ackRequest == nil {
+				return fmt.Errorf("inbound ACK request is nil")
+			}
+			s.acceptInboundACKWithReason(ackRequest, tx, session, ackReason)
+			ackAccepted = true
+			return nil
+		case <-tx.Done():
+			if inboundACKAlreadyAccepted(session, ackReason) {
+				ackAccepted = true
+				return nil
+			}
+			if err := tx.Err(); err != nil {
+				return err
+			}
+			return ErrInboundACKTimeout
+		case <-ackTimer.C:
+			if inboundACKAlreadyAccepted(session, ackReason) {
+				ackAccepted = true
+				return nil
+			}
+			return ErrInboundACKTimeout
+		case <-retryC:
+			if err := tx.Respond(resp); err != nil {
+				return err
+			}
+			retryInterval *= 2
+			if maxInterval := s.effectiveInboundFinalResponseRetryMax(); retryInterval > maxInterval {
+				retryInterval = maxInterval
+			}
+			retryTimer.Reset(retryInterval)
+		}
+	}
+}
+
+func (s *Server) shouldRetryInboundFinalResponse() bool {
+	if s.listenConfig == nil || s.listenConfig.Transport == "" {
+		return true
+	}
+	return s.listenConfig.Transport == TransportUDP
 }
 
 func inboundACKAlreadyAccepted(session *Session, reason LifecycleReason) bool {
@@ -747,6 +782,20 @@ func (s *Server) effectiveInboundACKTimeout() time.Duration {
 		return s.inboundACKTimeout
 	}
 	return defaultInboundACKTimeout
+}
+
+func (s *Server) effectiveInboundFinalResponseRetryInitial() time.Duration {
+	if s.inboundFinalResponseRetryInitial > 0 {
+		return s.inboundFinalResponseRetryInitial
+	}
+	return defaultInboundFinalResponseRetryInitial
+}
+
+func (s *Server) effectiveInboundFinalResponseRetryMax() time.Duration {
+	if s.inboundFinalResponseRetryMax > 0 {
+		return s.inboundFinalResponseRetryMax
+	}
+	return defaultInboundFinalResponseRetryMax
 }
 
 func (s *Server) acceptInboundACK(req *sip.Request, tx sip.ServerTransaction, session *Session) {
@@ -777,7 +826,11 @@ func (s *Server) acceptInboundACKWithReason(req *sip.Request, tx sip.ServerTrans
 	case LifecycleReasonInboundInviteACKReceived:
 		session.MarkInitialACKReceived()
 		session.SetInboundSetupPhase(InboundSetupPhaseACKConfirmed)
+		session.MarkInboundSetupTimestamp(InboundSetupPhaseACKConfirmed, time.Now())
 		s.ConnectInboundCall(session, reason)
+		s.logger.Infow("Inbound SIP latency metrics",
+			"call_id", callID,
+			"metrics", session.GetInboundLatencyMetrics())
 		s.logger.Infow("Initial inbound INVITE ACK received",
 			"call_id", callID,
 			"reason", reason)

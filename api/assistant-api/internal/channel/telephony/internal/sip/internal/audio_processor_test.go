@@ -224,7 +224,7 @@ func TestProcessAssistantAudio_BridgeActiveDoesNotRecordNormalOutput(t *testing.
 		PushInput:  rec.push,
 	})
 	bridgeRTP := testRTPHandler(t, &sip_infra.CodecPCMU)
-	proc.SetBridgeTarget(bridgeRTP, &sip_infra.CodecPCMU, &sip_infra.CodecPCMU)
+	proc.ConnectTransferMedia(bridgeRTP, &sip_infra.CodecPCMU, sip_infra.CodecPCMU.Name)
 
 	require.NoError(t, proc.ProcessAssistantAudio(make([]byte, BridgeOutputFrameSize), false))
 
@@ -423,7 +423,7 @@ func TestForwardUserAudio_BridgeActive_ReturnsTrue(t *testing.T) {
 	})
 
 	bridgeRTP := testRTPHandler(t, &sip_infra.CodecPCMU)
-	proc.SetBridgeTarget(bridgeRTP, &sip_infra.CodecPCMU, &sip_infra.CodecPCMU)
+	proc.ConnectTransferMedia(bridgeRTP, &sip_infra.CodecPCMU, sip_infra.CodecPCMU.Name)
 
 	audio := []byte{0x01, 0x02, 0x03}
 	result := proc.ForwardUserAudio(audio)
@@ -448,7 +448,7 @@ func TestForwardUserAudio_BridgeActive_SuccessPath(t *testing.T) {
 	})
 
 	bridgeRTP := testRTPHandler(t, &sip_infra.CodecPCMU)
-	proc.SetBridgeTarget(bridgeRTP, &sip_infra.CodecPCMU, &sip_infra.CodecPCMU)
+	proc.ConnectTransferMedia(bridgeRTP, &sip_infra.CodecPCMU, sip_infra.CodecPCMU.Name)
 
 	audio := []byte{0xAA, 0xBB, 0xCC}
 	// ForwardUserAudio sends to outRTP.AudioOut() (non-blocking) and queues to bridgeUserCh.
@@ -476,7 +476,7 @@ func TestForwardUserAudio_WithTranscode_PCMU_to_PCMA(t *testing.T) {
 
 	bridgeRTP := testRTPHandler(t, &sip_infra.CodecPCMA)
 	// User has PCMU, bridge target has PCMA — need transcode
-	proc.SetBridgeTarget(bridgeRTP, &sip_infra.CodecPCMU, &sip_infra.CodecPCMA)
+	proc.ConnectTransferMedia(bridgeRTP, &sip_infra.CodecPCMU, sip_infra.CodecPCMA.Name)
 
 	audio := make([]byte, 160)
 	for i := range audio {
@@ -508,7 +508,7 @@ func TestForwardUserAudio_Backpressure_DropsAudio(t *testing.T) {
 	})
 
 	bridgeRTP := testRTPHandler(t, &sip_infra.CodecPCMU)
-	proc.SetBridgeTarget(bridgeRTP, &sip_infra.CodecPCMU, &sip_infra.CodecPCMU)
+	proc.ConnectTransferMedia(bridgeRTP, &sip_infra.CodecPCMU, sip_infra.CodecPCMU.Name)
 
 	// Fill bridgeUserCh to capacity
 	for i := 0; i < AudioChannelSize; i++ {
@@ -543,7 +543,7 @@ func TestForwardUserAudio_DoesNotRecordWhenBridgeRTPQueueFull(t *testing.T) {
 	for i := 0; i < cap(bridgeAudioOut); i++ {
 		bridgeAudioOut <- []byte{byte(i)}
 	}
-	proc.SetBridgeTarget(bridgeRTP, &sip_infra.CodecPCMU, &sip_infra.CodecPCMU)
+	proc.ConnectTransferMedia(bridgeRTP, &sip_infra.CodecPCMU, sip_infra.CodecPCMU.Name)
 
 	assert.True(t, proc.ForwardUserAudio([]byte{0xaa}))
 
@@ -561,15 +561,15 @@ func TestForwardUserAudio_DoesNotRecordWhenBridgeRTPQueueFull(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Tests: PushOperatorAudio
+// Tests: RecordTransferOperatorAudio
 // ---------------------------------------------------------------------------
 
-func TestPushOperatorAudio_QueuesAudio(t *testing.T) {
+func TestRecordTransferOperatorAudio_QueuesAudio(t *testing.T) {
 	rec := &pushRecorder{}
 	proc := newTestAudioProcessor(t, &sip_infra.CodecPCMU, &mockResampler{}, rec)
 
 	audio := []byte{0x10, 0x20, 0x30}
-	proc.PushOperatorAudio(audio)
+	proc.RecordTransferOperatorAudio(audio)
 
 	select {
 	case queued := <-proc.bridgeOperatorCh:
@@ -579,7 +579,7 @@ func TestPushOperatorAudio_QueuesAudio(t *testing.T) {
 	}
 }
 
-func TestPushOperatorAudio_Backpressure_DropsAudio(t *testing.T) {
+func TestRecordTransferOperatorAudio_Backpressure_DropsAudio(t *testing.T) {
 	rec := &pushRecorder{}
 	proc := newTestAudioProcessor(t, &sip_infra.CodecPCMU, &mockResampler{}, rec)
 
@@ -591,7 +591,7 @@ func TestPushOperatorAudio_Backpressure_DropsAudio(t *testing.T) {
 	// Should not block
 	done := make(chan struct{})
 	go func() {
-		proc.PushOperatorAudio([]byte{0xFF})
+		proc.RecordTransferOperatorAudio([]byte{0xFF})
 		close(done)
 	}()
 
@@ -599,43 +599,43 @@ func TestPushOperatorAudio_Backpressure_DropsAudio(t *testing.T) {
 	case <-done:
 		// OK
 	case <-time.After(time.Second):
-		t.Fatal("PushOperatorAudio hung when bridgeOperatorCh was full")
+		t.Fatal("RecordTransferOperatorAudio hung when bridgeOperatorCh was full")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Tests: SetBridgeTarget / ClearBridgeTarget / IsBridgeActive
+// Tests: ConnectTransferMedia / DisconnectTransferMedia / IsBridgeActive
 // ---------------------------------------------------------------------------
 
-func TestSetBridgeTarget_ActivatesBridge(t *testing.T) {
+func TestConnectTransferMedia_ActivatesBridge(t *testing.T) {
 	rec := &pushRecorder{}
 	proc := newTestAudioProcessor(t, &sip_infra.CodecPCMU, &mockResampler{}, rec)
 
 	assert.False(t, proc.IsBridgeActive())
 
 	bridgeRTP := testRTPHandler(t, &sip_infra.CodecPCMU)
-	proc.SetBridgeTarget(bridgeRTP, &sip_infra.CodecPCMU, &sip_infra.CodecPCMU)
+	proc.ConnectTransferMedia(bridgeRTP, &sip_infra.CodecPCMU, sip_infra.CodecPCMU.Name)
 
 	assert.True(t, proc.IsBridgeActive())
 }
 
-func TestSetBridgeTarget_NilRTP_DoesNotActivate(t *testing.T) {
+func TestConnectTransferMedia_NilRTP_DoesNotActivate(t *testing.T) {
 	rec := &pushRecorder{}
 	proc := newTestAudioProcessor(t, &sip_infra.CodecPCMU, &mockResampler{}, rec)
 
-	proc.SetBridgeTarget(nil, &sip_infra.CodecPCMU, &sip_infra.CodecPCMU)
+	proc.ConnectTransferMedia(nil, &sip_infra.CodecPCMU, sip_infra.CodecPCMU.Name)
 	assert.False(t, proc.IsBridgeActive())
 }
 
-func TestClearBridgeTarget_DeactivatesBridge(t *testing.T) {
+func TestDisconnectTransferMedia_DeactivatesBridge(t *testing.T) {
 	rec := &pushRecorder{}
 	proc := newTestAudioProcessor(t, &sip_infra.CodecPCMU, &mockResampler{}, rec)
 
 	bridgeRTP := testRTPHandler(t, &sip_infra.CodecPCMU)
-	proc.SetBridgeTarget(bridgeRTP, &sip_infra.CodecPCMU, &sip_infra.CodecPCMU)
+	proc.ConnectTransferMedia(bridgeRTP, &sip_infra.CodecPCMU, sip_infra.CodecPCMU.Name)
 	assert.True(t, proc.IsBridgeActive())
 
-	proc.ClearBridgeTarget()
+	proc.DisconnectTransferMedia()
 	assert.False(t, proc.IsBridgeActive())
 
 	// ForwardUserAudio should now return false
@@ -643,16 +643,16 @@ func TestClearBridgeTarget_DeactivatesBridge(t *testing.T) {
 }
 
 // TestForwardUserAudio_ConcurrentClear verifies the bridgeMu invariant: while
-// any ForwardUserAudio call is in flight, ClearBridgeTarget must NOT return.
+// any ForwardUserAudio call is in flight, DisconnectTransferMedia must NOT return.
 // This guarantees a caller can safely close the outbound RTP channel after
-// ClearBridgeTarget returns without racing into a "send on closed channel"
+// DisconnectTransferMedia returns without racing into a "send on closed channel"
 // panic. Run with `-race` for full coverage.
 func TestForwardUserAudio_ConcurrentClear(t *testing.T) {
 	rec := &pushRecorder{}
 	proc := newTestAudioProcessor(t, &sip_infra.CodecPCMU, &mockResampler{}, rec)
 
 	bridgeRTP := testRTPHandler(t, &sip_infra.CodecPCMU)
-	proc.SetBridgeTarget(bridgeRTP, &sip_infra.CodecPCMU, &sip_infra.CodecPCMU)
+	proc.ConnectTransferMedia(bridgeRTP, &sip_infra.CodecPCMU, sip_infra.CodecPCMU.Name)
 
 	const writers = 8
 	const iters = 200
@@ -679,8 +679,8 @@ func TestForwardUserAudio_ConcurrentClear(t *testing.T) {
 	// writer should observe a panic. Race detector catches any unsynchronized
 	// access to p.bridge.
 	time.Sleep(2 * time.Millisecond)
-	proc.ClearBridgeTarget()
-	assert.False(t, proc.IsBridgeActive(), "ClearBridgeTarget should leave bridge inactive")
+	proc.DisconnectTransferMedia()
+	assert.False(t, proc.IsBridgeActive(), "DisconnectTransferMedia should leave bridge inactive")
 
 	close(stop)
 	wg.Wait()
@@ -689,7 +689,7 @@ func TestForwardUserAudio_ConcurrentClear(t *testing.T) {
 	assert.False(t, proc.ForwardUserAudio([]byte{0x03}))
 }
 
-func TestSetBridgeTarget_MatchingCodecs_NoTranscode(t *testing.T) {
+func TestConnectTransferMedia_MatchingCodecs_NoTranscode(t *testing.T) {
 	rec := &pushRecorder{}
 	rtp := testRTPHandler(t, &sip_infra.CodecPCMU)
 	proc := NewAudioProcessor(AudioProcessorConfig{
@@ -699,7 +699,7 @@ func TestSetBridgeTarget_MatchingCodecs_NoTranscode(t *testing.T) {
 	})
 
 	bridgeRTP := testRTPHandler(t, &sip_infra.CodecPCMU)
-	proc.SetBridgeTarget(bridgeRTP, &sip_infra.CodecPCMU, &sip_infra.CodecPCMU)
+	proc.ConnectTransferMedia(bridgeRTP, &sip_infra.CodecPCMU, sip_infra.CodecPCMU.Name)
 
 	// With matching codecs, bridgeUserCh should receive the original audio unchanged
 	// (the raw audio IS the same as what goes to outRTP when no transcode is needed).
@@ -715,7 +715,7 @@ func TestSetBridgeTarget_MatchingCodecs_NoTranscode(t *testing.T) {
 	}
 }
 
-func TestSetBridgeTarget_PCMA_to_PCMU_Transcode(t *testing.T) {
+func TestConnectTransferMedia_PCMA_to_PCMU_Transcode(t *testing.T) {
 	rec := &pushRecorder{}
 	rtp := testRTPHandler(t, &sip_infra.CodecPCMA)
 	proc := NewAudioProcessor(AudioProcessorConfig{
@@ -726,7 +726,7 @@ func TestSetBridgeTarget_PCMA_to_PCMU_Transcode(t *testing.T) {
 
 	bridgeRTP := testRTPHandler(t, &sip_infra.CodecPCMU)
 	// inCodec=PCMA, outCodec=PCMU means A-law → µ-law transcode for outRTP
-	proc.SetBridgeTarget(bridgeRTP, &sip_infra.CodecPCMA, &sip_infra.CodecPCMU)
+	proc.ConnectTransferMedia(bridgeRTP, &sip_infra.CodecPCMA, sip_infra.CodecPCMU.Name)
 
 	audio := make([]byte, 160)
 	for i := range audio {
@@ -1055,7 +1055,7 @@ func BenchmarkForwardUserAudio_BridgeActive(b *testing.B) {
 		Resampler:  &mockResampler{},
 		PushInput:  func(internal_type.Stream) {},
 	})
-	proc.SetBridgeTarget(bridgeRTP, &sip_infra.CodecPCMU, &sip_infra.CodecPCMU)
+	proc.ConnectTransferMedia(bridgeRTP, &sip_infra.CodecPCMU, sip_infra.CodecPCMU.Name)
 
 	frame := make([]byte, MulawFrameSize)
 

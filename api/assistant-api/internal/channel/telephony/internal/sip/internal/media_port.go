@@ -32,6 +32,7 @@ type MediaPortConfig struct {
 type MediaPort struct {
 	logger commons.Logger
 
+	session        *sip_infra.Session
 	rtpHandler     *sip_infra.RTPHandler
 	audioProcessor *AudioProcessor
 	mediaSession   *internal_telephony_media.MediaSession
@@ -70,6 +71,7 @@ func NewMediaPort(config MediaPortConfig) (*MediaPort, error) {
 	ctx, cancel := context.WithCancel(portContext)
 	mediaPort := &MediaPort{
 		logger:     config.Logger,
+		session:    config.Session,
 		rtpHandler: rtpHandler,
 		streamSink: config.StreamSink,
 		ctx:        ctx,
@@ -162,7 +164,13 @@ func (port *MediaPort) HandleAssistantAudio(audio []byte, completed bool) error 
 	if port == nil || port.mediaSession == nil {
 		return nil
 	}
-	return port.mediaSession.HandleAssistantAudio(audio, completed)
+	if err := port.mediaSession.HandleAssistantAudio(audio, completed); err != nil {
+		return err
+	}
+	if len(audio) > 0 && port.session != nil && port.session.GetInfo().Direction == sip_infra.CallDirectionInbound && port.session.MarkInboundFirstAssistantAudioSent() && port.logger != nil {
+		port.logger.Infow("SIP first assistant audio sent", "call_id", port.session.GetCallID())
+	}
+	return nil
 }
 
 func (port *MediaPort) HandleInterrupt() {
@@ -191,7 +199,7 @@ func (port *MediaPort) EnterTransferMode(ringtone string) bool {
 	return true
 }
 
-func (port *MediaPort) ExitTransferMode() bool {
+func (port *MediaPort) ResumeAssistant() bool {
 	if port == nil {
 		return true
 	}
@@ -200,41 +208,37 @@ func (port *MediaPort) ExitTransferMode() bool {
 	}
 	port.cancelRingback(false)
 	port.audioProcessor.SetTransferActive(false)
-	port.audioProcessor.ClearBridgeTarget()
+	port.audioProcessor.DisconnectTransferMedia()
 	return true
 }
 
-func (port *MediaPort) StopRingback() {
+func (port *MediaPort) StopTransferRingback() {
 	if port == nil {
 		return
 	}
 	port.cancelRingback(true)
 }
 
-func (port *MediaPort) SetBridgeTarget(rtp *sip_infra.RTPHandler) {
+func (port *MediaPort) ConnectTransferMedia(target internal_type.SIPRTPBridgeTarget, outputCodecName string) {
 	if port == nil || port.audioProcessor == nil {
 		return
 	}
 	inCodec := port.rtpHandler.GetCodec()
-	var outCodec *sip_infra.Codec
-	if rtp != nil {
-		outCodec = rtp.GetCodec()
-	}
-	port.audioProcessor.SetBridgeTarget(rtp, inCodec, outCodec)
+	port.audioProcessor.ConnectTransferMedia(target, inCodec, outputCodecName)
 }
 
-func (port *MediaPort) ClearBridgeTarget() {
+func (port *MediaPort) DisconnectTransferMedia() {
 	if port == nil || port.audioProcessor == nil {
 		return
 	}
-	port.audioProcessor.ClearBridgeTarget()
+	port.audioProcessor.DisconnectTransferMedia()
 }
 
-func (port *MediaPort) PushBridgeOperatorAudio(audio []byte) {
+func (port *MediaPort) RecordTransferOperatorAudio(audio []byte) {
 	if port == nil || port.audioProcessor == nil {
 		return
 	}
-	port.audioProcessor.PushOperatorAudio(audio)
+	port.audioProcessor.RecordTransferOperatorAudio(audio)
 }
 
 func (port *MediaPort) LocalAddr() (string, int) {

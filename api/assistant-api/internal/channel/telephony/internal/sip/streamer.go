@@ -27,14 +27,22 @@ import (
 type Streamer struct {
 	internal_telephony_base.BaseTelephonyStreamer
 
-	mu     sync.RWMutex
-	closed atomic.Bool
+	mu                    sync.RWMutex
+	closed                atomic.Bool
+	assistantOutputActive atomic.Bool
 
 	session   *sip_infra.Session
 	lifecycle sip_infra.LifecycleController
 	mediaPort *internal_sip.MediaPort
 
-	onTransferInitiated func(targets []string, postTransferAction string)
+	outputMu                    sync.Mutex
+	pendingAssistantAudioFrames []assistantAudioFrame
+	onTransferInitiated         func(targets []string, postTransferAction string)
+}
+
+type assistantAudioFrame struct {
+	audio     []byte
+	completed bool
 }
 
 func NewStreamer(ctx context.Context,
@@ -43,7 +51,7 @@ func NewStreamer(ctx context.Context,
 	lifecycle sip_infra.LifecycleController,
 	cc *callcontext.CallContext,
 	vaultCred *protos.VaultCredential,
-) (internal_type.Streamer, error) {
+) (internal_type.SIPCallStreamer, error) {
 	if sipSession == nil {
 		return nil, fmt.Errorf("SIP session is required; standalone server mode is not supported")
 	}
@@ -88,6 +96,9 @@ func NewStreamer(ctx context.Context,
 
 	s.session = sipSession
 	s.lifecycle = lifecycle
+	if sipSession.GetInfo().Direction != sip_infra.CallDirectionInbound {
+		s.assistantOutputActive.Store(true)
+	}
 	mediaPort, err := internal_sip.NewMediaPort(internal_sip.MediaPortConfig{
 		Context:    s.Ctx,
 		Logger:     logger,
@@ -130,6 +141,11 @@ func (s *Streamer) Send(response internal_type.Stream) error {
 	case *protos.ConversationAssistantMessage:
 		switch content := data.Message.(type) {
 		case *protos.ConversationAssistantMessage_Audio:
+			s.markAssistantAudioReady(content.Audio)
+			if !s.assistantOutputActive.Load() {
+				s.queueAssistantAudio(content.Audio, data.GetCompleted())
+				return nil
+			}
 			if s.mediaPort == nil {
 				return nil
 			}
@@ -149,14 +165,14 @@ func (s *Streamer) Send(response internal_type.Stream) error {
 	case *protos.ConversationToolCall:
 		switch data.GetAction() {
 		case protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION:
-			s.PushToolCallResult(data.GetId(), data.GetToolId(), data.GetName(), data.GetAction(), map[string]string{
+			s.SendTransferToolResult(data.GetId(), data.GetToolId(), data.GetName(), data.GetAction(), map[string]string{
 				"status": "completed",
 			})
 		case protos.ToolCallAction_TOOL_CALL_ACTION_TRANSFER_CONVERSATION:
 			raw := data.GetArgs()["transfer_to"]
 			if raw == "" {
 				s.Logger.Warnw("Transfer tool call missing 'transfer_to' target")
-				s.PushToolCallResult(data.GetId(), data.GetToolId(), data.GetName(), data.GetAction(), map[string]string{
+				s.SendTransferToolResult(data.GetId(), data.GetToolId(), data.GetName(), data.GetAction(), map[string]string{
 					"status": "failed", "reason": "missing transfer target",
 				})
 				return nil
@@ -178,6 +194,49 @@ func (s *Streamer) Send(response internal_type.Stream) error {
 	return nil
 }
 
+func (s *Streamer) StartAssistantOutput() {
+	if !s.assistantOutputActive.CompareAndSwap(false, true) {
+		return
+	}
+	s.outputMu.Lock()
+	frames := s.pendingAssistantAudioFrames
+	s.pendingAssistantAudioFrames = nil
+	s.outputMu.Unlock()
+	for _, frame := range frames {
+		if s.mediaPort != nil {
+			if err := s.mediaPort.HandleAssistantAudio(frame.audio, frame.completed); err != nil {
+				s.Logger.Warnw("SIP queued assistant audio delivery failed", "error", err.Error())
+			}
+		}
+	}
+}
+
+func (s *Streamer) queueAssistantAudio(audio []byte, completed bool) {
+	audioCopy := make([]byte, len(audio))
+	copy(audioCopy, audio)
+	s.outputMu.Lock()
+	s.pendingAssistantAudioFrames = append(s.pendingAssistantAudioFrames, assistantAudioFrame{
+		audio:     audioCopy,
+		completed: completed,
+	})
+	s.outputMu.Unlock()
+}
+
+func (s *Streamer) markAssistantAudioReady(audio []byte) {
+	if len(audio) == 0 {
+		return
+	}
+	s.mu.RLock()
+	session := s.session
+	s.mu.RUnlock()
+	if session == nil || session.GetInfo().Direction != sip_infra.CallDirectionInbound {
+		return
+	}
+	if session.MarkInboundAssistantAudioReady() {
+		s.Logger.Infow("SIP assistant audio ready", "call_id", session.GetCallID())
+	}
+}
+
 func (s *Streamer) EnterTransferMode(targets []string, postTransferAction, ringtoneEnum string) {
 	if s.mediaPort != nil && !s.mediaPort.EnterTransferMode(ringtoneEnum) {
 		return
@@ -197,8 +256,8 @@ func (s *Streamer) EnterTransferMode(targets []string, postTransferAction, ringt
 	}
 }
 
-func (s *Streamer) ExitTransferMode() {
-	if s.mediaPort != nil && !s.mediaPort.ExitTransferMode() {
+func (s *Streamer) ResumeAssistant() {
+	if s.mediaPort != nil && !s.mediaPort.ResumeAssistant() {
 		return
 	}
 
@@ -213,31 +272,31 @@ func (s *Streamer) ExitTransferMode() {
 	s.Logger.Infow("Transfer mode: exited, AI resuming")
 }
 
-func (s *Streamer) StopRingback() {
+func (s *Streamer) StopTransferRingback() {
 	if s.mediaPort != nil {
-		s.mediaPort.StopRingback()
+		s.mediaPort.StopTransferRingback()
 	}
 }
 
-func (s *Streamer) SetBridgeOutRTP(rtp *sip_infra.RTPHandler) {
+func (s *Streamer) ConnectTransferMedia(target internal_type.SIPRTPBridgeTarget, outputCodecName string) {
 	if s.mediaPort != nil {
-		s.mediaPort.SetBridgeTarget(rtp)
+		s.mediaPort.ConnectTransferMedia(target, outputCodecName)
 	}
 }
 
-func (s *Streamer) ClearBridgeTarget() {
+func (s *Streamer) DisconnectTransferMedia() {
 	if s.mediaPort != nil {
-		s.mediaPort.ClearBridgeTarget()
+		s.mediaPort.DisconnectTransferMedia()
 	}
 }
 
-func (s *Streamer) PushBridgeOperatorAudio(audio []byte) {
+func (s *Streamer) RecordTransferOperatorAudio(audio []byte) {
 	if s.mediaPort != nil {
-		s.mediaPort.PushBridgeOperatorAudio(audio)
+		s.mediaPort.RecordTransferOperatorAudio(audio)
 	}
 }
 
-func (s *Streamer) PushToolCallResult(contextID, toolID, toolName string, action protos.ToolCallAction, result map[string]string) {
+func (s *Streamer) SendTransferToolResult(contextID, toolID, toolName string, action protos.ToolCallAction, result map[string]string) {
 	s.Input(&protos.ConversationToolCallResult{
 		Id:     contextID,
 		ToolId: toolID,
@@ -247,7 +306,11 @@ func (s *Streamer) PushToolCallResult(contextID, toolID, toolName string, action
 	})
 }
 
-func (s *Streamer) SetOnTransferInitiated(fn func(targets []string, postTransferAction string)) {
+func (s *Streamer) SendTransferEvent(event internal_type.Stream) {
+	s.Input(event)
+}
+
+func (s *Streamer) SetTransferRequestHandler(fn func(targets []string, postTransferAction string)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.onTransferInitiated = fn
@@ -273,18 +336,30 @@ func (s *Streamer) Close() error {
 			s.Logger.Warnw("SIP media port close failed", "error", err)
 		}
 	}
+	s.outputMu.Lock()
+	s.pendingAssistantAudioFrames = nil
+	s.outputMu.Unlock()
 	s.BaseStreamer.Cancel()
 
 	s.mu.RLock()
 	session := s.session
 	s.mu.RUnlock()
 
-	if session != nil {
+	if session != nil && shouldEndSessionOnClose(session.GetState()) {
 		s.endCall(session, sip_infra.LifecycleReasonStreamerClosed)
 	}
 
 	s.Logger.Infow("SIP streamer closed")
 	return nil
+}
+
+func shouldEndSessionOnClose(state sip_infra.CallState) bool {
+	switch state {
+	case sip_infra.CallStateInitializing, sip_infra.CallStateRinging, sip_infra.CallStateCancelled, sip_infra.CallStateFailed, sip_infra.CallStateEnded:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *Streamer) transitionCall(session *sip_infra.Session, next sip_infra.CallState, reason sip_infra.LifecycleReason) {

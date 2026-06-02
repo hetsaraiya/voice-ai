@@ -149,12 +149,13 @@ func newConversationApiCore(cfg *config.AssistantConfig, logger commons.Logger,
 				return inbound.ResolveCallSessionByContext(ctx, contextID)
 			},
 			OnCreateStreamer: func(ctx context.Context, cc *callcontext.CallContext, vc *protos.VaultCredential, ws *websocket.Conn, conn net.Conn, reader *bufio.Reader, writer *bufio.Writer) (internal_type.Streamer, error) {
-				return channel_telephony.Telephony(cc.Provider).NewStreamer(logger, cc, vc, channel_telephony.StreamerOption{
-					WebSocketConn:     ws,
-					AudioSocketConn:   conn,
-					AudioSocketReader: reader,
-					AudioSocketWriter: writer,
-				})
+				return channel_telephony.Telephony(cc.Provider).NewStreamer(
+					logger,
+					cc,
+					vc,
+					channel_telephony.WithWebSocketStreamer(ws),
+					channel_telephony.WithAudioSocketStreamer(conn, reader, writer),
+				)
 			},
 			OnCreateTalker: func(ctx context.Context, streamer internal_type.Streamer) (internal_type.Talking, error) {
 				return internal_adapter.GetTalker(utils.PhoneCall, ctx, cfg, logger, postgres, opensearch, redis, fileStorage, streamer)

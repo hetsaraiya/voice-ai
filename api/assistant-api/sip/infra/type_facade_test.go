@@ -60,10 +60,12 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 	var nilConfig *Config
 	nilConfig.ApplyOperationalDefaults(5060, TransportUDP, 30000, 30100)
 	nilConfig.ApplyTimeoutDefaults(time.Second, 2*time.Second, 3*time.Second)
+	nilConfig.ApplyInboundAnswerDefaults(InboundAnswerModeAfterMinRingDuration, time.Second, 2*time.Second, 3*time.Second, 4*time.Second, true)
 
 	config := &Config{Server: "sip.example.com"}
 	config.ApplyOperationalDefaults(5060, TransportUDP, 30000, 30100)
 	config.ApplyTimeoutDefaults(time.Second, 2*time.Second, 3*time.Second)
+	config.ApplyInboundAnswerDefaults(InboundAnswerModeAfterMinRingDuration, 4*time.Second, 5*time.Second, 6*time.Second, 7*time.Second, true)
 
 	if config.Port != 5060 || config.Transport != TransportUDP {
 		t.Fatalf("operational defaults were not applied: %#v", config)
@@ -73,6 +75,14 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 	}
 	if config.RegisterTimeout != time.Second || config.InviteTimeout != 2*time.Second || config.SessionTimeout != 3*time.Second {
 		t.Fatalf("timeout defaults were not applied: %#v", config)
+	}
+	if config.InboundAnswerMode != InboundAnswerModeAfterMinRingDuration ||
+		config.InboundMinRingDuration != 4*time.Second ||
+		config.InboundMaxRingDuration != 5*time.Second ||
+		config.InboundACKTimeout != 6*time.Second ||
+		config.InboundAssistantAudioReadyTimeout != 7*time.Second ||
+		!config.InboundRequireAssistantAudioReady {
+		t.Fatalf("inbound answer defaults were not applied: %#v", config)
 	}
 	if err := config.ValidateRTP(); err != nil {
 		t.Fatalf("expected valid RTP config, got %v", err)

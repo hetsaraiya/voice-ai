@@ -170,9 +170,11 @@ type Server struct {
 	pendingInvites map[string]*pendingInvite
 	// cancelledInvites tracks call-ids that received CANCEL while INVITE
 	// processing is still in-flight.
-	cancelledInvites  map[string]bool
-	sessionCount      atomic.Int64
-	inboundACKTimeout time.Duration
+	cancelledInvites                 map[string]bool
+	sessionCount                     atomic.Int64
+	inboundACKTimeout                time.Duration
+	inboundFinalResponseRetryInitial time.Duration
+	inboundFinalResponseRetryMax     time.Duration
 
 	// Multi-tenant config resolver - called for each incoming INVITE
 	configResolver ConfigResolver
@@ -355,23 +357,25 @@ func NewServer(ctx context.Context, cfg *ServerConfig) (*Server, error) {
 	dialogServerCache := sipgo.NewDialogServerCache(client, contactHDR)
 
 	s := &Server{
-		logger:            cfg.Logger,
-		ua:                ua,
-		server:            server,
-		client:            client,
-		listenConfig:      cfg.ListenConfig,
-		rtpAllocator:      rtpAllocator,
-		newRTPHandler:     NewRTPHandler,
-		dialogClientCache: dialogClientCache,
-		dialogServerCache: dialogServerCache,
-		configResolver:    cfg.ConfigResolver,
-		sessions:          make(map[string]*Session),
-		lifecycles:        make(map[string]*CallLifecycle),
-		pendingInvites:    make(map[string]*pendingInvite),
-		cancelledInvites:  make(map[string]bool),
-		inboundACKTimeout: defaultInboundACKTimeout,
-		ctx:               serverCtx,
-		cancel:            cancel,
+		logger:                           cfg.Logger,
+		ua:                               ua,
+		server:                           server,
+		client:                           client,
+		listenConfig:                     cfg.ListenConfig,
+		rtpAllocator:                     rtpAllocator,
+		newRTPHandler:                    NewRTPHandler,
+		dialogClientCache:                dialogClientCache,
+		dialogServerCache:                dialogServerCache,
+		configResolver:                   cfg.ConfigResolver,
+		sessions:                         make(map[string]*Session),
+		lifecycles:                       make(map[string]*CallLifecycle),
+		pendingInvites:                   make(map[string]*pendingInvite),
+		cancelledInvites:                 make(map[string]bool),
+		inboundACKTimeout:                defaultInboundACKTimeout,
+		inboundFinalResponseRetryInitial: defaultInboundFinalResponseRetryInitial,
+		inboundFinalResponseRetryMax:     defaultInboundFinalResponseRetryMax,
+		ctx:                              serverCtx,
+		cancel:                           cancel,
 	}
 
 	s.state.Store(int32(ServerStateCreated))

@@ -1,11 +1,13 @@
 package internal_sip_telephony
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
 	internal_telephony_base "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/base"
+	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
@@ -20,6 +22,22 @@ func newTestSIPStreamer(t *testing.T) *Streamer {
 	return &Streamer{
 		BaseTelephonyStreamer: internal_telephony_base.NewBaseTelephonyStreamer(logger, &callcontext.CallContext{}, nil),
 	}
+}
+
+func newTestInboundSIPSession(t *testing.T, callID string) *sip_infra.Session {
+	t.Helper()
+	session, err := sip_infra.NewSession(context.Background(), &sip_infra.SessionConfig{
+		Config: &sip_infra.Config{
+			Server:            "127.0.0.1",
+			Port:              5060,
+			RTPPortRangeStart: 10000,
+			RTPPortRangeEnd:   10100,
+		},
+		Direction: sip_infra.CallDirectionInbound,
+		CallID:    callID,
+	})
+	require.NoError(t, err)
+	return session
 }
 
 func TestSend_EndConversation_PushesToolResult(t *testing.T) {
@@ -49,6 +67,50 @@ func TestSend_EndConversation_PushesToolResult(t *testing.T) {
 		t.Fatal("streamer context should remain open; teardown is owned by Talk loop")
 	default:
 	}
+}
+
+func TestSend_AssistantAudioQueuesUntilOutputActivated(t *testing.T) {
+	s := newTestSIPStreamer(t)
+
+	err := s.Send(&protos.ConversationAssistantMessage{
+		Message: &protos.ConversationAssistantMessage_Audio{
+			Audio: []byte{1, 2, 3},
+		},
+		Completed: true,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, s.pendingAssistantAudioFrames, 1)
+	assert.Equal(t, []byte{1, 2, 3}, s.pendingAssistantAudioFrames[0].audio)
+	assert.True(t, s.pendingAssistantAudioFrames[0].completed)
+
+	s.StartAssistantOutput()
+	assert.True(t, s.assistantOutputActive.Load())
+	assert.Empty(t, s.pendingAssistantAudioFrames)
+}
+
+func TestSend_InboundAssistantAudioMarksReadyBeforeOutputActivated(t *testing.T) {
+	s := newTestSIPStreamer(t)
+	session := newTestInboundSIPSession(t, "sip-audio-ready")
+	s.session = session
+
+	err := s.Send(&protos.ConversationAssistantMessage{
+		Message: &protos.ConversationAssistantMessage_Audio{
+			Audio: []byte{1, 2, 3},
+		},
+	})
+	require.NoError(t, err)
+
+	timings := session.GetInboundSetupTimings()
+	assert.False(t, timings.FirstAssistantAudioReadyAt.IsZero())
+	assert.True(t, timings.FirstAssistantAudioSentAt.IsZero())
+	require.Len(t, s.pendingAssistantAudioFrames, 1)
+}
+
+func TestShouldEndSessionOnClose_SkipsPreAnswerStates(t *testing.T) {
+	assert.False(t, shouldEndSessionOnClose(sip_infra.CallStateInitializing))
+	assert.False(t, shouldEndSessionOnClose(sip_infra.CallStateRinging))
+	assert.True(t, shouldEndSessionOnClose(sip_infra.CallStateConnected))
 }
 
 // drainLowChForEvent reads from LowCh until it finds a ConversationEvent whose
@@ -142,7 +204,7 @@ func TestSend_TransferConversation_UsesTransferToKey(t *testing.T) {
 
 	var gotTargets []string
 	var gotPostTransferAction string
-	s.SetOnTransferInitiated(func(targets []string, postTransferAction string) {
+	s.SetTransferRequestHandler(func(targets []string, postTransferAction string) {
 		gotTargets = append([]string(nil), targets...)
 		gotPostTransferAction = postTransferAction
 	})

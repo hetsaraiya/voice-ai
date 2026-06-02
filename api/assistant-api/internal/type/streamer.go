@@ -7,6 +7,8 @@ package internal_type
 
 import (
 	"context"
+
+	"github.com/rapidaai/protos"
 )
 
 // TalkInput defines the interface for incoming conversation messages from clients.
@@ -36,4 +38,71 @@ type Streamer interface {
 	// Send sends an input message to the stream.
 	// It returns an error if the send operation fails (e.g., stream closed, network error).
 	Send(Stream) error
+}
+
+// SIPRTPBridgeTarget is the minimum RTP behavior needed to connect SIP bridge
+// audio without coupling generic stream contracts to SIP infra packages.
+type SIPRTPBridgeTarget interface {
+	// AudioOut returns the RTP output queue used for bridge audio delivery.
+	// Implementations must handle non-blocking sends from the SIP media layer.
+	AudioOut() chan<- []byte
+}
+
+// SIPStreamer extends the generic streamer contract with SIP media behavior
+// required directly by the SIP call runtime.
+type SIPStreamer interface {
+	Streamer
+
+	// StartAssistantOutput opens assistant audio delivery after SIP answer ownership is ready.
+	// Inbound calls use this to queue pre-answer audio without sending RTP early.
+	StartAssistantOutput()
+
+	// Close releases SIP streamer media resources and cancels stream context.
+	// Session lifecycle ownership remains with the SIP call owner.
+	Close() error
+}
+
+// SIPTransferStreamer exposes SIP transfer behavior used by the transfer owner.
+// Keep transfer-specific methods out of the base SIPStreamer runtime contract.
+type SIPTransferStreamer interface {
+	Streamer
+
+	// SetTransferRequestHandler registers the callback fired when assistant tooling requests transfer.
+	// The callback owns SIP transfer orchestration outside the media streamer.
+	SetTransferRequestHandler(func(targets []string, postTransferAction string))
+
+	// ConnectTransferMedia connects caller audio to the answered transfer B-leg RTP output.
+	// outputCodecName tells the media layer whether bridge audio needs codec conversion.
+	ConnectTransferMedia(target SIPRTPBridgeTarget, outputCodecName string)
+
+	// DisconnectTransferMedia disconnects active bridge RTP output from the streamer.
+	// It must be safe to call during transfer teardown and session close.
+	DisconnectTransferMedia()
+
+	// StopTransferRingback stops locally generated transfer ringback audio.
+	// Transfer lifecycle calls this once the B-leg is answered or cancelled.
+	StopTransferRingback()
+
+	// ResumeAssistant returns media ownership from bridge/ringback back to the assistant.
+	// Implementations should leave the SIP call connected when AI resumes.
+	ResumeAssistant()
+
+	// RecordTransferOperatorAudio records transfer target audio into the conversation pipeline.
+	// This is used only after bridge media is connected.
+	RecordTransferOperatorAudio([]byte)
+
+	// SendTransferToolResult reports transfer tool completion back to the assistant pipeline.
+	// It preserves the original tool identifiers so the caller can correlate the result.
+	SendTransferToolResult(contextID, toolID, toolName string, action protos.ToolCallAction, result map[string]string)
+
+	// SendTransferEvent pushes a transfer event into the same queue used by transport media.
+	// SIP transfer callbacks use it for structured telephony lifecycle events.
+	SendTransferEvent(Stream)
+}
+
+// SIPCallStreamer combines SIP call runtime and transfer behavior returned by
+// the SIP streamer constructor. Call owners can depend on narrower interfaces.
+type SIPCallStreamer interface {
+	SIPStreamer
+	SIPTransferStreamer
 }
