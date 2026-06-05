@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/rapidaai/api/assistant-api/internal/observability"
+	"github.com/rapidaai/pkg/configs"
 	"github.com/rapidaai/pkg/connectors"
 )
 
@@ -23,90 +24,79 @@ type openSearchStub struct {
 	err    error
 }
 
-func (o *openSearchStub) Connect(context.Context) error {
-	return nil
-}
-
-func (o *openSearchStub) Name() string {
-	return "opensearch-stub"
-}
-
+func (o *openSearchStub) Connect(context.Context) error { return nil }
+func (o *openSearchStub) Name() string                  { return "opensearch-stub" }
 func (o *openSearchStub) IsConnected(context.Context) bool {
 	return true
 }
-
-func (o *openSearchStub) Disconnect(context.Context) error {
-	return nil
-}
-
+func (o *openSearchStub) Disconnect(context.Context) error { return nil }
 func (o *openSearchStub) VectorSearch(context.Context, string, []float64, map[string]interface{}, *connectors.VectorSearchOptions) ([]map[string]interface{}, error) {
 	return nil, nil
 }
-
 func (o *openSearchStub) HybridSearch(context.Context, string, string, []float64, map[string]interface{}, *connectors.VectorSearchOptions) ([]map[string]interface{}, error) {
 	return nil, nil
 }
-
 func (o *openSearchStub) TextSearch(context.Context, string, string, map[string]interface{}, *connectors.VectorSearchOptions) ([]map[string]interface{}, error) {
 	return nil, nil
 }
-
 func (o *openSearchStub) Search(context.Context, []string, string) *connectors.SearchResponse {
 	return nil
 }
-
 func (o *openSearchStub) SearchWithCount(context.Context, []string, string) *connectors.SearchResponseWithCount {
 	return nil
 }
-
-func (o *openSearchStub) Persist(context.Context, string, string, string) error {
-	return nil
-}
-
-func (o *openSearchStub) Update(context.Context, string, string, string) error {
-	return nil
-}
-
+func (o *openSearchStub) Persist(context.Context, string, string, string) error { return nil }
+func (o *openSearchStub) Update(context.Context, string, string, string) error  { return nil }
 func (o *openSearchStub) Bulk(_ context.Context, body string) error {
 	o.bodies = append(o.bodies, body)
 	return o.err
 }
 
 func TestNew_ReturnsNoopWithoutOpenSearch(t *testing.T) {
-	collector := New(Config{})
+	collector, err := New(context.Background(), Config{})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
 	if _, ok := collector.(observability.NoopCollector); !ok {
 		t.Fatalf("expected noop collector, got %T", collector)
 	}
 }
 
-func TestCollector_PushesTimelineEnvelopeToOpenSearchBulk(t *testing.T) {
-	opensearch := &openSearchStub{}
-	collector := New(Config{OpenSearch: opensearch})
-	now := time.Date(2026, 6, 4, 12, 30, 0, 0, time.UTC)
+func TestNew_ReturnsErrorForIncompleteOpenSearchConfig(t *testing.T) {
+	_, err := New(context.Background(), Config{
+		OpenSearchConfig: &configs.OpenSearchConfig{Schema: "http"},
+	})
+	if err == nil {
+		t.Fatal("expected opensearch config error")
+	}
+}
 
-	err := collector.Collect(context.Background(), observability.Envelope{
-		ID:       "evt-1",
-		Kind:     observability.RecordKindEvent,
-		Name:     observability.CallRinging,
-		Category: observability.CategoryCall,
-		Level:    observability.LevelInfo,
-		Outcome:  observability.OutcomeSuccess,
-		Title:    "Call ringing",
-		Scope: observability.Scope{
-			OrganizationID: 1,
-			ProjectID:      2,
-			AssistantID:    3,
-			ConversationID: 4,
-			ContextID:      "ctx-1",
+func TestCollector_PushesEventDocumentToOpenSearchBulk(t *testing.T) {
+	opensearch := &openSearchStub{}
+	collector, err := New(context.Background(), Config{OpenSearch: opensearch})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	now := time.Date(2026, 6, 5, 12, 30, 0, 0, time.UTC)
+
+	err = collector.Collect(context.Background(), observability.RecordEvent{
+		CommonRecord: observability.CommonRecord{
+			ID: "evt-1",
+			Scope: observability.ConversationScope{
+				AssistantScope: observability.AssistantScope{
+					GlobalScope: observability.GlobalScope{OrganizationID: 1, ProjectID: 2},
+					AssistantID: 3,
+				},
+				ConversationID: 4,
+			},
+			OccurredAt: now,
 		},
+		Component:  observability.ComponentCall,
+		Event:      observability.CallRinging,
 		Attributes: observability.Attributes{"status": "ringing"},
-		Data:       observability.Data{"raw_status": "RINGING"},
-		OccurredAt: now,
-		ReceivedAt: now.Add(time.Second),
-		Duration:   2 * time.Second,
 	})
 	if err != nil {
-		t.Fatalf("Collect returned error: %v", err)
+		t.Fatalf("CollectEvent returned error: %v", err)
 	}
 	if len(opensearch.bodies) != 1 {
 		t.Fatalf("expected one bulk body, got %d", len(opensearch.bodies))
@@ -114,9 +104,9 @@ func TestCollector_PushesTimelineEnvelopeToOpenSearchBulk(t *testing.T) {
 
 	lines := strings.Split(strings.TrimSpace(opensearch.bodies[0]), "\n")
 	if len(lines) != 2 {
-		t.Fatalf("expected bulk metadata and document lines, got %d: %q", len(lines), opensearch.bodies[0])
+		t.Fatalf("expected bulk metadata+document lines, got %d", len(lines))
 	}
-	if !strings.Contains(lines[0], `"rapida-timeline-20260604"`) || !strings.Contains(lines[0], `"evt-1"`) {
+	if !strings.Contains(lines[0], `"rapida-timeline-20260605"`) || !strings.Contains(lines[0], `"evt-1"`) {
 		t.Fatalf("unexpected bulk metadata line: %s", lines[0])
 	}
 
@@ -124,48 +114,67 @@ func TestCollector_PushesTimelineEnvelopeToOpenSearchBulk(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[1]), &doc); err != nil {
 		t.Fatalf("failed to unmarshal document: %v", err)
 	}
-	if doc.ID != "evt-1" || doc.Name != observability.CallRinging.String() || doc.Kind != string(observability.RecordKindEvent) {
-		t.Fatalf("unexpected document identity: %+v", doc)
+	if doc.ID != "evt-1" || doc.Kind != "event" || doc.Name != observability.CallRinging.String() {
+		t.Fatalf("unexpected doc identity: %+v", doc)
 	}
 	if doc.OrganizationID != 1 || doc.ProjectID != 2 || doc.AssistantID != 3 || doc.AssistantConversationID != 4 {
-		t.Fatalf("unexpected document scope: %+v", doc)
+		t.Fatalf("unexpected doc scope: %+v", doc)
 	}
-	if doc.Attributes["status"] != "ringing" || doc.Data["raw_status"] != "RINGING" {
-		t.Fatalf("unexpected document payload: %+v %+v", doc.Attributes, doc.Data)
-	}
-	if doc.DurationMs != 2000 {
-		t.Fatalf("expected duration 2000ms, got %d", doc.DurationMs)
+	if doc.Attributes["status"] != "ringing" {
+		t.Fatalf("unexpected doc attributes: %+v", doc.Attributes)
 	}
 }
 
 func TestCollector_UsesCustomIndexPrefix(t *testing.T) {
 	opensearch := &openSearchStub{}
-	collector := New(Config{OpenSearch: opensearch, IndexPrefix: "custom-timeline"})
-	now := time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)
-
-	if err := collector.Collect(context.Background(), observability.Envelope{ID: "evt-1", OccurredAt: now}); err != nil {
-		t.Fatalf("Collect returned error: %v", err)
+	collector, err := New(context.Background(), Config{OpenSearch: opensearch, IndexPrefix: "custom-timeline"})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
 	}
-	if !strings.Contains(opensearch.bodies[0], `"custom-timeline-20260604"`) {
+	now := time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC)
+
+	err = collector.Collect(context.Background(), observability.RecordMetric{
+		CommonRecord: observability.CommonRecord{
+			ID: "metric-1",
+			Scope: observability.ConversationScope{
+				AssistantScope: observability.AssistantScope{AssistantID: 3},
+				ConversationID: 4,
+			},
+			OccurredAt: now,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CollectMetric returned error: %v", err)
+	}
+	if !strings.Contains(opensearch.bodies[0], `"custom-timeline-20260605"`) {
 		t.Fatalf("unexpected bulk body: %s", opensearch.bodies[0])
 	}
 }
 
 func TestCollector_ReturnsBulkError(t *testing.T) {
 	bulkErr := errors.New("bulk failed")
-	collector := New(Config{OpenSearch: &openSearchStub{err: bulkErr}})
+	collector, err := New(context.Background(), Config{OpenSearch: &openSearchStub{err: bulkErr}})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
 
-	err := collector.Collect(context.Background(), observability.Envelope{ID: "evt-1"})
+	err = collector.Collect(context.Background(), observability.RecordLog{
+		CommonRecord: observability.CommonRecord{
+			Scope: observability.AssistantScope{AssistantID: 3},
+		},
+		Message: "hello",
+	})
 	if !errors.Is(err, bulkErr) {
 		t.Fatalf("expected bulk error, got %v", err)
 	}
 }
 
-func TestNewDocumentFallsBackToReceivedAt(t *testing.T) {
-	receivedAt := time.Date(2026, 6, 4, 1, 2, 3, 0, time.UTC)
-	doc := newDocument(observability.Envelope{ReceivedAt: receivedAt})
-	if !doc.OccurredAt.Equal(receivedAt) {
-		t.Fatalf("expected occurredAt fallback to receivedAt, got %s", doc.OccurredAt)
+func TestNewDocumentFallsBackToNowWhenOccurredAtMissing(t *testing.T) {
+	doc := newDocument("event", observability.CommonRecord{
+		Scope: observability.AssistantScope{AssistantID: 1},
+	})
+	if doc.OccurredAt.IsZero() {
+		t.Fatal("expected occurred_at to be set")
 	}
 }
 

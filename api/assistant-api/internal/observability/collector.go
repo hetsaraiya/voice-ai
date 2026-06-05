@@ -11,24 +11,21 @@ import (
 	"errors"
 )
 
-// Collector consumes normalized observability envelopes.
 type Collector interface {
-	Collect(ctx context.Context, envelope Envelope) error
-	Shutdown(ctx context.Context) error
+	Collect(ctx context.Context, record Record) error
+	Close(ctx context.Context) error
 }
 
-// CollectorFunc adapts a function into a Collector.
-type CollectorFunc func(ctx context.Context, envelope Envelope) error
+type NoopCollector struct{}
 
-func (f CollectorFunc) Collect(ctx context.Context, envelope Envelope) error {
-	return f(ctx, envelope)
-}
-
-func (CollectorFunc) Shutdown(context.Context) error {
+func (NoopCollector) Collect(context.Context, Record) error {
 	return nil
 }
 
-// Collectors fans out envelopes to multiple collectors.
+func (NoopCollector) Close(context.Context) error {
+	return nil
+}
+
 type Collectors struct {
 	collectors []Collector
 }
@@ -40,38 +37,28 @@ func NewCollectors(collectors ...Collector) Collector {
 	return &Collectors{collectors: append([]Collector(nil), collectors...)}
 }
 
-func (c *Collectors) Collect(ctx context.Context, envelope Envelope) error {
+func (c *Collectors) Collect(ctx context.Context, record Record) error {
 	var errs []error
 	for _, collector := range c.collectors {
 		if collector == nil {
 			continue
 		}
-		if err := collector.Collect(ctx, envelope); err != nil {
+		if err := collector.Collect(ctx, record); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func (c *Collectors) Shutdown(ctx context.Context) error {
+func (c *Collectors) Close(ctx context.Context) error {
 	var errs []error
 	for _, collector := range c.collectors {
 		if collector == nil {
 			continue
 		}
-		if err := collector.Shutdown(ctx); err != nil {
+		if err := collector.Close(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
-}
-
-type NoopCollector struct{}
-
-func (NoopCollector) Collect(context.Context, Envelope) error {
-	return nil
-}
-
-func (NoopCollector) Shutdown(context.Context) error {
-	return nil
 }

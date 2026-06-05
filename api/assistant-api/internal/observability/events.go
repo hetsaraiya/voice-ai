@@ -8,37 +8,38 @@ package observability
 
 import "strings"
 
-// Category is the first segment of a stable event name, such as "call" in
+// ComponentName is the first segment of a stable event name, such as "call" in
 // "call.ringing".
-type Category string
+type ComponentName string
 
 const (
-	CategoryUnknown      Category = ""
-	CategoryCall         Category = "call"
-	CategoryConversation Category = "conversation"
-	CategoryTurn         Category = "turn"
-	CategorySession      Category = "session"
-	CategoryPipeline     Category = "pipeline"
-	CategoryAudio        Category = "audio"
-	CategoryTranscript   Category = "transcript"
-	CategorySTT          Category = "stt"
-	CategoryTTS          Category = "tts"
-	CategoryLLM          Category = "llm"
-	CategoryVAD          Category = "vad"
-	CategoryEOS          Category = "eos"
-	CategoryDenoise      Category = "denoise"
-	CategoryTool         Category = "tool"
-	CategoryWebhook      Category = "webhook"
-	CategoryRecording    Category = "recording"
-	CategorySIP          Category = "sip"
-	CategoryWebRTC       Category = "webrtc"
-	CategoryUsage        Category = "usage"
-	CategoryMetric       Category = "metric"
-	CategoryMetadata     Category = "metadata"
-	CategoryError        Category = "error"
+	ComponentUnknown      ComponentName = ""
+	ComponentCall         ComponentName = "call"
+	ComponentConversation ComponentName = "conversation"
+	ComponentTurn         ComponentName = "turn"
+	ComponentSession      ComponentName = "session"
+	ComponentPipeline     ComponentName = "pipeline"
+	ComponentAudio        ComponentName = "audio"
+	ComponentTranscript   ComponentName = "transcript"
+	ComponentSTT          ComponentName = "stt"
+	ComponentTTS          ComponentName = "tts"
+	ComponentLLM          ComponentName = "llm"
+	ComponentVAD          ComponentName = "vad"
+	ComponentEOS          ComponentName = "eos"
+	ComponentDenoise      ComponentName = "denoise"
+	ComponentTool         ComponentName = "tool"
+	ComponentWebhook      ComponentName = "webhook"
+	ComponentRecording    ComponentName = "recording"
+	ComponentSIP          ComponentName = "sip"
+	ComponentWebRTC       ComponentName = "webrtc"
+	ComponentUsage        ComponentName = "usage"
+	ComponentLog          ComponentName = "log"
+	ComponentMetric       ComponentName = "metric"
+	ComponentMetadata     ComponentName = "metadata"
+	ComponentError        ComponentName = "error"
 )
 
-func (c Category) String() string {
+func (c ComponentName) String() string {
 	return string(c)
 }
 
@@ -257,8 +258,8 @@ const (
 	ErrorRecovered EventName = "error.recovered"
 )
 
-var eventsByCategory = map[Category][]EventName{
-	CategoryCall: {
+var eventsByComponent = map[ComponentName][]EventName{
+	ComponentCall: {
 		CallStatus,
 		CallReceived,
 		CallInitiated,
@@ -286,7 +287,7 @@ var eventsByCategory = map[Category][]EventName{
 		CallConversationCreated,
 		CallContextSaved,
 	},
-	CategoryConversation: {
+	ComponentConversation: {
 		ConversationBegin,
 		ConversationResume,
 		ConversationStarted,
@@ -307,7 +308,7 @@ var eventsByCategory = map[Category][]EventName{
 		ConversationUsageUpdated,
 		ConversationClosed,
 	},
-	CategoryTurn: {
+	ComponentTurn: {
 		TurnStarted,
 		TurnUserSpeechStarted,
 		TurnUserSpeechFinal,
@@ -319,7 +320,7 @@ var eventsByCategory = map[Category][]EventName{
 		TurnCompleted,
 		TurnFailed,
 	},
-	CategorySession: {
+	ComponentSession: {
 		SessionConnected,
 		SessionInitializing,
 		SessionInitialized,
@@ -338,7 +339,7 @@ var eventsByCategory = map[Category][]EventName{
 		SessionHooksBegin,
 		SessionHooksEnd,
 	},
-	CategoryAudio: {
+	ComponentAudio: {
 		AudioInputStarted,
 		AudioInputStopped,
 		AudioOutputStarted,
@@ -349,12 +350,12 @@ var eventsByCategory = map[Category][]EventName{
 		AudioCodecChanged,
 		AudioError,
 	},
-	CategoryTranscript: {
+	ComponentTranscript: {
 		TranscriptPartial,
 		TranscriptFinal,
 		TranscriptError,
 	},
-	CategorySTT: {
+	ComponentSTT: {
 		STTConnected,
 		STTStarted,
 		STTStartOfSpeech,
@@ -368,54 +369,54 @@ var eventsByCategory = map[Category][]EventName{
 		STTDisconnected,
 		STTError,
 	},
-	CategoryTTS: {
+	ComponentTTS: {
 		TTSStarted,
 		TTSFirstAudio,
 		TTSAudio,
 		TTSCompleted,
 		TTSError,
 	},
-	CategoryLLM: {
+	ComponentLLM: {
 		LLMStarted,
 		LLMFirstToken,
 		LLMToken,
 		LLMCompleted,
 		LLMError,
 	},
-	CategoryVAD: {
+	ComponentVAD: {
 		VADSpeechStarted,
 		VADInferenceDone,
 		VADSpeechEnded,
 		VADError,
 	},
-	CategoryEOS: {
+	ComponentEOS: {
 		EOSStarted,
 		EOSDecided,
 		EOSCompleted,
 		EOSError,
 	},
-	CategoryDenoise: {
+	ComponentDenoise: {
 		DenoiseStarted,
 		DenoiseCompleted,
 		DenoiseError,
 	},
-	CategoryTool: {
+	ComponentTool: {
 		ToolCallStarted,
 		ToolCallCompleted,
 		ToolCallFailed,
 	},
-	CategoryWebhook: {
+	ComponentWebhook: {
 		WebhookDispatched,
 		WebhookCompleted,
 		WebhookFailed,
 		WebhookRetrying,
 	},
-	CategoryRecording: {
+	ComponentRecording: {
 		RecordingStarted,
 		RecordingStopped,
 		RecordingFailed,
 	},
-	CategorySIP: {
+	ComponentSIP: {
 		SIPInviteReceived,
 		SIPRouteResolved,
 		SIPAuthenticated,
@@ -433,7 +434,7 @@ var eventsByCategory = map[Category][]EventName{
 		SIPRegisterFailed,
 		SIPDTMF,
 	},
-	CategoryWebRTC: {
+	ComponentWebRTC: {
 		WebRTCConnecting,
 		WebRTCConnected,
 		WebRTCReconnecting,
@@ -443,10 +444,10 @@ var eventsByCategory = map[Category][]EventName{
 		WebRTCICEConnected,
 		WebRTCICEFailed,
 	},
-	CategoryUsage: {
+	ComponentUsage: {
 		UsageRecorded,
 	},
-	CategoryError: {
+	ComponentError: {
 		ErrorRaised,
 		ErrorRecovered,
 	},
@@ -456,21 +457,25 @@ func (e EventName) String() string {
 	return string(e)
 }
 
-func (e EventName) Category() Category {
+func (e EventName) Component() ComponentName {
 	value := e.String()
 	idx := strings.IndexByte(value, '.')
 	if idx <= 0 {
-		return CategoryUnknown
+		return ComponentUnknown
 	}
-	return Category(value[:idx])
+	return ComponentName(value[:idx])
 }
 
-func (e EventName) HasCategory(category Category) bool {
-	return e.Category() == category
+func (e EventName) HasComponent(component ComponentName) bool {
+	return e.Component() == component
+}
+
+func (e EventName) HasCategory(component ComponentName) bool {
+	return e.HasComponent(component)
 }
 
 func (e EventName) IsKnown() bool {
-	for _, known := range Events(e.Category()) {
+	for _, known := range Events(e.Component()) {
 		if known == e {
 			return true
 		}
@@ -478,25 +483,25 @@ func (e EventName) IsKnown() bool {
 	return false
 }
 
-func Events(category Category) []EventName {
-	return append([]EventName(nil), eventsByCategory[category]...)
+func Events(component ComponentName) []EventName {
+	return append([]EventName(nil), eventsByComponent[component]...)
 }
 
 func CallEvents() []EventName {
-	return Events(CategoryCall)
+	return Events(ComponentCall)
 }
 
 func ConversationEvents() []EventName {
-	return Events(CategoryConversation)
+	return Events(ComponentConversation)
 }
 
 func AllEvents() []EventName {
 	var total int
-	for _, events := range eventsByCategory {
+	for _, events := range eventsByComponent {
 		total += len(events)
 	}
 	all := make([]EventName, 0, total)
-	for _, events := range eventsByCategory {
+	for _, events := range eventsByComponent {
 		all = append(all, events...)
 	}
 	return all

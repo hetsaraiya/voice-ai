@@ -1,0 +1,237 @@
+export type FilterOption = {
+  id: string;
+  text: string;
+};
+
+export const SCOPE_OPTIONS: FilterOption[] = [
+  { id: 'assistant', text: 'Assistant' },
+  { id: 'conversation', text: 'Conversation' },
+  { id: 'message', text: 'Message' },
+];
+
+export const COMPONENT_OPTIONS: FilterOption[] = [
+  { id: 'all', text: 'All components' },
+  { id: 'call', text: 'call' },
+  { id: 'conversation', text: 'conversation' },
+  { id: 'turn', text: 'turn' },
+  { id: 'session', text: 'session' },
+  { id: 'pipeline', text: 'pipeline' },
+  { id: 'audio', text: 'audio' },
+  { id: 'transcript', text: 'transcript' },
+  { id: 'stt', text: 'stt' },
+  { id: 'tts', text: 'tts' },
+  { id: 'llm', text: 'llm' },
+  { id: 'vad', text: 'vad' },
+  { id: 'eos', text: 'eos' },
+  { id: 'denoise', text: 'denoise' },
+  { id: 'tool', text: 'tool' },
+  { id: 'webhook', text: 'webhook' },
+  { id: 'recording', text: 'recording' },
+  { id: 'sip', text: 'sip' },
+  { id: 'webrtc', text: 'webrtc' },
+  { id: 'usage', text: 'usage' },
+  { id: 'log', text: 'log' },
+  { id: 'metric', text: 'metric' },
+  { id: 'metadata', text: 'metadata' },
+  { id: 'error', text: 'error' },
+];
+
+export const ALL_EVENT_OPTION: FilterOption = {
+  id: 'all',
+  text: 'All events',
+};
+
+export const EVENTS_BY_COMPONENT: Record<string, string[]> = {
+  call: [
+    'call.status',
+    'call.received',
+    'call.initiated',
+    'call.queued',
+    'call.ringing',
+    'call.answered',
+    'call.started',
+    'call.in_progress',
+    'call.media_started',
+    'call.hangup',
+    'call.ended',
+    'call.completed',
+    'call.failed',
+    'call.busy',
+    'call.no_answer',
+    'call.rejected',
+    'call.cancelled',
+    'call.outbound_requested',
+    'call.outbound_dialed',
+    'call.outbound_dispatched',
+    'call.outbound_dispatch_failed',
+    'call.provider_answered',
+    'call.session_connected',
+    'call.assistant_loaded',
+    'call.conversation_created',
+    'call.context_saved',
+  ],
+  conversation: [
+    'conversation.begin',
+    'conversation.resume',
+    'conversation.started',
+    'conversation.initializing',
+    'conversation.initialized',
+    'conversation.ending',
+    'conversation.completed',
+    'conversation.cleanup',
+    'conversation.finalized',
+    'conversation.failed',
+    'conversation.error',
+    'conversation.agent_state_changed',
+    'conversation.user_state_changed',
+    'conversation.user_input_transcribed',
+    'conversation.item_added',
+    'conversation.speech_created',
+    'conversation.false_interruption',
+    'conversation.usage_updated',
+    'conversation.closed',
+  ],
+  turn: [
+    'turn.started',
+    'turn.user_speech_started',
+    'turn.user_speech_final',
+    'turn.assistant_response_started',
+    'turn.assistant_response_final',
+    'turn.interrupted',
+    'turn.overlapping_speech',
+    'turn.user_turn_exceeded',
+    'turn.completed',
+    'turn.failed',
+  ],
+  session: [
+    'session.connected',
+    'session.initializing',
+    'session.initialized',
+    'session.connect_failed',
+    'session.disconnected',
+    'session.disconnect_requested',
+    'session.cleanup',
+    'session.mode_switch',
+    'session.session_resolved',
+    'session.session_resolve_failed',
+    'session.streamer_created',
+    'session.streamer_failed',
+    'session.talker_created',
+    'session.talker_failed',
+    'session.talk_started',
+    'session.hooks_begin',
+    'session.hooks_end',
+  ],
+  audio: [
+    'audio.input_started',
+    'audio.input_stopped',
+    'audio.output_started',
+    'audio.output_stopped',
+    'audio.frame_received',
+    'audio.frame_sent',
+    'audio.resampled',
+    'audio.codec_changed',
+    'audio.error',
+  ],
+  transcript: ['transcript.partial', 'transcript.final', 'transcript.error'],
+  stt: [
+    'stt.connected',
+    'stt.started',
+    'stt.start_of_speech',
+    'stt.interim_transcript',
+    'stt.preflight_transcript',
+    'stt.partial',
+    'stt.final_transcript',
+    'stt.final',
+    'stt.recognition_usage',
+    'stt.end_of_speech',
+    'stt.disconnected',
+    'stt.error',
+  ],
+  tts: [
+    'tts.started',
+    'tts.first_audio',
+    'tts.audio',
+    'tts.completed',
+    'tts.error',
+  ],
+  llm: [
+    'llm.started',
+    'llm.first_token',
+    'llm.token',
+    'llm.completed',
+    'llm.error',
+  ],
+  vad: [
+    'vad.speech_started',
+    'vad.inference_done',
+    'vad.speech_ended',
+    'vad.error',
+  ],
+  eos: ['eos.started', 'eos.decided', 'eos.completed', 'eos.error'],
+  denoise: ['denoise.started', 'denoise.completed', 'denoise.error'],
+  tool: ['tool.call_started', 'tool.call_completed', 'tool.call_failed'],
+  webhook: [
+    'webhook.dispatched',
+    'webhook.completed',
+    'webhook.failed',
+    'webhook.retrying',
+  ],
+  recording: ['recording.started', 'recording.stopped', 'recording.failed'],
+  sip: [
+    'sip.invite_received',
+    'sip.route_resolved',
+    'sip.authenticated',
+    'sip.bye_received',
+    'sip.cancel_received',
+    'sip.hold',
+    'sip.resume',
+    'sip.reinvite',
+    'sip.transfer_requested',
+    'sip.transferring',
+    'sip.transfer_connected',
+    'sip.transfer_completed',
+    'sip.transfer_failed',
+    'sip.register_active',
+    'sip.register_failed',
+    'sip.dtmf',
+  ],
+  webrtc: [
+    'webrtc.connecting',
+    'webrtc.connected',
+    'webrtc.reconnecting',
+    'webrtc.reconnected',
+    'webrtc.disconnected',
+    'webrtc.failed',
+    'webrtc.ice_connected',
+    'webrtc.ice_failed',
+  ],
+  usage: ['usage.recorded'],
+  error: ['error.raised', 'error.recovered'],
+};
+
+export const ALL_EVENT_OPTIONS: FilterOption[] = Array.from(
+  new Set(Object.values(EVENTS_BY_COMPONENT).flat()),
+)
+  .sort()
+  .map(eventName => ({ id: eventName, text: eventName }));
+
+export const itemToString = (item: FilterOption | null) => item?.text || '';
+
+export const getOptionById = (
+  options: FilterOption[],
+  id: string,
+): FilterOption => options.find(option => option.id === id) || options[0];
+
+export const getEventOptionsForComponent = (
+  componentId: string,
+): FilterOption[] =>
+  componentId === 'all'
+    ? [ALL_EVENT_OPTION, ...ALL_EVENT_OPTIONS]
+    : [
+        ALL_EVENT_OPTION,
+        ...(EVENTS_BY_COMPONENT[componentId] || []).map(eventName => ({
+          id: eventName,
+          text: eventName,
+        })),
+      ];

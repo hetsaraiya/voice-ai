@@ -15,13 +15,13 @@ import (
 // EventCollector fans out EventRecord to all registered exporters.
 type EventCollector interface {
 	Collect(ctx context.Context, rec EventRecord)
-	Shutdown(ctx context.Context)
+	Close(ctx context.Context)
 }
 
 // MetricCollector fans out MetricRecord to all registered exporters.
 type MetricCollector interface {
 	Collect(ctx context.Context, rec MetricRecord)
-	Shutdown(ctx context.Context)
+	Close(ctx context.Context)
 }
 
 // =============================================================================
@@ -57,13 +57,13 @@ func (c *fanoutEventCollector) Collect(_ context.Context, rec EventRecord) {
 	}
 }
 
-// Shutdown waits for all in-flight export goroutines to finish, then shuts down
+// Close waits for all in-flight export goroutines to finish, then shuts down
 // each exporter in order.
-func (c *fanoutEventCollector) Shutdown(ctx context.Context) {
+func (c *fanoutEventCollector) Close(ctx context.Context) {
 	c.wg.Wait()
 	for _, exp := range c.exporters {
-		if err := exp.Shutdown(ctx); err != nil {
-			c.logger.Errorf("telemetry: event exporter shutdown error: %v", err)
+		if err := exp.Close(ctx); err != nil {
+			c.logger.Errorf("telemetry: event exporter Close error: %v", err)
 		}
 	}
 }
@@ -101,13 +101,13 @@ func (c *fanoutMetricCollector) Collect(_ context.Context, rec MetricRecord) {
 	}
 }
 
-// Shutdown waits for all in-flight export goroutines to finish, then shuts down
+// Close waits for all in-flight export goroutines to finish, then shuts down
 // each exporter in order.
-func (c *fanoutMetricCollector) Shutdown(ctx context.Context) {
+func (c *fanoutMetricCollector) Close(ctx context.Context) {
 	c.wg.Wait()
 	for _, exp := range c.exporters {
-		if err := exp.Shutdown(ctx); err != nil {
-			c.logger.Errorf("telemetry: metric exporter shutdown error: %v", err)
+		if err := exp.Close(ctx); err != nil {
+			c.logger.Errorf("telemetry: metric exporter Close error: %v", err)
 		}
 	}
 }
@@ -119,9 +119,9 @@ func (c *fanoutMetricCollector) Shutdown(ctx context.Context) {
 type noopEventCollector struct{}
 
 func (noopEventCollector) Collect(_ context.Context, _ EventRecord) {}
-func (noopEventCollector) Shutdown(_ context.Context)               {}
+func (noopEventCollector) Close(_ context.Context)                  {}
 
 type noopMetricCollector struct{}
 
 func (noopMetricCollector) Collect(_ context.Context, _ MetricRecord) {}
-func (noopMetricCollector) Shutdown(_ context.Context)                {}
+func (noopMetricCollector) Close(_ context.Context)                   {}

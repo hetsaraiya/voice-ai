@@ -105,3 +105,24 @@ func TestOpenSearchConfig_Defaults(t *testing.T) {
 		t.Errorf("MaxConnection = %v, want 0", cfg.MaxConnection)
 	}
 }
+
+func TestOpenSearchConfig_Configured(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *OpenSearchConfig
+		want bool
+	}{
+		{name: "nil", cfg: nil, want: false},
+		{name: "missing schema", cfg: &OpenSearchConfig{Host: "localhost"}, want: false},
+		{name: "missing host", cfg: &OpenSearchConfig{Schema: "http"}, want: false},
+		{name: "blank values", cfg: &OpenSearchConfig{Schema: " ", Host: "\t"}, want: false},
+		{name: "configured", cfg: &OpenSearchConfig{Schema: "http", Host: "localhost"}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.IsValid(); got != tt.want {
+				t.Fatalf("IsValid() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}

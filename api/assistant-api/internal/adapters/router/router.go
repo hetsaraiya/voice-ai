@@ -127,7 +127,8 @@ func Classify(p internal_type.Packet) Route {
 	case internal_type.ConversationEventPacket,
 		internal_type.ConversationMetricPacket,
 		internal_type.UserMessageMetricPacket,
-		internal_type.AssistantMessageMetricPacket:
+		internal_type.AssistantMessageMetricPacket,
+		internal_type.ObservabilityRecordPacket:
 		return RouteBackground
 	default:
 		return RouteBackground

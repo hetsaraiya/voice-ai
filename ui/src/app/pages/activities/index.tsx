@@ -18,7 +18,7 @@ export const RequestActivityListingPage = lazyLoad(
 );
 
 export const ConversationActivityListingPage = lazyLoad(
-  () => import('./conversation-activities'),
+  () => import('./conversation-activity-v2'),
   module => module.ListingPage,
   {
     fallback: <LineLoader />,

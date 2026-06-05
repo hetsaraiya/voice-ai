@@ -12,37 +12,34 @@ import (
 	"testing"
 	"time"
 
-	internal_telemetry_entity "github.com/rapidaai/api/assistant-api/internal/entity/telemetry"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
-	"github.com/rapidaai/pkg/commons"
-	"github.com/rapidaai/pkg/configs"
-	gorm_models "github.com/rapidaai/pkg/models/gorm"
-	pkgtelemetry "github.com/rapidaai/pkg/telemetry"
+	telemetry "github.com/rapidaai/pkg/telemetry"
+	"github.com/rapidaai/protos"
 )
 
 type exporterStub struct {
-	events  []pkgtelemetry.EventRecord
-	metrics []pkgtelemetry.MetricRecord
+	events  []telemetry.EventRecord
+	metrics []telemetry.MetricRecord
 	closed  bool
 	err     error
 }
 
-func (e *exporterStub) ExportEvent(_ context.Context, _ pkgtelemetry.SessionMeta, rec pkgtelemetry.EventRecord) error {
+func (e *exporterStub) ExportEvent(_ context.Context, _ telemetry.SessionMeta, rec telemetry.EventRecord) error {
 	e.events = append(e.events, rec)
 	return e.err
 }
 
-func (e *exporterStub) ExportMetric(_ context.Context, _ pkgtelemetry.SessionMeta, rec pkgtelemetry.MetricRecord) error {
+func (e *exporterStub) ExportMetric(_ context.Context, _ telemetry.SessionMeta, rec telemetry.MetricRecord) error {
 	e.metrics = append(e.metrics, rec)
 	return e.err
 }
 
-func (e *exporterStub) Shutdown(context.Context) error {
+func (e *exporterStub) Close(context.Context) error {
 	e.closed = true
 	return e.err
 }
 
-func TestNew_ReturnsNoopWithoutExporters(t *testing.T) {
+func TestNew_ReturnsNoopWithoutExporter(t *testing.T) {
 	collector, err := New(context.Background(), Config{})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
@@ -52,169 +49,133 @@ func TestNew_ReturnsNoopWithoutExporters(t *testing.T) {
 	}
 }
 
-func TestNew_BuildsEnvAndAssistantProviderExporters(t *testing.T) {
-	collector, err := New(context.Background(), Config{
-		Logger: testLogger(t),
-		TelemetryConfig: &configs.TelemetryConfig{
-			TelemetryType: string(configs.LOGGING),
-			Logging:       &configs.TelemetryLoggingConfig{},
-		},
-		AssistantProviders: []*internal_telemetry_entity.AssistantTelemetryProvider{
-			{ProviderType: string(pkgtelemetry.LOGGING), Enabled: true},
-			{ProviderType: string(pkgtelemetry.LOGGING), Enabled: false},
-		},
-	})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
-	got := collector.(*Collector)
-	if len(got.exporters) != 2 {
-		t.Fatalf("expected env and enabled assistant exporters, got %d", len(got.exporters))
-	}
-}
-
-func TestNew_ReturnsFactoryError(t *testing.T) {
-	_, err := New(context.Background(), Config{
-		Providers: []Provider{{Type: string(pkgtelemetry.LOGGING)}},
-	})
-	if err == nil {
-		t.Fatal("expected missing logger error")
-	}
-}
-
 func TestCollector_ExportsEventsAndMetrics(t *testing.T) {
-	first := &exporterStub{}
-	second := &exporterStub{}
-	collector, err := New(context.Background(), Config{Exporters: []pkgtelemetry.Exporter{first, nil, second}})
+	exporter := &exporterStub{}
+	collector, err := New(context.Background(), Config{Exporters: exporter})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 
-	err = collector.Collect(context.Background(), observability.Envelope{
-		Kind:       observability.RecordKindEvent,
-		Name:       observability.CallRinging,
-		Scope:      observability.Scope{AssistantID: 10, ConversationID: 20, ContextID: "ctx-1"},
+	err = collector.Collect(context.Background(), observability.RecordEvent{
+		CommonRecord: observability.CommonRecord{
+			Scope: observability.ConversationScope{
+				AssistantScope: observability.AssistantScope{AssistantID: 10},
+				ConversationID: 20,
+			},
+			OccurredAt: now,
+		},
+		Component:  observability.ComponentCall,
+		Event:      observability.CallRinging,
 		Attributes: observability.Attributes{"status": "ringing"},
-		Data:       observability.Data{"raw_status": "RINGING"},
-		OccurredAt: now,
 	})
 	if err != nil {
-		t.Fatalf("event Collect returned error: %v", err)
+		t.Fatalf("CollectEvent returned error: %v", err)
 	}
 
-	err = collector.Collect(context.Background(), observability.Envelope{
-		Kind: observability.RecordKindMetric,
-		Scope: observability.Scope{
-			AssistantID:    10,
-			ConversationID: 20,
+	err = collector.Collect(context.Background(), observability.RecordMetric{
+		CommonRecord: observability.CommonRecord{
+			Scope: observability.ConversationScope{
+				AssistantScope: observability.AssistantScope{AssistantID: 10},
+				ConversationID: 20,
+			},
+			OccurredAt: now,
 		},
-		Record: observability.MetricRecord{Metrics: []observability.Metric{{
+		Metrics: []*protos.Metric{{
 			Name:        observability.MetricConversationDuration,
 			Value:       "1000",
 			Description: "duration",
-		}}},
-		OccurredAt: now,
+		}},
 	})
 	if err != nil {
-		t.Fatalf("metric Collect returned error: %v", err)
+		t.Fatalf("CollectMetric returned error: %v", err)
 	}
 
-	if len(first.events) != 1 || len(second.events) != 1 {
-		t.Fatalf("expected both exporters to receive event, got first=%d second=%d", len(first.events), len(second.events))
+	if len(exporter.events) != 1 {
+		t.Fatalf("expected one event, got %d", len(exporter.events))
 	}
-	event := first.events[0]
-	if event.Name != observability.CallRinging.String() || event.MessageID != "ctx-1" || !event.Time.Equal(now) {
+	event := exporter.events[0]
+	if event.Name != observability.CallRinging.String() || !event.Time.Equal(now) {
 		t.Fatalf("unexpected event record: %+v", event)
 	}
-	if event.Data["status"] != "ringing" || event.Data["raw_status"] != "RINGING" {
+	if event.Data["status"] != "ringing" {
 		t.Fatalf("unexpected event data: %+v", event.Data)
 	}
 
-	if len(first.metrics) != 1 || len(second.metrics) != 1 {
-		t.Fatalf("expected both exporters to receive metric, got first=%d second=%d", len(first.metrics), len(second.metrics))
+	if len(exporter.metrics) != 1 {
+		t.Fatalf("expected one metric, got %d", len(exporter.metrics))
 	}
-	metric, ok := first.metrics[0].(pkgtelemetry.ConversationMetricRecord)
+	metric, ok := exporter.metrics[0].(telemetry.ConversationMetricRecord)
 	if !ok {
-		t.Fatalf("expected conversation metric record, got %T", first.metrics[0])
+		t.Fatalf("expected conversation metric record, got %T", exporter.metrics[0])
 	}
-	if metric.ConversationID != "20" || len(metric.Metrics) != 1 || metric.Metrics[0].Name != observability.MetricConversationDuration {
+	if metric.ConversationID != "20" || len(metric.Metrics) != 1 {
 		t.Fatalf("unexpected metric record: %+v", metric)
 	}
 }
 
 func TestCollector_ExportsMessageMetrics(t *testing.T) {
 	exporter := &exporterStub{}
-	collector, err := New(context.Background(), Config{Exporters: []pkgtelemetry.Exporter{exporter}})
+	collector, err := New(context.Background(), Config{Exporters: exporter})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	err = collector.Collect(context.Background(), observability.Envelope{
-		Kind:  observability.RecordKindMetric,
-		Scope: observability.Scope{ConversationID: 20, ContextID: "ctx-1"},
-		Record: observability.MetricRecord{Metrics: []observability.Metric{{
+	err = collector.Collect(context.Background(), observability.RecordMetric{
+		CommonRecord: observability.CommonRecord{
+			Scope: observability.MessageScope{
+				ConversationScope: observability.ConversationScope{
+					AssistantScope: observability.AssistantScope{AssistantID: 10},
+					ConversationID: 20,
+				},
+				MessageID: "user-ctx-1",
+				Role:      observability.MessageRoleUser,
+			},
+		},
+		Metrics: []*protos.Metric{{
 			Name:  observability.MetricUserTurn,
 			Value: "complete",
-		}}},
+		}},
 	})
 	if err != nil {
-		t.Fatalf("Collect returned error: %v", err)
+		t.Fatalf("CollectMetric returned error: %v", err)
 	}
-	metric, ok := exporter.metrics[0].(pkgtelemetry.MessageMetricRecord)
+	metric, ok := exporter.metrics[0].(telemetry.MessageMetricRecord)
 	if !ok {
 		t.Fatalf("expected message metric record, got %T", exporter.metrics[0])
 	}
-	if metric.MessageID != "ctx-1" || metric.ConversationID != "20" {
+	if metric.MessageID != "user-ctx-1" || metric.ConversationID != "20" {
 		t.Fatalf("unexpected message metric: %+v", metric)
 	}
 }
 
-func TestCollector_IgnoresMetadata(t *testing.T) {
-	exporter := &exporterStub{}
-	collector, err := New(context.Background(), Config{Exporters: []pkgtelemetry.Exporter{exporter}})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
-
-	err = collector.Collect(context.Background(), observability.Envelope{Kind: observability.RecordKindMetadata})
-	if err != nil {
-		t.Fatalf("Collect returned error: %v", err)
-	}
-	if len(exporter.events) != 0 || len(exporter.metrics) != 0 {
-		t.Fatalf("expected metadata to be ignored, got events=%d metrics=%d", len(exporter.events), len(exporter.metrics))
-	}
-}
-
-func TestCollector_JoinsExporterErrors(t *testing.T) {
+func TestCollector_ReturnsExporterErrors(t *testing.T) {
 	exportErr := errors.New("export failed")
-	collector, err := New(context.Background(), Config{Exporters: []pkgtelemetry.Exporter{&exporterStub{err: exportErr}}})
+	collector, err := New(context.Background(), Config{Exporters: &exporterStub{err: exportErr}})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	err = collector.Collect(context.Background(), observability.Envelope{
-		Kind: observability.RecordKindEvent,
-		Name: observability.CallRinging,
+	err = collector.Collect(context.Background(), observability.RecordEvent{
+		Event: observability.CallRinging,
 	})
 	if !errors.Is(err, exportErr) {
 		t.Fatalf("expected export error, got %v", err)
 	}
 }
 
-func TestCollector_ShutdownExporters(t *testing.T) {
-	first := &exporterStub{}
-	second := &exporterStub{}
-	collector, err := New(context.Background(), Config{Exporters: []pkgtelemetry.Exporter{first, second}})
+func TestCollector_CloseExporter(t *testing.T) {
+	exporter := &exporterStub{}
+	collector, err := New(context.Background(), Config{Exporters: exporter})
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	if err := collector.Shutdown(context.Background()); err != nil {
-		t.Fatalf("Shutdown returned error: %v", err)
+	if err := collector.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
 	}
-	if !first.closed || !second.closed {
-		t.Fatalf("expected exporters to close, got first=%t second=%t", first.closed, second.closed)
+	if !exporter.closed {
+		t.Fatal("expected exporter to close")
 	}
 }
 
@@ -227,33 +188,4 @@ func TestCloneOptions(t *testing.T) {
 	}
 }
 
-func TestAssistantProviderOptionsAreCloned(t *testing.T) {
-	provider := &internal_telemetry_entity.AssistantTelemetryProvider{
-		ProviderType: string(pkgtelemetry.LOGGING),
-		Enabled:      true,
-		Options: []*internal_telemetry_entity.AssistantTelemetryProviderOption{
-			{Metadata: gorm_models.Metadata{Key: "x", Value: "y"}},
-		},
-	}
-	options := cloneOptions(provider.GetOptions())
-	options["x"] = "changed"
-	if provider.GetOptions()["x"] != "y" {
-		t.Fatalf("provider options mutated")
-	}
-}
-
-func testLogger(t *testing.T) commons.Logger {
-	t.Helper()
-
-	logger, err := commons.NewApplicationLogger(
-		commons.Name("observability-telemetry-test"),
-		commons.Level("error"),
-		commons.EnableFile(false),
-	)
-	if err != nil {
-		t.Fatalf("failed to create logger: %v", err)
-	}
-	return logger
-}
-
-var _ pkgtelemetry.Exporter = (*exporterStub)(nil)
+var _ telemetry.Exporter = (*exporterStub)(nil)

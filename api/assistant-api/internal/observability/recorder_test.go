@@ -12,266 +12,234 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/rapidaai/protos"
 )
 
 type recordingCollector struct {
-	envelopes []Envelope
-	err       error
-	closed    bool
+	logs       []RecordLog
+	events     []RecordEvent
+	metrics    []RecordMetric
+	metadata   []RecordMetadata
+	usage      []RecordUsage
+	webhooks   []RecordWebhook
+	collectErr error
+	closeErr   error
+	closed     bool
 }
 
-func (c *recordingCollector) Collect(_ context.Context, envelope Envelope) error {
-	c.envelopes = append(c.envelopes, envelope)
-	return c.err
+func (c *recordingCollector) Collect(_ context.Context, record Record) error {
+	switch typed := record.(type) {
+	case RecordLog:
+		c.logs = append(c.logs, typed)
+	case RecordEvent:
+		c.events = append(c.events, typed)
+	case RecordMetric:
+		c.metrics = append(c.metrics, typed)
+	case RecordMetadata:
+		c.metadata = append(c.metadata, typed)
+	case RecordUsage:
+		c.usage = append(c.usage, typed)
+	case RecordWebhook:
+		c.webhooks = append(c.webhooks, typed)
+	}
+	return c.collectErr
 }
 
-func (c *recordingCollector) Shutdown(context.Context) error {
+func (c *recordingCollector) Close(context.Context) error {
 	c.closed = true
-	return c.err
+	return c.closeErr
 }
 
 type blockingCollector struct {
 	started chan struct{}
 	release chan struct{}
 	once    sync.Once
-	close   sync.Once
 }
 
-func (c *blockingCollector) Collect(context.Context, Envelope) error {
+func (c *blockingCollector) Collect(context.Context, Record) error {
 	c.once.Do(func() { close(c.started) })
 	<-c.release
 	return nil
 }
 
-func (c *blockingCollector) Shutdown(context.Context) error {
-	c.close.Do(func() { close(c.release) })
+func (c *blockingCollector) Close(context.Context) error {
+	select {
+	case <-c.release:
+	default:
+		close(c.release)
+	}
 	return nil
 }
 
-func TestRecorderRecord_EnrichesAndFansOutRecord(t *testing.T) {
-	now := time.Date(2026, 6, 4, 10, 30, 0, 0, time.UTC)
+func TestRecorder_RecordMetric_FansOutAndInjectsGlobalScope(t *testing.T) {
+	now := time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC)
 	first := &recordingCollector{}
 	second := &recordingCollector{}
-	recorder := New(Config{
-		Scope: Scope{
-			AssistantID:    10,
-			ConversationID: 20,
-			ProjectID:      30,
-			OrganizationID: 40,
-			ContextID:      "ctx-default",
-		},
-		Clock: func() time.Time { return now },
-		NewID: func() string { return "evt-1" },
-	}, first, second)
+	recorder := New(
+		WithGlobalScope(GlobalScope{OrganizationID: 7, ProjectID: 8}),
+		WithClock(func() time.Time { return now }),
+		WithCollectors(first, second),
+	)
 
-	err := recorder.Record(context.Background(), CallEvent{
-		BaseRecord: BaseRecord{
-			RecordName: CallRinging,
-			RecordScope: Scope{
-				OrganizationID: 999,
-				ProjectID:      998,
-				AssistantID:    997,
-				ConversationID: 996,
-				ContextID:      "ctx-call",
+	err := recorder.Record(context.Background(), RecordMetric{
+		CommonRecord: CommonRecord{
+			ID: "metric-1",
+			Scope: ConversationScope{
+				AssistantScope: AssistantScope{AssistantID: 10},
+				ConversationID: 20,
 			},
-			RecordData:    Data{"raw_status": "ringing"},
-			RecordOutcome: OutcomeSuccess,
-			RecordTitle:   "Call is ringing",
-			Elapsed:       2 * time.Second,
 		},
-		Provider:  "sip",
-		Direction: "outbound",
-		Status:    "ringing",
+		Metrics: []*protos.Metric{{Name: MetricConversationDuration, Value: "1000"}},
 	})
 	if err != nil {
 		t.Fatalf("Record returned error: %v", err)
 	}
-	if err := recorder.Shutdown(context.Background()); err != nil {
-		t.Fatalf("Shutdown returned error: %v", err)
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
 	}
 
-	if len(first.envelopes) != 1 || len(second.envelopes) != 1 {
-		t.Fatalf("expected both collectors to receive one envelope, got first=%d second=%d", len(first.envelopes), len(second.envelopes))
+	if len(first.metrics) != 1 || len(second.metrics) != 1 {
+		t.Fatalf("expected fanout to both collectors, got first=%d second=%d", len(first.metrics), len(second.metrics))
 	}
-	envelope := first.envelopes[0]
-	if envelope.ID != "evt-1" {
-		t.Fatalf("unexpected envelope ID: %s", envelope.ID)
+	got := first.metrics[0]
+	if got.ID != "metric-1" {
+		t.Fatalf("unexpected id: %s", got.ID)
 	}
-	if envelope.Kind != RecordKindEvent || envelope.Name != CallRinging || envelope.Category != CategoryCall {
-		t.Fatalf("unexpected envelope kind/name/category: %s %s %s", envelope.Kind, envelope.Name, envelope.Category)
+	if !got.OccurredAt.Equal(now) {
+		t.Fatalf("unexpected occurred_at: %s", got.OccurredAt)
 	}
-	if envelope.Level != LevelInfo || envelope.Outcome != OutcomeSuccess || envelope.Title != "Call is ringing" {
-		t.Fatalf("unexpected display fields: level=%s outcome=%s title=%s", envelope.Level, envelope.Outcome, envelope.Title)
-	}
-	if envelope.Scope.OrganizationID != 40 || envelope.Scope.ProjectID != 30 ||
-		envelope.Scope.AssistantID != 10 || envelope.Scope.ConversationID != 20 ||
-		envelope.Scope.ContextID != "ctx-call" {
-		t.Fatalf("unexpected scope: %+v", envelope.Scope)
-	}
-	if !envelope.OccurredAt.Equal(now) || !envelope.ReceivedAt.Equal(now) {
-		t.Fatalf("unexpected times: occurred=%s received=%s", envelope.OccurredAt, envelope.ReceivedAt)
-	}
-	if envelope.Duration != 2*time.Second {
-		t.Fatalf("unexpected duration: %s", envelope.Duration)
-	}
-	if envelope.Attributes[string(AttrProvider)] != "sip" || envelope.Attributes[string(AttrStatus)] != "ringing" {
-		t.Fatalf("unexpected attributes: %+v", envelope.Attributes)
-	}
-	if envelope.Data["raw_status"] != "ringing" {
-		t.Fatalf("unexpected data: %+v", envelope.Data)
+	if observabilityGlobal := got.Scope.GlobalScopeValue(); observabilityGlobal.OrganizationID != 7 || observabilityGlobal.ProjectID != 8 {
+		t.Fatalf("unexpected global scope: %+v", observabilityGlobal)
 	}
 }
 
-func TestRecorderRecord_ValidationErrorSkipsCollectors(t *testing.T) {
-	collector := &recordingCollector{}
-	recorder := New(Config{}, collector)
-
-	err := recorder.Record(context.Background(), CallEvent{
-		BaseRecord: BaseRecord{RecordName: ConversationBegin},
-	})
-	if err == nil {
-		t.Fatal("expected validation error")
-	}
-	if len(collector.envelopes) != 0 {
-		t.Fatalf("collector should not receive invalid record, got %d", len(collector.envelopes))
-	}
-	if err := recorder.Shutdown(context.Background()); err != nil {
-		t.Fatalf("Shutdown returned error: %v", err)
-	}
-}
-
-func TestRecorderShutdown_ReturnsCollectorErrorsAfterFanout(t *testing.T) {
-	collectorErr := errors.New("collector failed")
-	first := &recordingCollector{err: collectorErr}
+func TestRecorder_RecordWebhook_FansOut(t *testing.T) {
+	first := &recordingCollector{}
 	second := &recordingCollector{}
-	recorder := New(Config{}, first, second)
+	recorder := New(WithCollectors(first, second))
 
-	err := recorder.Record(context.Background(), ConversationEvent{
-		BaseRecord: BaseRecord{RecordName: ConversationCompleted},
+	err := recorder.Record(context.Background(), RecordWebhook{
+		CommonRecord: CommonRecord{
+			ID: "wh-1",
+			Scope: AssistantScope{
+				AssistantID: 10,
+			},
+		},
+		Event:   WebhookDispatched,
+		Payload: map[string]interface{}{"status": "ok"},
 	})
 	if err != nil {
 		t.Fatalf("Record returned error: %v", err)
 	}
-	err = recorder.Shutdown(context.Background())
-	if !errors.Is(err, collectorErr) {
-		t.Fatalf("expected collector error on shutdown, got %v", err)
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
 	}
-	if len(first.envelopes) != 1 || len(second.envelopes) != 1 {
-		t.Fatalf("expected fanout to continue after collector error, got first=%d second=%d", len(first.envelopes), len(second.envelopes))
+	if len(first.webhooks) != 1 || len(second.webhooks) != 1 {
+		t.Fatalf("expected both collectors to receive webhook record, got first=%d second=%d", len(first.webhooks), len(second.webhooks))
 	}
 }
 
-func TestRecordAttributes_ReturnsCopy(t *testing.T) {
-	extra := Attributes{"custom": "value"}
-	event := CallEvent{
-		BaseRecord: BaseRecord{
-			RecordName:       CallAnswered,
-			RecordAttributes: extra,
+func TestRecorder_RecordUsage_RejectsMessageScope(t *testing.T) {
+	recorder := New(WithCollector(&recordingCollector{}))
+	defer recorder.Close(context.Background())
+
+	err := recorder.Record(context.Background(), RecordUsage{
+		CommonRecord: CommonRecord{
+			Scope: MessageScope{
+				ConversationScope: ConversationScope{
+					AssistantScope: AssistantScope{AssistantID: 10},
+					ConversationID: 20,
+				},
+				MessageID: "user-ctx-1",
+				Role:      MessageRoleUser,
+			},
 		},
-		Provider: "vonage",
-	}
-
-	attrs := event.Attributes()
-	attrs["custom"] = "changed"
-
-	if extra["custom"] != "value" {
-		t.Fatalf("extra map was mutated: %+v", extra)
-	}
-}
-
-func TestBaseRecordData_ReturnsCopy(t *testing.T) {
-	data := Data{"payload": "value"}
-	event := EventRecord{
-		BaseRecord: BaseRecord{
-			RecordName: CallStatus,
-			RecordData: data,
-		},
-	}
-
-	copied := event.Data()
-	copied["payload"] = "changed"
-
-	if data["payload"] != "value" {
-		t.Fatalf("data map was mutated: %+v", data)
-	}
-}
-
-func TestErrorEvent_DefaultsToErrorFailure(t *testing.T) {
-	event := ErrorEvent{BaseRecord: BaseRecord{RecordName: ErrorRaised}}
-
-	if event.Level() != LevelError {
-		t.Fatalf("expected error level, got %s", event.Level())
-	}
-	if event.Outcome() != OutcomeFailure {
-		t.Fatalf("expected failure outcome, got %s", event.Outcome())
-	}
-}
-
-func TestUsageEvent_RecordsComponentDuration(t *testing.T) {
-	event := UsageEvent{
-		BaseRecord: BaseRecord{RecordName: UsageRecorded},
-		Component:  "stt",
-		Provider:   "deepgram",
-		Duration:   1200 * time.Millisecond,
-	}
-
-	attrs := event.Attributes()
-	if attrs[string(AttrComponent)] != "stt" {
-		t.Fatalf("expected component attribute, got %+v", attrs)
-	}
-	if attrs[string(AttrProvider)] != "deepgram" {
-		t.Fatalf("expected provider attribute, got %+v", attrs)
-	}
-	if attrs[string(AttrDuration)] != "1200" {
-		t.Fatalf("expected duration attribute, got %+v", attrs)
-	}
-}
-
-func TestUsageEvent_RequiresComponentAndDuration(t *testing.T) {
-	recorder := New(Config{}, &recordingCollector{})
-	defer recorder.Shutdown(context.Background())
-
-	err := recorder.Record(context.Background(), UsageEvent{
-		BaseRecord: BaseRecord{RecordName: UsageRecorded},
-		Duration:   time.Second,
+		Component: ComponentUsage,
+		Duration:  time.Second,
 	})
 	if err == nil {
-		t.Fatal("expected missing component to fail validation")
-	}
-
-	err = recorder.Record(context.Background(), UsageEvent{
-		BaseRecord: BaseRecord{RecordName: UsageRecorded},
-		Component:  "sip",
-	})
-	if err == nil {
-		t.Fatal("expected missing duration to fail validation")
+		t.Fatal("expected message-scoped usage error")
 	}
 }
 
-func TestRecorderRecord_ReturnsBufferFull(t *testing.T) {
-	collector := &blockingCollector{
+func TestRecorder_Record_ReturnsBufferFull(t *testing.T) {
+	blocked := &blockingCollector{
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	recorder := New(Config{Buffer: 1}, collector)
-	err := recorder.Record(context.Background(), CallEvent{BaseRecord: BaseRecord{RecordName: CallRinging}})
-	if err != nil {
-		t.Fatalf("first Record returned error: %v", err)
+	recorder := New(WithBuffer(1), WithCollector(blocked))
+	scope := ConversationScope{
+		AssistantScope: AssistantScope{AssistantID: 10},
+		ConversationID: 20,
 	}
-	<-collector.started
-
-	err = recorder.Record(context.Background(), CallEvent{BaseRecord: BaseRecord{RecordName: CallRinging}})
-	if err != nil {
-		t.Fatalf("second Record returned error: %v", err)
+	record := RecordMetric{
+		CommonRecord: CommonRecord{Scope: scope},
+		Metrics:      []*protos.Metric{{Name: MetricConversationDuration, Value: "1"}},
 	}
 
-	err = recorder.Record(context.Background(), CallEvent{BaseRecord: BaseRecord{RecordName: CallRinging}})
+	if err := recorder.Record(context.Background(), record); err != nil {
+		t.Fatalf("first record failed: %v", err)
+	}
+	<-blocked.started
+
+	if err := recorder.Record(context.Background(), record); err != nil {
+		t.Fatalf("second record failed: %v", err)
+	}
+	err := recorder.Record(context.Background(), record)
 	if !errors.Is(err, ErrBufferFull) {
-		t.Fatalf("expected buffer full error, got %v", err)
+		t.Fatalf("expected ErrBufferFull, got %v", err)
 	}
 
-	collector.close.Do(func() { close(collector.release) })
-	if err := recorder.Shutdown(context.Background()); err != nil {
-		t.Fatalf("Shutdown returned error: %v", err)
+	close(blocked.release)
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("close failed: %v", err)
+	}
+}
+
+func TestRecorder_Close_JoinsCollectorErrors(t *testing.T) {
+	collectErr := errors.New("collect failed")
+	closeErr := errors.New("close failed")
+	recorder := New(WithCollector(&recordingCollector{
+		collectErr: collectErr,
+		closeErr:   closeErr,
+	}))
+
+	err := recorder.Record(context.Background(), RecordEvent{
+		CommonRecord: CommonRecord{
+			Scope: ConversationScope{
+				AssistantScope: AssistantScope{AssistantID: 10},
+				ConversationID: 20,
+			},
+		},
+		Component: ComponentConversation,
+		Event:     ConversationStarted,
+	})
+	if err != nil {
+		t.Fatalf("record failed: %v", err)
+	}
+
+	err = recorder.Close(context.Background())
+	if !errors.Is(err, collectErr) || !errors.Is(err, closeErr) {
+		t.Fatalf("expected joined collect+close errors, got %v", err)
+	}
+}
+
+func TestValidateScope(t *testing.T) {
+	if err := ValidateScope(AssistantScope{}); err == nil {
+		t.Fatal("expected assistant scope error")
+	}
+	if err := ValidateScope(ConversationScope{AssistantScope: AssistantScope{AssistantID: 10}}); err == nil {
+		t.Fatal("expected conversation scope error")
+	}
+	if err := ValidateScope(MessageScope{
+		ConversationScope: ConversationScope{
+			AssistantScope: AssistantScope{AssistantID: 10},
+			ConversationID: 20,
+		},
+		MessageID: "msg-1",
+		Role:      MessageRoleUser,
+	}); err != nil {
+		t.Fatalf("expected valid message scope, got %v", err)
 	}
 }

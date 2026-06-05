@@ -12,7 +12,6 @@ import (
 	"github.com/rapidaai/config"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/connectors"
-	"github.com/rapidaai/pkg/telemetry/providers"
 	"github.com/rapidaai/pkg/utils"
 )
 
@@ -26,21 +25,21 @@ func GetExporter(
 	provider string,
 	opts utils.Option,
 ) (observe.EventExporter, observe.MetricExporter, error) {
-	exp, err := providers.NewExporterFromOptions(
-		ctx,
-		provider,
-		map[string]interface{}(opts),
-		providers.FactoryDependencies{
-			Logger:     logger,
-			AppConfig:  cfg,
-			OpenSearch: opensearch,
-		},
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-	if exp == nil {
-		return nil, nil, nil
-	}
-	return exp, exp, nil
+	// exp, err := providers.NewExporterFromOptions(
+	// 	ctx,
+	// 	provider,
+	// 	map[string]interface{}(opts),
+	// 	providers.FactoryDependencies{
+	// 		Logger:     logger,
+	// 		AppConfig:  cfg,
+	// 		OpenSearch: opensearch,
+	// 	},
+	// )
+	// if err != nil {
+	// 	return nil, nil, err
+	// }
+	// if exp == nil {
+	// 	return nil, nil, nil
+	// }
+	return nil, nil, nil
 }

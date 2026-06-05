@@ -52,34 +52,32 @@ func New(cfg Config) observability.Collector {
 	}
 }
 
-func (c *Collector) Collect(ctx context.Context, envelope observability.Envelope) error {
-	if !validator.NonNil(c) || !validator.NotEmpty(c.webhooks) {
-		return nil
-	}
-	record, ok := envelope.Record.(observability.WebhookEvent)
+func (c *Collector) Collect(ctx context.Context, record observability.Record) error {
+	webhookRecord, ok := record.(observability.RecordWebhook)
 	if !ok {
 		return nil
 	}
-	if !validator.NonNil(record.Payload) {
+	if !validator.NonNil(c) || !validator.NotEmpty(c.webhooks) {
 		return nil
 	}
+	payload := webhookPayload(webhookRecord)
 
 	var errs []error
 	for _, assistantWebhook := range c.webhooks {
-		if !c.shouldSend(assistantWebhook, envelope.Name.String()) {
+		if !c.shouldSend(assistantWebhook, webhookRecord.Event.String()) {
 			continue
 		}
-		if err := c.send(ctx, assistantWebhook, record.Payload); err != nil {
+		if err := c.send(ctx, assistantWebhook, payload); err != nil {
 			errs = append(errs, err)
 			if validator.NonNil(c.logger) {
-				c.logger.Warnw("observability webhook failed", "webhookID", assistantWebhook.Id, "event", envelope.Name.String(), "error", err)
+				c.logger.Warnw("observability webhook failed", "webhookID", assistantWebhook.Id, "event", webhookRecord.Event.String(), "error", err)
 			}
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func (c *Collector) Shutdown(context.Context) error {
+func (c *Collector) Close(context.Context) error {
 	return nil
 }
 
@@ -177,4 +175,19 @@ func sendHTTPRequest(ctx context.Context, client *rest.RestClient, method string
 
 func isRetryableStatus(statusCode int, retryStatusCodes []string) bool {
 	return slices.Contains(retryStatusCodes, strconv.Itoa(statusCode))
+}
+
+func webhookPayload(record observability.RecordWebhook) map[string]interface{} {
+	if len(record.Payload) == 0 {
+		return map[string]interface{}{}
+	}
+	payload := make(map[string]interface{}, len(record.Payload))
+	for key, value := range record.Payload {
+		payload[key] = value
+	}
+	if record.Scope != nil {
+		payload["scope"] = record.Scope.ScopeType()
+		payload["context_id"] = record.Scope.ContextID()
+	}
+	return payload
 }

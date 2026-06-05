@@ -10,226 +10,156 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
-	internal_telemetry_entity "github.com/rapidaai/api/assistant-api/internal/entity/telemetry"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
-	"github.com/rapidaai/config"
 	"github.com/rapidaai/pkg/commons"
-	"github.com/rapidaai/pkg/configs"
-	"github.com/rapidaai/pkg/connectors"
-	pkgtelemetry "github.com/rapidaai/pkg/telemetry"
+	telemetry "github.com/rapidaai/pkg/telemetry"
 	"github.com/rapidaai/pkg/telemetry/providers"
 	"github.com/rapidaai/pkg/validator"
-	"github.com/rapidaai/protos"
 )
 
 type Provider struct {
-	Type    string
+	Name    string
 	Options map[string]interface{}
 }
 
 type Config struct {
-	Logger             commons.Logger
-	AppConfig          *config.AppConfig
-	OpenSearch         connectors.OpenSearchConnector
-	TelemetryConfig    *configs.TelemetryConfig
-	Providers          []Provider
-	AssistantProviders []*internal_telemetry_entity.AssistantTelemetryProvider
-	Exporters          []pkgtelemetry.Exporter
+	Logger    commons.Logger
+	Providers Provider
+	Exporters telemetry.Exporter
 }
 
 type Collector struct {
-	exporters []pkgtelemetry.Exporter
+	exporter telemetry.Exporter
 }
 
 func New(ctx context.Context, cfg Config) (observability.Collector, error) {
-	exporters := append([]pkgtelemetry.Exporter(nil), cfg.Exporters...)
-	factoryDeps := providers.FactoryDependencies{
-		Logger:     cfg.Logger,
-		AppConfig:  cfg.AppConfig,
-		OpenSearch: cfg.OpenSearch,
+	if validator.NonNil(cfg.Exporters) {
+		return &Collector{exporter: cfg.Exporters}, nil
 	}
 
-	if validator.NonNil(cfg.TelemetryConfig) {
-		providerType := cfg.TelemetryConfig.Type()
-		if validator.NotBlank(string(providerType)) {
-			exporter, err := providers.NewExporterFromOptions(ctx, string(providerType), cfg.TelemetryConfig.ToMap(), factoryDeps)
-			if err != nil {
-				return nil, err
-			}
-			if validator.NonNil(exporter) {
-				exporters = append(exporters, exporter)
-			}
-		}
+	exporter, err := newExporter(ctx, cfg.Logger, cfg.Providers)
+	if err != nil {
+		return nil, err
 	}
-
-	for _, provider := range cfg.Providers {
-		exporter, err := providers.NewExporterFromOptions(ctx, provider.Type, cloneOptions(provider.Options), factoryDeps)
-		if err != nil {
-			return nil, err
-		}
-		if validator.NonNil(exporter) {
-			exporters = append(exporters, exporter)
-		}
-	}
-
-	for _, provider := range cfg.AssistantProviders {
-		if !validator.NonNil(provider) || !provider.Enabled {
-			continue
-		}
-		exporter, err := providers.NewExporterFromOptions(ctx, provider.ProviderType, cloneOptions(provider.GetOptions()), factoryDeps)
-		if err != nil {
-			return nil, err
-		}
-		if validator.NonNil(exporter) {
-			exporters = append(exporters, exporter)
-		}
-	}
-
-	if !validator.NotEmpty(exporters) {
+	if !validator.NonNil(exporter) {
 		return observability.NoopCollector{}, nil
 	}
-	return &Collector{exporters: exporters}, nil
+	return &Collector{exporter: exporter}, nil
 }
 
-func MustNew(ctx context.Context, cfg Config) observability.Collector {
-	collector, err := New(ctx, cfg)
-	if err != nil {
-		panic(err)
-	}
-	return collector
-}
-
-func (c *Collector) Collect(ctx context.Context, envelope observability.Envelope) error {
-	if !validator.NonNil(c) || !validator.NotEmpty(c.exporters) {
+func (c *Collector) Collect(ctx context.Context, record observability.Record) error {
+	if !validator.NonNil(c.exporter) {
 		return nil
 	}
-
-	meta := sessionMeta(envelope.Scope)
-	switch envelope.Kind {
-	case observability.RecordKindEvent:
-		return c.exportEvent(ctx, meta, envelope)
-	case observability.RecordKindMetric:
-		return c.exportMetric(ctx, meta, envelope)
+	switch typed := record.(type) {
+	case observability.RecordEvent:
+		meta := sessionMeta(typed.Scope.GlobalScopeValue(), typed.Scope)
+		return c.exportEvent(ctx, meta, typed)
+	case observability.RecordMetric:
+		meta := sessionMeta(typed.Scope.GlobalScopeValue(), typed.Scope)
+		return c.exportMetric(ctx, meta, typed)
 	default:
 		return nil
 	}
 }
 
-func (c *Collector) Shutdown(ctx context.Context) error {
+func (c *Collector) Close(ctx context.Context) error {
 	var errs []error
-	for _, exporter := range c.exporters {
-		if !validator.NonNil(exporter) {
-			continue
-		}
-		if err := exporter.Shutdown(ctx); err != nil {
+	if validator.NonNil(c.exporter) {
+		if err := c.exporter.Close(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func (c *Collector) exportEvent(ctx context.Context, meta pkgtelemetry.SessionMeta, envelope observability.Envelope) error {
-	rec := pkgtelemetry.EventRecord{
-		ConversationID: envelope.Scope.ConversationID,
-		MessageID:      messageID(envelope.Scope),
-		Name:           envelope.Name.String(),
-		Data:           eventData(envelope),
-		Time:           occurredAt(envelope),
+func newExporter(ctx context.Context, logger commons.Logger, provider Provider) (telemetry.Exporter, error) {
+	providerName := strings.TrimSpace(provider.Name)
+	if !validator.NotBlank(providerName) {
+		return nil, nil
+	}
+	return providers.NewExporterFromOptions(logger, ctx, providerName, cloneOptions(provider.Options))
+}
+
+func (c *Collector) exportEvent(ctx context.Context, meta telemetry.SessionMeta, record observability.RecordEvent) error {
+	rec := telemetry.EventRecord{
+		ConversationID: record.Scope.ConversationScopeID(),
+		MessageID:      messageID(record.Scope),
+		Name:           record.Event.String(),
+		Data:           eventData(record.Attributes),
+		Time:           occurredAt(record.OccurredAt),
 	}
 
 	var errs []error
-	for _, exporter := range c.exporters {
-		if !validator.NonNil(exporter) {
-			continue
-		}
-		if err := exporter.ExportEvent(ctx, meta, rec); err != nil {
+	if validator.NonNil(c.exporter) {
+		if err := c.exporter.ExportEvent(ctx, meta, rec); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func (c *Collector) exportMetric(ctx context.Context, meta pkgtelemetry.SessionMeta, envelope observability.Envelope) error {
-	record, ok := envelope.Record.(observability.MetricRecord)
-	if !ok || !validator.NotEmpty(record.Metrics) {
+func (c *Collector) exportMetric(ctx context.Context, meta telemetry.SessionMeta, record observability.RecordMetric) error {
+	if !validator.NotEmpty(record.Metrics) {
 		return nil
 	}
 
-	rec := metricRecord(envelope, record.Metrics)
+	rec := newMetricRecord(record)
 	var errs []error
-	for _, exporter := range c.exporters {
-		if !validator.NonNil(exporter) {
-			continue
-		}
-		if err := exporter.ExportMetric(ctx, meta, rec); err != nil {
+	if validator.NonNil(c.exporter) {
+		if err := c.exporter.ExportMetric(ctx, meta, rec); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func sessionMeta(scope observability.Scope) pkgtelemetry.SessionMeta {
-	return pkgtelemetry.SessionMeta{
-		AssistantID:             scope.AssistantID,
-		AssistantConversationID: scope.ConversationID,
-		ProjectID:               scope.ProjectID,
-		OrganizationID:          scope.OrganizationID,
+func sessionMeta(global observability.GlobalScope, scope observability.Scope) telemetry.SessionMeta {
+	return telemetry.SessionMeta{
+		AssistantID:             scope.AssistantScopeID(),
+		AssistantConversationID: scope.ConversationScopeID(),
+		ProjectID:               global.ProjectID,
+		OrganizationID:          global.OrganizationID,
 	}
 }
 
-func metricRecord(envelope observability.Envelope, metrics []observability.Metric) pkgtelemetry.MetricRecord {
-	converted := toProtoMetrics(metrics)
-	conversationID := fmt.Sprintf("%d", envelope.Scope.ConversationID)
-	if msgID := messageID(envelope.Scope); validator.NotBlank(msgID) {
-		return pkgtelemetry.MessageMetricRecord{
-			MessageID:      msgID,
+func newMetricRecord(record observability.RecordMetric) telemetry.MetricRecord {
+	conversationID := fmt.Sprintf("%d", record.Scope.ConversationScopeID())
+	if record.Scope.ScopeType() == observability.ScopeMessage {
+		return telemetry.MessageMetricRecord{
+			MessageID:      record.Scope.MessageScopeID(),
 			ConversationID: conversationID,
-			Metrics:        converted,
-			Time:           occurredAt(envelope),
+			Metrics:        record.Metrics,
+			Time:           occurredAt(record.OccurredAt),
 		}
 	}
-	return pkgtelemetry.ConversationMetricRecord{
+	return telemetry.ConversationMetricRecord{
 		ConversationID: conversationID,
-		Metrics:        converted,
-		Time:           occurredAt(envelope),
+		Metrics:        record.Metrics,
+		Time:           occurredAt(record.OccurredAt),
 	}
 }
 
-func toProtoMetrics(metrics []observability.Metric) []*protos.Metric {
-	converted := make([]*protos.Metric, 0, len(metrics))
-	for _, metric := range metrics {
-		converted = append(converted, &protos.Metric{
-			Name:        metric.Name,
-			Value:       metric.Value,
-			Description: metric.Description,
-		})
-	}
-	return converted
-}
-
-func eventData(envelope observability.Envelope) map[string]string {
-	data := make(map[string]string, len(envelope.Attributes)+len(envelope.Data))
-	for key, value := range envelope.Attributes {
+func eventData(attributes observability.Attributes) map[string]string {
+	data := make(map[string]string, len(attributes))
+	for key, value := range attributes {
 		data[key] = value
-	}
-	for key, value := range envelope.Data {
-		data[key] = fmt.Sprintf("%v", value)
 	}
 	return data
 }
 
 func messageID(scope observability.Scope) string {
-	// pkg/telemetry still names this field MessageID; observability uses ContextID.
-	return scope.ContextID
+	return scope.ContextID()
 }
 
-func occurredAt(envelope observability.Envelope) time.Time {
-	if !envelope.OccurredAt.IsZero() {
-		return envelope.OccurredAt
+func occurredAt(at time.Time) time.Time {
+	if !at.IsZero() {
+		return at
 	}
-	return envelope.ReceivedAt
+	return time.Now()
 }
 
 func cloneOptions(options map[string]interface{}) map[string]interface{} {

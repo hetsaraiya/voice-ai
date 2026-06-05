@@ -17,13 +17,9 @@ import (
 type Notification struct {
 	ID         string
 	Event      observability.EventName
-	Category   observability.Category
-	Level      observability.Level
-	Outcome    observability.Outcome
-	Title      string
+	Component  observability.ComponentName
 	Scope      observability.Scope
 	Attributes observability.Attributes
-	Data       observability.Data
 	OccurredAt time.Time
 }
 
@@ -31,7 +27,7 @@ type Notifier interface {
 	Notify(ctx context.Context, notification Notification) error
 }
 
-type Selector func(envelope observability.Envelope) bool
+type Selector func(record observability.RecordEvent) bool
 
 type Config struct {
 	Notifier Notifier
@@ -54,39 +50,27 @@ func New(cfg Config) observability.Collector {
 	return &Collector{notifier: cfg.Notifier, selector: selector}
 }
 
-func (c *Collector) Collect(ctx context.Context, envelope observability.Envelope) error {
-	if !c.selector(envelope) {
+func (c *Collector) Collect(ctx context.Context, record observability.Record) error {
+	event, ok := record.(observability.RecordEvent)
+	if !ok || !c.selector(event) {
 		return nil
 	}
 	return c.notifier.Notify(ctx, Notification{
-		ID:         envelope.ID,
-		Event:      envelope.Name,
-		Category:   envelope.Category,
-		Level:      envelope.Level,
-		Outcome:    envelope.Outcome,
-		Title:      envelope.Title,
-		Scope:      envelope.Scope,
-		Attributes: envelope.Attributes.Clone(),
-		Data:       envelope.Data.Clone(),
-		OccurredAt: envelope.OccurredAt,
+		ID:         event.ID,
+		Event:      event.Event,
+		Component:  event.Component,
+		Scope:      event.Scope,
+		Attributes: event.Attributes.Clone(),
+		OccurredAt: event.OccurredAt,
 	})
 }
 
-func (c *Collector) Shutdown(context.Context) error {
+func (c *Collector) Close(context.Context) error {
 	return nil
 }
 
-func DefaultSelector(envelope observability.Envelope) bool {
-	if envelope.Kind != observability.RecordKindEvent {
-		return false
-	}
-	if envelope.Level == observability.LevelError || envelope.Level == observability.LevelFatal {
-		return true
-	}
-	if envelope.Outcome == observability.OutcomeFailure {
-		return true
-	}
-	switch envelope.Name {
+func DefaultSelector(record observability.RecordEvent) bool {
+	switch record.Event {
 	case observability.CallFailed,
 		observability.ConversationFailed,
 		observability.ConversationError,

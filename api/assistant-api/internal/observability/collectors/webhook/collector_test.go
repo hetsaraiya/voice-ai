@@ -42,36 +42,22 @@ func TestCollector_SendsWebhookEventPayload(t *testing.T) {
 		}),
 	}})
 
-	payload := map[string]interface{}{"status": "ringing", "callId": "call-1"}
-	err := collector.Collect(context.Background(), observability.Envelope{
-		Kind:     observability.RecordKindEvent,
-		Name:     observability.CallRinging,
-		Category: observability.CategoryCall,
-		Record: observability.WebhookEvent{
-			BaseRecord: observability.BaseRecord{RecordName: observability.CallRinging},
-			Payload:    payload,
+	err := collector.Collect(context.Background(), observability.RecordWebhook{
+		CommonRecord: observability.CommonRecord{
+			ID: "evt-1",
+			Scope: observability.ConversationScope{
+				AssistantScope: observability.AssistantScope{AssistantID: 10},
+				ConversationID: 20,
+			},
 		},
+		Event:   observability.CallRinging,
+		Payload: map[string]interface{}{"status": "ringing", "callId": "call-1"},
 	})
 	if err != nil {
-		t.Fatalf("Collect returned error: %v", err)
+		t.Fatalf("CollectWebhook returned error: %v", err)
 	}
 	if got["status"] != "ringing" || got["callId"] != "call-1" {
 		t.Fatalf("unexpected payload: %+v", got)
-	}
-}
-
-func TestCollector_IgnoresNormalEventRecord(t *testing.T) {
-	collector := New(Config{Webhooks: []*internal_assistant_entity.AssistantWebhook{
-		testWebhook(1, []string{observability.CallRinging.String()}, map[string]interface{}{WebhookOptionHTTPURLKey: "https://example.com/webhook"}),
-	}})
-
-	err := collector.Collect(context.Background(), observability.Envelope{
-		Kind:   observability.RecordKindEvent,
-		Name:   observability.CallRinging,
-		Record: observability.CallEvent{BaseRecord: observability.BaseRecord{RecordName: observability.CallRinging}},
-	})
-	if err != nil {
-		t.Fatalf("Collect returned error: %v", err)
 	}
 }
 
@@ -80,21 +66,16 @@ func TestCollector_IgnoresUnallowedWebhookEvent(t *testing.T) {
 		testWebhook(1, []string{observability.CallFailed.String()}, map[string]interface{}{WebhookOptionHTTPURLKey: "https://example.com/webhook"}),
 	}})
 
-	err := collector.Collect(context.Background(), observability.Envelope{
-		Kind: observability.RecordKindEvent,
-		Name: observability.CallRinging,
-		Record: observability.WebhookEvent{
-			BaseRecord: observability.BaseRecord{RecordName: observability.CallRinging},
-			Payload:    map[string]interface{}{"status": "ringing"},
-		},
+	err := collector.Collect(context.Background(), observability.RecordWebhook{
+		Event: observability.CallRinging,
 	})
 	if err != nil {
-		t.Fatalf("Collect returned error: %v", err)
+		t.Fatalf("CollectWebhook returned error: %v", err)
 	}
 }
 
 func TestCollector_ReturnsHTTPError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -103,13 +84,9 @@ func TestCollector_ReturnsHTTPError(t *testing.T) {
 		testWebhook(1, []string{observability.CallFailed.String()}, map[string]interface{}{WebhookOptionHTTPURLKey: server.URL}),
 	}})
 
-	err := collector.Collect(context.Background(), observability.Envelope{
-		Kind: observability.RecordKindEvent,
-		Name: observability.CallFailed,
-		Record: observability.WebhookEvent{
-			BaseRecord: observability.BaseRecord{RecordName: observability.CallFailed},
-			Payload:    map[string]interface{}{"status": "failed"},
-		},
+	err := collector.Collect(context.Background(), observability.RecordWebhook{
+		Event:   observability.CallFailed,
+		Payload: map[string]interface{}{"status": "failed"},
 	})
 	if err == nil {
 		t.Fatal("expected HTTP error")

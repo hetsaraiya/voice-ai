@@ -15,15 +15,13 @@ import (
 )
 
 type Usage struct {
-	ID            string
-	Scope         observability.Scope
-	Component     string
-	Provider      string
-	UsageCategory string
-	Duration      time.Duration
-	Attributes    observability.Attributes
-	OccurredAt    time.Time
-	ReceivedAt    time.Time
+	ID         string
+	Scope      observability.Scope
+	Component  observability.ComponentName
+	Provider   string
+	Duration   time.Duration
+	Attributes observability.Attributes
+	OccurredAt time.Time
 }
 
 type Publisher interface {
@@ -41,27 +39,22 @@ func New(publisher Publisher) observability.Collector {
 	return &Collector{publisher: publisher}
 }
 
-func (c *Collector) Collect(ctx context.Context, envelope observability.Envelope) error {
-	if envelope.Name != observability.UsageRecorded {
-		return nil
-	}
-	record, ok := envelope.Record.(observability.UsageEvent)
+func (c *Collector) Collect(ctx context.Context, record observability.Record) error {
+	usage, ok := record.(observability.RecordUsage)
 	if !ok {
 		return nil
 	}
 	return c.publisher.PublishUsage(ctx, Usage{
-		ID:            envelope.ID,
-		Scope:         envelope.Scope,
-		Component:     record.Component,
-		Provider:      record.Provider,
-		UsageCategory: record.UsageCategory,
-		Duration:      record.Duration,
-		Attributes:    envelope.Attributes.Clone(),
-		OccurredAt:    envelope.OccurredAt,
-		ReceivedAt:    envelope.ReceivedAt,
+		ID:         usage.ID,
+		Scope:      usage.Scope,
+		Component:  usage.Component,
+		Provider:   usage.Provider,
+		Duration:   usage.Duration,
+		Attributes: usage.Attributes.Clone(),
+		OccurredAt: usage.OccurredAt,
 	})
 }
 
-func (c *Collector) Shutdown(context.Context) error {
+func (c *Collector) Close(context.Context) error {
 	return nil
 }

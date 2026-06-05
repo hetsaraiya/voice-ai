@@ -6,7 +6,11 @@
 
 package observability
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/rapidaai/protos"
+)
 
 func TestConversationMetricNames_MirrorCurrentImplementation(t *testing.T) {
 	tests := []struct {
@@ -82,7 +86,7 @@ func TestClientMetadata_MirrorCurrentImplementation(t *testing.T) {
 		"8000",
 	)
 
-	expected := []Metadata{
+	expected := []*protos.Metadata{
 		{Key: ClientDirection, Value: "inbound"},
 		{Key: ClientChannel, Value: "sip"},
 		{Key: ClientPhone, Value: "+14155550100"},
@@ -97,7 +101,7 @@ func TestClientMetadata_MirrorCurrentImplementation(t *testing.T) {
 		t.Fatalf("expected %d metadata values, got %d", len(expected), len(metadata))
 	}
 	for i, item := range expected {
-		if metadata[i] != item {
+		if metadata[i].Key != item.Key || metadata[i].Value != item.Value {
 			t.Fatalf("metadata[%d] expected %+v, got %+v", i, item, metadata[i])
 		}
 	}
@@ -158,7 +162,7 @@ func TestClientMetadata_SkipsBlankValues(t *testing.T) {
 
 func TestDisconnectMetadata_MirrorCurrentImplementation(t *testing.T) {
 	metadata := DisconnectMetadata("remote_hangup", "Normal Clearing", "Q.850;cause=16")
-	expected := []Metadata{
+	expected := []*protos.Metadata{
 		{Key: MetadataDisconnectReason, Value: "remote_hangup"},
 		{Key: MetadataDisconnectText, Value: "Normal Clearing"},
 		{Key: MetadataDisconnectRawReason, Value: "Q.850;cause=16"},
@@ -168,7 +172,7 @@ func TestDisconnectMetadata_MirrorCurrentImplementation(t *testing.T) {
 		t.Fatalf("expected %d metadata values, got %d", len(expected), len(metadata))
 	}
 	for i, item := range expected {
-		if metadata[i] != item {
+		if metadata[i].Key != item.Key || metadata[i].Value != item.Value {
 			t.Fatalf("metadata[%d] expected %+v, got %+v", i, item, metadata[i])
 		}
 	}

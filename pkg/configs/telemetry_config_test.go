@@ -88,3 +88,21 @@ func TestTelemetryConfig_ToMap_ByType(t *testing.T) {
 		t.Fatalf("api_key = %v, want abc", m["api_key"])
 	}
 }
+
+func TestTelemetryConfig_ToMap_OpenSearchConnectionConfig(t *testing.T) {
+	cfg := &TelemetryConfig{
+		TelemetryType: string(OPENSEARCH),
+		OpenSearch: &OpenSearchConfig{
+			Schema: "http",
+			Host:   "opensearch",
+		},
+	}
+
+	m := cfg.ToMap()
+	if m == nil {
+		t.Fatalf("ToMap returned nil")
+	}
+	if m["schema"] != "http" || m["host"] != "opensearch" {
+		t.Fatalf("unexpected opensearch map: %+v", m)
+	}
+}

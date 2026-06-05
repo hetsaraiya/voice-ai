@@ -23,6 +23,9 @@ import (
 	internal_end_of_speech "github.com/rapidaai/api/assistant-api/internal/end_of_speech"
 	internal_conversation_entity "github.com/rapidaai/api/assistant-api/internal/entity/conversations"
 	internal_llm "github.com/rapidaai/api/assistant-api/internal/llm"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
+	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
+	observability_collector_conversationdb "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationdb"
 	observe "github.com/rapidaai/api/assistant-api/internal/observe"
 	internal_transformer "github.com/rapidaai/api/assistant-api/internal/transformer"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
@@ -810,99 +813,15 @@ func (h requestorDispatchHandler) HandleMessageCreate(ctx context.Context, p int
 		h.r.logger.Errorf("Error in onAddMessage: %v", err)
 	}
 }
-func (h requestorDispatchHandler) HandleConversationMetric(ctx context.Context, p internal_type.ConversationMetricPacket) {
-	if len(p.Metrics) > 0 {
-		_ = h.r.Notify(ctx, &protos.ConversationMetric{
-			AssistantConversationId: h.r.Conversation().Id,
-			Metrics:                 p.Metrics,
-		})
-		if h.r.observer != nil {
-			h.r.observer.EmitMetric(ctx, p.Metrics)
+
+func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Context, p internal_type.ObservabilityRecordPacket) {
+	if h.r.observabilityRecorder != nil {
+		if err := h.r.observabilityRecorder.Record(ctx, p.GetRecord()); err != nil {
+			h.r.logger.Tracef(ctx, "observability: failed to record packet: %v", err)
 		}
 	}
 }
-func (h requestorDispatchHandler) HandleConversationMetadata(ctx context.Context, p internal_type.ConversationMetadataPacket) {
-	if len(p.Metadata) > 0 {
-		for _, item := range p.Metadata {
-			if item == nil {
-				continue
-			}
-			h.r.metadata[item.Key] = item.Value
-		}
-		if err := h.r.onAddMetadata(ctx, p.Metadata...); err != nil {
-			h.r.logger.Errorf("Error in onAddMetadata: %v", err)
-		}
-	}
-}
-func (h requestorDispatchHandler) HandleUserMessageMetric(ctx context.Context, p internal_type.UserMessageMetricPacket) {
-	if len(p.Metrics) > 0 {
-		_ = h.r.Notify(ctx, &protos.ConversationMetric{
-			AssistantConversationId: h.r.Conversation().Id,
-			Metrics:                 p.Metrics,
-		})
-		if p.ContextID == "" {
-			p.ContextID = h.r.GetID()
-		}
-		if err := h.r.onAddMessageMetric(ctx, "user", p.ContextID, p.Metrics); err != nil {
-			h.r.logger.Errorf("Error in onMessageMetric: %v", err)
-		}
-		if h.r.observer != nil {
-			h.r.observer.MetricCollectors().Collect(ctx, observe.MessageMetricRecord{
-				MessageID:      p.ContextID,
-				ConversationID: fmt.Sprintf("%d", h.r.Conversation().Id),
-				Metrics:        p.Metrics,
-				Time:           time.Now(),
-			})
-		}
-	}
-}
-func (h requestorDispatchHandler) HandleAssistantMessageMetric(ctx context.Context, p internal_type.AssistantMessageMetricPacket) {
-	if len(p.Metrics) > 0 {
-		_ = h.r.Notify(ctx, &protos.ConversationMetric{
-			AssistantConversationId: h.r.Conversation().Id,
-			Metrics:                 p.Metrics,
-		})
-		if err := h.r.onAddMessageMetric(ctx, "assistant", p.ContextID, p.Metrics); err != nil {
-			h.r.logger.Errorf("Error in onMessageMetric: %v", err)
-		}
-		if h.r.observer != nil {
-			h.r.observer.MetricCollectors().Collect(ctx, observe.MessageMetricRecord{
-				MessageID:      p.ContextID,
-				ConversationID: fmt.Sprintf("%d", h.r.Conversation().Id),
-				Metrics:        p.Metrics,
-				Time:           time.Now(),
-			})
-		}
-	}
-}
-func (h requestorDispatchHandler) HandleUserMessageMetadata(ctx context.Context, p internal_type.UserMessageMetadataPacket) {
-	if len(p.Metadata) > 0 {
-		_ = h.r.Notify(ctx, &protos.ConversationMetadata{
-			AssistantConversationId: h.r.Conversation().Id,
-			Metadata:                p.Metadata,
-		})
-		if p.ContextID == "" {
-			p.ContextID = h.r.GetID()
-		}
-		if err := h.r.onAddMessageMetadata(ctx, "user", p.ContextID, p.Metadata); err != nil {
-			h.r.logger.Errorf("Error in onAddMessageMetadata: %v", err)
-		}
-	}
-}
-func (h requestorDispatchHandler) HandleAssistantMessageMetadata(ctx context.Context, p internal_type.AssistantMessageMetadataPacket) {
-	if len(p.Metadata) > 0 {
-		_ = h.r.Notify(ctx, &protos.ConversationMetadata{
-			AssistantConversationId: h.r.Conversation().Id,
-			Metadata:                p.Metadata,
-		})
-		if p.ContextID == "" {
-			p.ContextID = h.r.GetID()
-		}
-		if err := h.r.onAddMessageMetadata(ctx, "assistant", p.ContextID, p.Metadata); err != nil {
-			h.r.logger.Errorf("Error in onAddMessageMetadata: %v", err)
-		}
-	}
-}
+
 func (h requestorDispatchHandler) HandleToolLogCreate(ctx context.Context, p internal_type.ToolLogCreatePacket) {
 	if !validator.NotBlank(p.ToolID) {
 		h.r.logger.Errorf("tool logging with empty id ignore")
@@ -941,30 +860,7 @@ func (h requestorDispatchHandler) HandleHTTPLogCreate(ctx context.Context, p int
 		h.r.logger.Errorf("error logging http execution: %v", err)
 	}
 }
-func (h requestorDispatchHandler) HandleConversationEvent(ctx context.Context, p internal_type.ConversationEventPacket) {
-	contextID := p.ContextID
-	if contextID == "" {
-		contextID = h.r.GetID()
-	}
-	if p.Time.IsZero() {
-		p.Time = time.Now()
-	}
-	_ = h.r.Notify(ctx, &protos.ConversationEvent{
-		Id:   contextID,
-		Name: p.Name,
-		Data: p.Data,
-		Time: timestamppb.New(p.Time),
-	})
-	if h.r.observer != nil {
-		h.r.observer.EventCollectors().Collect(ctx, observe.EventRecord{
-			ConversationID: h.r.observer.Meta().AssistantConversationID,
-			MessageID:      contextID,
-			Name:           p.Name,
-			Data:           p.Data,
-			Time:           p.Time,
-		})
-	}
-}
+
 func (h requestorDispatchHandler) HandleInitializeAssistant(ctx context.Context, p internal_type.InitializeAssistantPacket) {
 	assistant, err := h.r.GetAssistant(ctx, h.r.Auth(), p.Config.Assistant.AssistantId, p.Config.Assistant.Version)
 	if err != nil {
@@ -1029,16 +925,22 @@ func (h requestorDispatchHandler) HandleInitializeConversation(ctx context.Conte
 		internal_type.InitializeTelemetryPacket{ContextID: vl.ContextID})
 }
 func (h requestorDispatchHandler) HandleInitializeSessionRuntime(ctx context.Context, p internal_type.InitializeSessionRuntimePacket) {
-	if recordingExecutor, err := internal_audio_recorder.GetConversationRecordingExecutor(p.ContextID, h.r.OnPacket); err != nil {
+	recordingExecutor, err := internal_audio_recorder.GetConversationRecordingExecutor(p.ContextID, h.r.OnPacket)
+	if err != nil {
 		h.r.logger.Tracef(ctx, "failed to initialize audio recorder: %+v", err)
-	} else {
-		h.r.conversationRecordingExecutor = recordingExecutor
-		h.r.OnPacket(ctx, internal_type.ConversationEventPacket{
-			Name: observe.ComponentRecording,
-			Data: map[string]string{observe.DataType: observe.EventRecordingStarted},
-			Time: time.Now(),
+		h.r.OnPacket(ctx, internal_type.InitializationFailedPacket{
+			ContextID: p.ContextID,
+			Stage:     internal_type.InitializationStageRecording,
+			Error:     err,
 		})
+		return
 	}
+	h.r.conversationRecordingExecutor = recordingExecutor
+	h.r.OnPacket(ctx, internal_type.ConversationEventPacket{
+		Name: observe.ComponentRecording,
+		Data: map[string]string{observe.DataType: observe.EventRecordingStarted},
+		Time: time.Now(),
+	})
 	for _, analysis := range h.r.assistant.AssistantAnalyses {
 		exec, err := internal_analysis.NewExecutor(h.r.logger, ctx, analysis, h.r, h.r)
 		if err != nil {
@@ -1047,7 +949,7 @@ func (h requestorDispatchHandler) HandleInitializeSessionRuntime(ctx context.Con
 				Stage:     internal_type.InitializationStageAnalysis,
 				Error:     err,
 			})
-			return
+			continue
 		}
 		h.r.assistantAnalyseExecutors = append(h.r.assistantAnalyseExecutors, exec)
 	}
@@ -1060,13 +962,12 @@ func (h requestorDispatchHandler) HandleInitializeSessionRuntime(ctx context.Con
 				Stage:     internal_type.InitializationStageWebhook,
 				Error:     err,
 			})
-			return
+			continue
 		}
 		h.r.assistantWebhookExecutors = append(h.r.assistantWebhookExecutors, exec)
 	}
 
-	if h.r.assistant.AssistantAuthentication != nil &&
-		h.r.IsConditionAllowed(h.r.assistant.AssistantAuthentication.GetOptions(), "authentication.condition") {
+	if h.r.assistant.AssistantAuthentication != nil {
 		authExec, err := internal_authentication.NewExecutor(h.r.logger, ctx, h.r.assistant.AssistantAuthentication, h.r, h.r)
 		if err != nil {
 			h.r.OnPacket(ctx, internal_type.InitializationFailedPacket{
@@ -1120,6 +1021,7 @@ func (h requestorDispatchHandler) HandleInitializeSessionRuntime(ctx context.Con
 	}
 }
 func (h requestorDispatchHandler) HandleInitializeAuthentication(ctx context.Context, p internal_type.InitializeAuthenticationPacket) {
+	// authentication is optional, if not configured, skip authentication and return success immediately
 	if h.r.authenticationExecutor == nil {
 		h.r.OnPacket(ctx, internal_type.SessionAuthenticationSucceededPacket{
 			ContextID:      p.ContextID,
@@ -1130,9 +1032,25 @@ func (h requestorDispatchHandler) HandleInitializeAuthentication(ctx context.Con
 	}
 	source := variable.NewCommunicationSource(h.r)
 	registry := internal_namespace.NewDefaultRegistry()
+
+	// check if the authentication condition is satisfied before executing authentication, if not satisfied return authentication failed immediately
+	if !h.r.IsConditionAllowed(h.r.authenticationExecutor.Options(), "authentication.condition") {
+		h.r.OnPacket(ctx, internal_type.SessionAuthenticationSucceededPacket{
+			ContextID:      p.ContextID,
+			Authenticated:  false,
+			Initialization: p.Config,
+		})
+		return
+	}
+
+	// for authentication if something is wrong
 	args, err := h.r.authenticationExecutor.Arguments()
 	if err != nil {
-		h.r.logger.Errorf("failed to get authentication arguments: %v", err)
+		h.r.OnPacket(ctx, internal_type.SessionAuthenticationSucceededPacket{
+			ContextID:      p.ContextID,
+			Authenticated:  false,
+			Initialization: p.Config,
+		})
 		return
 	}
 	h.r.OnPacket(ctx,
@@ -1140,12 +1058,14 @@ func (h requestorDispatchHandler) HandleInitializeAuthentication(ctx context.Con
 			ContextID:      p.ContextID,
 			Arguments:      registry.Apply(args, source, variable.ResolveContext{}),
 			Initialization: p.Config,
-		}, internal_type.ConversationEventPacket{
+		},
+		internal_type.ConversationEventPacket{
 			ContextID: p.ContextID,
 			Name:      observe.ComponentSession,
 			Data:      map[string]string{"type": "authentication_started"},
 			Time:      time.Now(),
-		})
+		},
+	)
 }
 func (h requestorDispatchHandler) HandleExecuteSessionAuthentication(ctx context.Context, p internal_type.ExecuteSessionAuthenticationPacket) {
 	if err := h.r.authenticationExecutor.Execute(ctx, p); err != nil {
@@ -1823,7 +1743,27 @@ func (h requestorDispatchHandler) HandleInitializationCompleted(ctx context.Cont
 
 func (h requestorDispatchHandler) HandleInitializeTelemetry(ctx context.Context, p internal_type.InitializeTelemetryPacket) {
 	defer h.r.OnPacket(ctx, internal_type.InitializeOutboundDispatcherPacket{ContextID: p.ContextID})
-	h.r.initializeCollectors(ctx)
+	configuredCollectors := make([]observability.Collector, 0)
+	// adding env collectors
+	configuredCollectors = append(configuredCollectors, collectors.NewWithEnv(ctx, h.r.logger, h.r.config)...)
+
+	// adding assistant collectors
+	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantTelemetry(ctx, h.r.logger, h.r.assistant.AssistantTelemetryProviders)...)
+
+	// adding webhook collectors
+	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantWebhook(h.r.logger, h.r.assistant.AssistantWebhooks)...)
+
+	// adding conversationdb collector
+	configuredCollectors = append(configuredCollectors, observability_collector_conversationdb.New(observability_collector_conversationdb.Config{
+		Logger:              h.r.logger,
+		ConversationService: h.r.conversationService,
+	}))
+
+	h.r.observabilityRecorder = observability.New(
+		observability.WithLogger(h.r.logger),
+		observability.WithAuth(h.r.auth),
+		observability.WithCollectors(configuredCollectors...),
+	)
 }
 
 func (h requestorDispatchHandler) HandleInitializeOutboundDispatcher(ctx context.Context, p internal_type.InitializeOutboundDispatcherPacket) {
@@ -1929,16 +1869,30 @@ func (h requestorDispatchHandler) HandleFinalizeSessionRuntime(ctx context.Conte
 
 }
 func (h requestorDispatchHandler) HandleFinalizeConversation(ctx context.Context, p internal_type.FinalizeConversationPacket) {
-	if h.r.observer != nil {
-		h.r.observer.EventCollectors().Collect(ctx, observe.EventRecord{
-			ConversationID: h.r.observer.Meta().AssistantConversationID,
-			MessageID:      h.r.GetID(),
-			Name:           observe.ComponentSession,
-			Data:           map[string]string{observe.DataType: observe.EventDisconnected, observe.DataMessages: fmt.Sprintf("%d", len(h.r.GetHistories()))},
-			Time:           time.Now(),
-		})
+	// if h.r.observer != nil {
+	// 	h.r.observer.EventCollectors().Collect(ctx, observe.EventRecord{
+	// 		ConversationID: h.r.observer.Meta().AssistantConversationID,
+	// 		MessageID:      h.r.GetID(),
+	// 		Name:           observe.ComponentSession,
+	// 		Data:           map[string]string{observe.DataType: observe.EventDisconnected, observe.DataMessages: fmt.Sprintf("%d", len(h.r.GetHistories()))},
+	// 		Time:           time.Now(),
+	// 	})
+	// }
+	for _, analysis := range h.r.assistantAnalyseExecutors {
+		if err := analysis.Close(ctx); err != nil {
+			h.r.logger.Errorf("close analysis executor: %v", err)
+		}
 	}
-	h.r.shutdownCollectors(ctx)
+	for _, webhook := range h.r.assistantWebhookExecutors {
+		if err := webhook.Close(ctx); err != nil {
+			h.r.logger.Errorf("close webhook executor: %v", err)
+		}
+	}
+	if h.r.authenticationExecutor != nil {
+		if err := h.r.authenticationExecutor.Close(ctx); err != nil {
+			h.r.logger.Errorf("close authentication executor: %v", err)
+		}
+	}
 	h.r.OnPacket(ctx, internal_type.FinalizeAssistantPacket{ContextID: p.ContextID})
 }
 func (h requestorDispatchHandler) HandleFinalizeAssistant(ctx context.Context, p internal_type.FinalizeAssistantPacket) {
@@ -1947,8 +1901,14 @@ func (h requestorDispatchHandler) HandleFinalizeAssistant(ctx context.Context, p
 			h.r.logger.Errorf("failed to close assistant executor: %v", err)
 		}
 	}
+	if h.r.observabilityRecorder != nil {
+		if err := h.r.observabilityRecorder.Close(ctx); err != nil {
+			h.r.logger.Errorf("failed to close observability recorder: %v", err)
+		}
+	}
 	h.r.OnPacket(ctx, internal_type.FinalizationCompletedPacket{ContextID: p.ContextID})
 }
+
 func (h requestorDispatchHandler) HandleFinalizationCompleted(ctx context.Context, p internal_type.FinalizationCompletedPacket) {
 	if err := h.r.sessionLifecycle.Transition(adapter_lifecycle.EventDisconnectCompleted); err != nil {
 		h.r.logger.Tracef(ctx, "session lifecycle disconnect-completed transition ignored: %v", err)

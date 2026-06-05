@@ -6,7 +6,10 @@
 
 package observability
 
-import "github.com/rapidaai/pkg/validator"
+import (
+	"github.com/rapidaai/pkg/validator"
+	"github.com/rapidaai/protos"
+)
 
 // Conversation metric names mirror the current observe/type_enums names.
 const (
@@ -139,8 +142,8 @@ const (
 )
 
 // ClientMetadata returns standardized client metadata for a conversation.
-func ClientMetadata(phone, assistantPhone, direction, provider, providerCallID, contextID, codec, sampleRate string) []Metadata {
-	metadata := make([]Metadata, 0, 8)
+func ClientMetadata(phone, assistantPhone, direction, provider, providerCallID, contextID, codec, sampleRate string) []*protos.Metadata {
+	metadata := make([]*protos.Metadata, 0, 8)
 	metadata = appendMetadata(metadata, MetadataClientDirection, direction)
 	metadata = appendMetadata(metadata, MetadataClientChannel, provider)
 	metadata = appendMetadata(metadata, MetadataClientPhone, phone)
@@ -153,8 +156,8 @@ func ClientMetadata(phone, assistantPhone, direction, provider, providerCallID, 
 }
 
 // DisconnectMetadata returns standardized terminal disconnect metadata.
-func DisconnectMetadata(reason, text, rawReason string) []Metadata {
-	metadata := make([]Metadata, 0, 3)
+func DisconnectMetadata(reason, text, rawReason string) []*protos.Metadata {
+	metadata := make([]*protos.Metadata, 0, 3)
 	metadata = appendMetadata(metadata, MetadataDisconnectReason, reason)
 	metadata = appendMetadata(metadata, MetadataDisconnectText, text)
 	metadata = appendMetadata(metadata, MetadataDisconnectRawReason, rawReason)
@@ -162,17 +165,17 @@ func DisconnectMetadata(reason, text, rawReason string) []Metadata {
 }
 
 // CallStatusMetric returns the current CONVERSATION_STATUS metric shape.
-func CallStatusMetric(status, reason string) []Metric {
-	return []Metric{{
+func CallStatusMetric(status, reason string) []*protos.Metric {
+	return []*protos.Metric{{
 		Name:        MetricConversationStatus,
 		Value:       status,
 		Description: reason,
 	}}
 }
 
-func appendMetadata(metadata []Metadata, key, value string) []Metadata {
+func appendMetadata(metadata []*protos.Metadata, key, value string) []*protos.Metadata {
 	if validator.NotBlank(value) {
-		return append(metadata, Metadata{Key: key, Value: value})
+		return append(metadata, &protos.Metadata{Key: key, Value: value})
 	}
 	return metadata
 }

@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-playground/validator/v10"
+	validator "github.com/go-playground/validator/v10"
 	"github.com/rapidaai/config"
 	"github.com/rapidaai/pkg/configs"
 	"github.com/spf13/viper"
@@ -67,17 +67,23 @@ type AudioSocketConfig struct {
 	Port int    `mapstructure:"port"`
 }
 
+type ObservabilityConfig struct {
+	Provider   string                    `mapstructure:"provider"`
+	OpenSearch *configs.OpenSearchConfig `mapstructure:"opensearch"`
+}
+
 type AssistantConfig struct {
-	config.AppConfig  `mapstructure:",squash"`
-	PostgresConfig    configs.PostgresConfig    `mapstructure:"postgres" validate:"required"`
-	RedisConfig       configs.RedisConfig       `mapstructure:"redis" validate:"required"`
-	OpenSearchConfig  *configs.OpenSearchConfig `mapstructure:"opensearch"`
-	TelemetryConfig   *configs.TelemetryConfig  `mapstructure:"telemetry"`
-	WeaviateConfig    configs.WeaviateConfig    `mapstructure:"weaviate"`
-	AssetStoreConfig  configs.AssetStoreConfig  `mapstructure:"asset_store" validate:"required"`
-	SIPConfig         *SIPConfig                `mapstructure:"sip"`
-	AudioSocketConfig *AudioSocketConfig        `mapstructure:"audiosocket"`
-	WebRTCConfig      *WebRTCConfig             `mapstructure:"webrtc"`
+	config.AppConfig    `mapstructure:",squash"`
+	PostgresConfig      configs.PostgresConfig    `mapstructure:"postgres" validate:"required"`
+	RedisConfig         configs.RedisConfig       `mapstructure:"redis" validate:"required"`
+	OpenSearchConfig    *configs.OpenSearchConfig `mapstructure:"opensearch"`
+	TelemetryConfig     *configs.TelemetryConfig  `mapstructure:"telemetry"`
+	ObservabilityConfig *ObservabilityConfig      `mapstructure:"observability"`
+	WeaviateConfig      configs.WeaviateConfig    `mapstructure:"weaviate"`
+	AssetStoreConfig    configs.AssetStoreConfig  `mapstructure:"asset_store" validate:"required"`
+	SIPConfig           *SIPConfig                `mapstructure:"sip"`
+	AudioSocketConfig   *AudioSocketConfig        `mapstructure:"audiosocket"`
+	WebRTCConfig        *WebRTCConfig             `mapstructure:"webrtc"`
 }
 
 // reading config and intializing configs for application
@@ -112,11 +118,6 @@ func GetApplicationConfig(v *viper.Viper) (*AssistantConfig, error) {
 		return nil, err
 	}
 
-	// If OpenSearch config is missing any required connection field, treat as not configured
-	if config.OpenSearchConfig != nil &&
-		(config.OpenSearchConfig.Host == "" || config.OpenSearchConfig.Schema == "") {
-		config.OpenSearchConfig = nil
-	}
 	// valdating the app config
 	validate := validator.New()
 	err = validate.Struct(&config)

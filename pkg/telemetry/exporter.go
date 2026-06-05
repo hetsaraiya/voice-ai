@@ -11,7 +11,7 @@ import "context"
 type Exporter interface {
 	ExportEvent(ctx context.Context, meta SessionMeta, rec EventRecord) error
 	ExportMetric(ctx context.Context, meta SessionMeta, rec MetricRecord) error
-	Shutdown(ctx context.Context) error
+	Close(ctx context.Context) error
 }
 
 // ExporterType enumerates supported telemetry exporter backends.

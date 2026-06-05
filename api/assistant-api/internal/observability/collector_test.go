@@ -12,28 +12,35 @@ import (
 	"testing"
 )
 
-func TestCollectors_CollectFansOutAndJoinsErrors(t *testing.T) {
+func TestCollectors_CollectMetric_FansOutAndJoinsErrors(t *testing.T) {
 	collectorErr := errors.New("collector failed")
 	first := &recordingCollector{}
-	second := &recordingCollector{err: collectorErr}
+	second := &recordingCollector{collectErr: collectorErr}
 	fanout := NewCollectors(first, nil, second)
 
-	err := fanout.Collect(context.Background(), Envelope{ID: "evt-1", Name: CallRinging})
+	err := fanout.Collect(context.Background(), RecordMetric{
+		CommonRecord: CommonRecord{
+			Scope: ConversationScope{
+				AssistantScope: AssistantScope{AssistantID: 1},
+				ConversationID: 2,
+			},
+		},
+	})
 	if !errors.Is(err, collectorErr) {
 		t.Fatalf("expected collector error, got %v", err)
 	}
-	if len(first.envelopes) != 1 || len(second.envelopes) != 1 {
-		t.Fatalf("expected both collectors to receive envelope, got first=%d second=%d", len(first.envelopes), len(second.envelopes))
+	if len(first.metrics) != 1 || len(second.metrics) != 1 {
+		t.Fatalf("expected both collectors to receive record, got first=%d second=%d", len(first.metrics), len(second.metrics))
 	}
 }
 
-func TestCollectors_ShutdownFansOut(t *testing.T) {
+func TestCollectors_CloseFansOut(t *testing.T) {
 	first := &recordingCollector{}
 	second := &recordingCollector{}
 	fanout := NewCollectors(first, second)
 
-	if err := fanout.Shutdown(context.Background()); err != nil {
-		t.Fatalf("Shutdown returned error: %v", err)
+	if err := fanout.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
 	}
 	if !first.closed || !second.closed {
 		t.Fatalf("expected both collectors to close, got first=%t second=%t", first.closed, second.closed)
@@ -42,28 +49,10 @@ func TestCollectors_ShutdownFansOut(t *testing.T) {
 
 func TestNoopCollector(t *testing.T) {
 	collector := NewCollectors()
-	if err := collector.Collect(context.Background(), Envelope{}); err != nil {
+	if err := collector.Collect(context.Background(), RecordEvent{}); err != nil {
 		t.Fatalf("Collect returned error: %v", err)
 	}
-	if err := collector.Shutdown(context.Background()); err != nil {
-		t.Fatalf("Shutdown returned error: %v", err)
-	}
-}
-
-func TestCollectorFunc(t *testing.T) {
-	var got Envelope
-	collector := CollectorFunc(func(_ context.Context, envelope Envelope) error {
-		got = envelope
-		return nil
-	})
-
-	if err := collector.Collect(context.Background(), Envelope{ID: "evt-1"}); err != nil {
-		t.Fatalf("Collect returned error: %v", err)
-	}
-	if got.ID != "evt-1" {
-		t.Fatalf("expected function collector to receive envelope, got %+v", got)
-	}
-	if err := collector.Shutdown(context.Background()); err != nil {
-		t.Fatalf("Shutdown returned error: %v", err)
+	if err := collector.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
 	}
 }

@@ -26,7 +26,7 @@ type TelemetryConfig struct {
 	GoogleTrace   *TelemetryCloudProviderConfig `mapstructure:"google_trace"`
 	AzureMonitor  *TelemetryCloudProviderConfig `mapstructure:"azure_monitor"`
 	Datadog       *TelemetryDatadogConfig       `mapstructure:"datadog"`
-	OpenSearch    *TelemetryOpenSearchConfig    `mapstructure:"opensearch"`
+	OpenSearch    *OpenSearchConfig             `mapstructure:"opensearch"`
 	Logging       *TelemetryLoggingConfig       `mapstructure:"logging"`
 }
 
@@ -58,10 +58,6 @@ type TelemetryXRayProviderConfig struct {
 	Protocol string `mapstructure:"protocol"`
 	Insecure bool   `mapstructure:"insecure"`
 	Region   string `mapstructure:"region"`
-}
-
-type TelemetryOpenSearchConfig struct {
-	IndexPrefix string `mapstructure:"index_prefix"`
 }
 
 type TelemetryLoggingConfig struct{}
@@ -167,12 +163,6 @@ func (cfg *TelemetryXRayProviderConfig) ToMap() map[string]interface{} {
 		"protocol": cfg.Protocol,
 		"insecure": cfg.Insecure,
 		"region":   cfg.Region,
-	}
-}
-
-func (cfg *TelemetryOpenSearchConfig) ToMap() map[string]interface{} {
-	return map[string]interface{}{
-		"index_prefix": cfg.IndexPrefix,
 	}
 }
 

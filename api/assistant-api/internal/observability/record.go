@@ -9,688 +9,278 @@ package observability
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
+	"github.com/rapidaai/pkg/types"
 	"github.com/rapidaai/pkg/validator"
+	"github.com/rapidaai/protos"
 )
 
-type RecordKind string
+type ScopeType string
 
 const (
-	RecordKindEvent    RecordKind = "event"
-	RecordKindMetric   RecordKind = "metric"
-	RecordKindMetadata RecordKind = "metadata"
+	ScopeAssistant    ScopeType = "assistant"
+	ScopeConversation ScopeType = "conversation"
+	ScopeMessage      ScopeType = "message"
+)
+
+type MessageRole string
+
+const (
+	MessageRoleUser      MessageRole = "user"
+	MessageRoleAssistant MessageRole = "assistant"
 )
 
 type Level string
 
 const (
-	LevelDebug   Level = "debug"
-	LevelInfo    Level = "info"
-	LevelWarning Level = "warning"
-	LevelError   Level = "error"
-	LevelFatal   Level = "fatal"
-)
-
-type Outcome string
-
-const (
-	OutcomeUnknown   Outcome = ""
-	OutcomeSuccess   Outcome = "success"
-	OutcomeFailure   Outcome = "failure"
-	OutcomeCancelled Outcome = "cancelled"
-	OutcomeSkipped   Outcome = "skipped"
-)
-
-// AttributeKey names are intentionally aligned with the current observe data
-// keys where those names are already clear.
-type AttributeKey string
-
-const (
-	AttrComponent      AttributeKey = "component"
-	AttrType           AttributeKey = "type"
-	AttrProvider       AttributeKey = "provider"
-	AttrDirection      AttributeKey = "direction"
-	AttrReason         AttributeKey = "reason"
-	AttrError          AttributeKey = "error"
-	AttrStage          AttributeKey = "stage"
-	AttrDID            AttributeKey = "did"
-	AttrCaller         AttributeKey = "caller"
-	AttrCallee         AttributeKey = "callee"
-	AttrContextID      AttributeKey = "context_id"
-	AttrProviderCallID AttributeKey = "provider_call_id"
-	AttrCodec          AttributeKey = "codec"
-	AttrSampleRate     AttributeKey = "sample_rate"
-	AttrMode           AttributeKey = "mode"
-	AttrFrom           AttributeKey = "from"
-	AttrTo             AttributeKey = "to"
-	AttrDuration       AttributeKey = "duration_ms"
-	AttrMessages       AttributeKey = "messages"
-	AttrDigit          AttributeKey = "digit"
-	AttrTarget         AttributeKey = "target"
-	AttrOutboundCallID AttributeKey = "outbound_call_id"
-	AttrStatus         AttributeKey = "status"
-	AttrOldState       AttributeKey = "old_state"
-	AttrNewState       AttributeKey = "new_state"
-	AttrSource         AttributeKey = "source"
-	AttrSpeakerID      AttributeKey = "speaker_id"
-	AttrConfidence     AttributeKey = "confidence"
-	AttrItemID         AttributeKey = "item_id"
-	AttrRequestID      AttributeKey = "request_id"
-	AttrHTTPURL        AttributeKey = "http_url"
-	AttrHTTPMethod     AttributeKey = "http_method"
-	AttrHTTPStatus     AttributeKey = "http_status"
-	AttrRetryCount     AttributeKey = "retry_count"
-	AttrInputText      AttributeKey = "input_text"
-	AttrOutputText     AttributeKey = "output_text"
-	AttrTranscript     AttributeKey = "transcript"
-	AttrLanguage       AttributeKey = "language"
-	AttrModel          AttributeKey = "model"
-	AttrToolName       AttributeKey = "tool_name"
-	AttrUsageCategory  AttributeKey = "usage_category"
+	LevelInfo     Level = "info"
+	LevelError    Level = "error"
+	LevelDebug    Level = "debug"
+	LevelCritical Level = "critical"
 )
 
 type Attributes map[string]string
 
 func (a Attributes) Clone() Attributes {
-	copied := make(Attributes, len(a))
-	for k, v := range a {
-		copied[k] = v
+	if len(a) == 0 {
+		return nil
 	}
-	return copied
+	cloned := make(Attributes, len(a))
+	for key, value := range a {
+		cloned[key] = value
+	}
+	return cloned
 }
 
-func (a Attributes) Add(key AttributeKey, value string) Attributes {
-	if a == nil {
-		a = Attributes{}
-	}
-	if validator.NotBlank(value) {
-		a[string(key)] = value
-	}
-	return a
-}
-
-type Data map[string]interface{}
-
-func (d Data) Clone() Data {
-	copied := make(Data, len(d))
-	for k, v := range d {
-		copied[k] = v
-	}
-	return copied
-}
-
-// Scope carries stable identifiers attached to every observability record.
-type Scope struct {
+type GlobalScope struct {
 	OrganizationID uint64
 	ProjectID      uint64
-	AssistantID    uint64
+}
+
+type Scope interface {
+	ScopeType() ScopeType
+	GlobalScopeValue() GlobalScope
+	AssistantScopeID() uint64
+	ConversationScopeID() uint64
+	MessageScopeID() string
+	MessageScopeRole() MessageRole
+	ContextID() string
+	WithGlobal(global GlobalScope) Scope
+}
+
+type AssistantScope struct {
+	GlobalScope
+	AssistantID uint64
+}
+
+func (AssistantScope) ScopeType() ScopeType {
+	return ScopeAssistant
+}
+
+func (scope AssistantScope) GlobalScopeValue() GlobalScope {
+	return scope.GlobalScope
+}
+
+func (scope AssistantScope) AssistantScopeID() uint64 {
+	return scope.AssistantID
+}
+
+func (AssistantScope) ConversationScopeID() uint64 {
+	return 0
+}
+
+func (AssistantScope) MessageScopeID() string {
+	return ""
+}
+
+func (AssistantScope) MessageScopeRole() MessageRole {
+	return ""
+}
+
+func (scope AssistantScope) ContextID() string {
+	return strconv.FormatUint(scope.AssistantID, 10)
+}
+
+func (scope AssistantScope) WithGlobal(global GlobalScope) Scope {
+	scope.GlobalScope = global
+	return scope
+}
+
+type ConversationScope struct {
+	AssistantScope
 	ConversationID uint64
-	ContextID      string
 }
 
-func (s Scope) WithRecord(record Scope) Scope {
-	if validator.NotBlank(record.ContextID) {
-		s.ContextID = record.ContextID
+func (ConversationScope) ScopeType() ScopeType {
+	return ScopeConversation
+}
+
+func (scope ConversationScope) GlobalScopeValue() GlobalScope {
+	return scope.GlobalScope
+}
+
+func (scope ConversationScope) AssistantScopeID() uint64 {
+	return scope.AssistantScope.AssistantID
+}
+
+func (scope ConversationScope) ConversationScopeID() uint64 {
+	return scope.ConversationID
+}
+
+func (ConversationScope) MessageScopeID() string {
+	return ""
+}
+
+func (ConversationScope) MessageScopeRole() MessageRole {
+	return ""
+}
+
+func (scope ConversationScope) ContextID() string {
+	return strconv.FormatUint(scope.ConversationID, 10)
+}
+
+func (scope ConversationScope) WithGlobal(global GlobalScope) Scope {
+	scope.GlobalScope = global
+	return scope
+}
+
+type MessageScope struct {
+	ConversationScope
+	MessageID string
+	Role      MessageRole
+}
+
+func (MessageScope) ScopeType() ScopeType {
+	return ScopeMessage
+}
+
+func (scope MessageScope) GlobalScopeValue() GlobalScope {
+	return scope.GlobalScope
+}
+
+func (scope MessageScope) AssistantScopeID() uint64 {
+	return scope.ConversationScope.AssistantScope.AssistantID
+}
+
+func (scope MessageScope) ConversationScopeID() uint64 {
+	return scope.ConversationScope.ConversationID
+}
+
+func (scope MessageScope) MessageScopeID() string {
+	return scope.MessageID
+}
+
+func (scope MessageScope) MessageScopeRole() MessageRole {
+	return scope.Role
+}
+
+func (scope MessageScope) ContextID() string {
+	return scope.MessageID
+}
+
+func (scope MessageScope) WithGlobal(global GlobalScope) Scope {
+	scope.GlobalScope = global
+	return scope
+}
+
+func ValidateScope(scope Scope) error {
+	if scope == nil {
+		return errors.New("observability: scope is required")
 	}
-	return s
-}
-
-// Record is the typed unit accepted by Recorder.
-type Record interface {
-	Kind() RecordKind
-	Name() EventName
-	Category() Category
-	Level() Level
-	Outcome() Outcome
-	Title() string
-	OccurredAt() time.Time
-	ElapsedDuration() time.Duration
-	Scope() Scope
-	Attributes() Attributes
-	Data() Data
-	Validate() error
-}
-
-type BaseRecord struct {
-	RecordName       EventName
-	RecordScope      Scope
-	RecordAttributes Attributes
-	RecordData       Data
-	RecordLevel      Level
-	RecordOutcome    Outcome
-	RecordTitle      string
-	At               time.Time
-	Elapsed          time.Duration
-}
-
-func (r BaseRecord) Name() EventName {
-	return r.RecordName
-}
-
-func (r BaseRecord) Category() Category {
-	return r.RecordName.Category()
-}
-
-func (r BaseRecord) Level() Level {
-	if r.RecordLevel == "" {
-		return LevelInfo
-	}
-	return r.RecordLevel
-}
-
-func (r BaseRecord) Outcome() Outcome {
-	return r.RecordOutcome
-}
-
-func (r BaseRecord) Title() string {
-	if r.RecordTitle != "" {
-		return r.RecordTitle
-	}
-	return r.RecordName.String()
-}
-
-func (r BaseRecord) OccurredAt() time.Time {
-	return r.At
-}
-
-func (r BaseRecord) ElapsedDuration() time.Duration {
-	return r.Elapsed
-}
-
-func (r BaseRecord) Scope() Scope {
-	return r.RecordScope
-}
-
-func (r BaseRecord) Attributes() Attributes {
-	return r.RecordAttributes.Clone()
-}
-
-func (r BaseRecord) Data() Data {
-	return r.RecordData.Clone()
-}
-
-type EventRecord struct {
-	BaseRecord
-}
-
-func (r EventRecord) Kind() RecordKind {
-	return RecordKindEvent
-}
-
-func (r EventRecord) Validate() error {
-	return validateEventName(r.RecordName)
-}
-
-type CallEvent struct {
-	BaseRecord
-	Provider       string
-	Direction      string
-	Status         string
-	Reason         string
-	Error          string
-	ProviderCallID string
-}
-
-func (e CallEvent) Kind() RecordKind {
-	return RecordKindEvent
-}
-
-func (e CallEvent) Attributes() Attributes {
-	attrs := e.BaseRecord.Attributes()
-	attrs = attrs.Add(AttrProvider, e.Provider)
-	attrs = attrs.Add(AttrDirection, e.Direction)
-	attrs = attrs.Add(AttrStatus, e.Status)
-	attrs = attrs.Add(AttrReason, e.Reason)
-	attrs = attrs.Add(AttrError, e.Error)
-	attrs = attrs.Add(AttrProviderCallID, e.ProviderCallID)
-	return attrs
-}
-
-func (e CallEvent) Validate() error {
-	return validateCategory(e.RecordName, CategoryCall)
-}
-
-type ConversationEvent struct {
-	BaseRecord
-	Status     string
-	OldState   string
-	NewState   string
-	Source     string
-	Transcript string
-	Language   string
-	SpeakerID  string
-	ItemID     string
-	Reason     string
-	Error      string
-}
-
-func (e ConversationEvent) Kind() RecordKind {
-	return RecordKindEvent
-}
-
-func (e ConversationEvent) Attributes() Attributes {
-	attrs := e.BaseRecord.Attributes()
-	attrs = attrs.Add(AttrStatus, e.Status)
-	attrs = attrs.Add(AttrOldState, e.OldState)
-	attrs = attrs.Add(AttrNewState, e.NewState)
-	attrs = attrs.Add(AttrSource, e.Source)
-	attrs = attrs.Add(AttrTranscript, e.Transcript)
-	attrs = attrs.Add(AttrLanguage, e.Language)
-	attrs = attrs.Add(AttrSpeakerID, e.SpeakerID)
-	attrs = attrs.Add(AttrItemID, e.ItemID)
-	attrs = attrs.Add(AttrReason, e.Reason)
-	attrs = attrs.Add(AttrError, e.Error)
-	return attrs
-}
-
-func (e ConversationEvent) Validate() error {
-	return validateCategory(e.RecordName, CategoryConversation)
-}
-
-type TurnEvent struct {
-	BaseRecord
-	Status     string
-	Reason     string
-	Error      string
-	InputText  string
-	OutputText string
-	Transcript string
-}
-
-func (e TurnEvent) Kind() RecordKind {
-	return RecordKindEvent
-}
-
-func (e TurnEvent) Attributes() Attributes {
-	attrs := e.BaseRecord.Attributes()
-	attrs = attrs.Add(AttrStatus, e.Status)
-	attrs = attrs.Add(AttrReason, e.Reason)
-	attrs = attrs.Add(AttrError, e.Error)
-	attrs = attrs.Add(AttrInputText, e.InputText)
-	attrs = attrs.Add(AttrOutputText, e.OutputText)
-	attrs = attrs.Add(AttrTranscript, e.Transcript)
-	return attrs
-}
-
-func (e TurnEvent) Validate() error {
-	return validateCategory(e.RecordName, CategoryTurn)
-}
-
-type ComponentEvent struct {
-	BaseRecord
-	Component string
-	Provider  string
-	Status    string
-	Stage     string
-	Reason    string
-	Error     string
-}
-
-func (e ComponentEvent) Kind() RecordKind {
-	return RecordKindEvent
-}
-
-func (e ComponentEvent) Attributes() Attributes {
-	attrs := e.BaseRecord.Attributes()
-	attrs = attrs.Add(AttrComponent, e.Component)
-	attrs = attrs.Add(AttrProvider, e.Provider)
-	attrs = attrs.Add(AttrStatus, e.Status)
-	attrs = attrs.Add(AttrStage, e.Stage)
-	attrs = attrs.Add(AttrReason, e.Reason)
-	attrs = attrs.Add(AttrError, e.Error)
-	return attrs
-}
-
-func (e ComponentEvent) Validate() error {
-	return validateEventName(e.RecordName)
-}
-
-type AudioEvent struct {
-	BaseRecord
-	Provider   string
-	Direction  string
-	Codec      string
-	SampleRate string
-	Duration   string
-	Status     string
-	Error      string
-}
-
-func (e AudioEvent) Kind() RecordKind {
-	return RecordKindEvent
-}
-
-func (e AudioEvent) Attributes() Attributes {
-	attrs := e.BaseRecord.Attributes()
-	attrs = attrs.Add(AttrProvider, e.Provider)
-	attrs = attrs.Add(AttrDirection, e.Direction)
-	attrs = attrs.Add(AttrCodec, e.Codec)
-	attrs = attrs.Add(AttrSampleRate, e.SampleRate)
-	attrs = attrs.Add(AttrDuration, e.Duration)
-	attrs = attrs.Add(AttrStatus, e.Status)
-	attrs = attrs.Add(AttrError, e.Error)
-	return attrs
-}
-
-func (e AudioEvent) Validate() error {
-	return validateCategory(e.RecordName, CategoryAudio)
-}
-
-type ProviderEvent struct {
-	BaseRecord
-	Provider   string
-	Model      string
-	Status     string
-	Stage      string
-	RequestID  string
-	Transcript string
-	Language   string
-	Confidence string
-	Reason     string
-	Error      string
-}
-
-func (e ProviderEvent) Kind() RecordKind {
-	return RecordKindEvent
-}
-
-func (e ProviderEvent) Attributes() Attributes {
-	attrs := e.BaseRecord.Attributes()
-	attrs = attrs.Add(AttrProvider, e.Provider)
-	attrs = attrs.Add(AttrModel, e.Model)
-	attrs = attrs.Add(AttrStatus, e.Status)
-	attrs = attrs.Add(AttrStage, e.Stage)
-	attrs = attrs.Add(AttrRequestID, e.RequestID)
-	attrs = attrs.Add(AttrTranscript, e.Transcript)
-	attrs = attrs.Add(AttrLanguage, e.Language)
-	attrs = attrs.Add(AttrConfidence, e.Confidence)
-	attrs = attrs.Add(AttrReason, e.Reason)
-	attrs = attrs.Add(AttrError, e.Error)
-	return attrs
-}
-
-func (e ProviderEvent) Validate() error {
-	if err := validateEventName(e.RecordName); err != nil {
-		return err
-	}
-	switch e.RecordName.Category() {
-	case CategorySTT, CategoryTTS, CategoryLLM, CategoryVAD, CategoryEOS, CategoryDenoise:
+	switch scope.ScopeType() {
+	case ScopeMessage:
+		if scope.AssistantScopeID() == 0 {
+			return errors.New("observability: assistant_id is required")
+		}
+		if scope.ConversationScopeID() == 0 {
+			return errors.New("observability: conversation_id is required")
+		}
+		if !validator.NotBlank(scope.MessageScopeID()) {
+			return errors.New("observability: message_id is required")
+		}
+		switch scope.MessageScopeRole() {
+		case MessageRoleUser, MessageRoleAssistant:
+			return nil
+		default:
+			return fmt.Errorf("observability: invalid message role %q", scope.MessageScopeRole())
+		}
+	case ScopeConversation:
+		if scope.AssistantScopeID() == 0 {
+			return errors.New("observability: assistant_id is required")
+		}
+		if scope.ConversationScopeID() == 0 {
+			return errors.New("observability: conversation_id is required")
+		}
+		return nil
+	case ScopeAssistant:
+		if scope.AssistantScopeID() == 0 {
+			return errors.New("observability: assistant_id is required")
+		}
 		return nil
 	default:
-		return fmt.Errorf("observability: %q is not a provider event", e.RecordName)
+		return fmt.Errorf("observability: unsupported scope %T", scope)
 	}
 }
 
-type TranscriptEvent struct {
-	BaseRecord
+type CommonRecord struct {
+	ID         string
+	Auth       types.SimplePrinciple
+	Scope      Scope
+	OccurredAt time.Time
+}
+
+type Record interface {
+	isRecord()
+}
+
+type RecordLog struct {
+	CommonRecord
+	Message    string
+	Level      Level
+	Attributes Attributes
+}
+
+func (RecordLog) isRecord() {}
+
+type RecordEvent struct {
+	CommonRecord
+	Component  ComponentName
+	Event      EventName
+	Attributes Attributes
+}
+
+func (RecordEvent) isRecord() {}
+
+type RecordMetric struct {
+	CommonRecord
+	Metrics []*protos.Metric
+}
+
+func (RecordMetric) isRecord() {}
+
+type RecordMetadata struct {
+	CommonRecord
+	Metadata []*protos.Metadata
+}
+
+func (RecordMetadata) isRecord() {}
+
+type RecordUsage struct {
+	CommonRecord
+	Component  ComponentName
 	Provider   string
-	Transcript string
-	Language   string
-	Status     string
-	Error      string
+	Duration   time.Duration
+	Attributes Attributes
 }
 
-func (e TranscriptEvent) Kind() RecordKind {
-	return RecordKindEvent
-}
+func (RecordUsage) isRecord() {}
 
-func (e TranscriptEvent) Attributes() Attributes {
-	attrs := e.BaseRecord.Attributes()
-	attrs = attrs.Add(AttrProvider, e.Provider)
-	attrs = attrs.Add(AttrTranscript, e.Transcript)
-	attrs = attrs.Add(AttrLanguage, e.Language)
-	attrs = attrs.Add(AttrStatus, e.Status)
-	attrs = attrs.Add(AttrError, e.Error)
-	return attrs
-}
-
-func (e TranscriptEvent) Validate() error {
-	return validateCategory(e.RecordName, CategoryTranscript)
-}
-
-type ToolEvent struct {
-	BaseRecord
-	ToolName string
-	Status   string
-	Reason   string
-	Error    string
-}
-
-func (e ToolEvent) Kind() RecordKind {
-	return RecordKindEvent
-}
-
-func (e ToolEvent) Attributes() Attributes {
-	attrs := e.BaseRecord.Attributes()
-	attrs = attrs.Add(AttrToolName, e.ToolName)
-	attrs = attrs.Add(AttrStatus, e.Status)
-	attrs = attrs.Add(AttrReason, e.Reason)
-	attrs = attrs.Add(AttrError, e.Error)
-	return attrs
-}
-
-func (e ToolEvent) Validate() error {
-	return validateCategory(e.RecordName, CategoryTool)
-}
-
-type WebhookEvent struct {
-	BaseRecord
+type RecordWebhook struct {
+	CommonRecord
+	Event   EventName
 	Payload map[string]interface{}
 }
 
-func (e WebhookEvent) Kind() RecordKind {
-	return RecordKindEvent
-}
-
-func (e WebhookEvent) Attributes() Attributes {
-	return e.BaseRecord.Attributes()
-}
-
-func (e WebhookEvent) Data() Data {
-	data := e.BaseRecord.Data()
-	if data == nil {
-		data = Data{}
-	}
-	if validator.NonNil(e.Payload) {
-		data["payload"] = e.Payload
-	}
-	return data
-}
-
-func (e WebhookEvent) Validate() error {
-	if err := validateEventName(e.RecordName); err != nil {
-		return err
-	}
-	switch e.RecordName.Category() {
-	case CategoryCall, CategoryConversation:
-		return nil
-	default:
-		return fmt.Errorf("observability: %q is not a webhook event", e.RecordName)
-	}
-}
-
-type UsageEvent struct {
-	BaseRecord
-	Component     string
-	Provider      string
-	UsageCategory string
-	Duration      time.Duration
-}
-
-func (e UsageEvent) Kind() RecordKind {
-	return RecordKindEvent
-}
-
-func (e UsageEvent) Attributes() Attributes {
-	attrs := e.BaseRecord.Attributes()
-	attrs = attrs.Add(AttrComponent, e.Component)
-	attrs = attrs.Add(AttrProvider, e.Provider)
-	attrs = attrs.Add(AttrUsageCategory, e.UsageCategory)
-	if e.Duration > 0 {
-		attrs = attrs.Add(AttrDuration, fmt.Sprintf("%d", e.Duration.Milliseconds()))
-	}
-	return attrs
-}
-
-func (e UsageEvent) Validate() error {
-	if err := validateCategory(e.RecordName, CategoryUsage); err != nil {
-		return err
-	}
-	if !validator.NotBlank(e.Component) {
-		return errors.New("observability: usage component is required")
-	}
-	if e.Duration <= 0 {
-		return errors.New("observability: usage duration must be greater than zero")
-	}
-	return nil
-}
-
-type ErrorEvent struct {
-	BaseRecord
-	Component string
-	Stage     string
-	Reason    string
-	Error     string
-}
-
-func (e ErrorEvent) Kind() RecordKind {
-	return RecordKindEvent
-}
-
-func (e ErrorEvent) Level() Level {
-	if e.RecordLevel == "" {
-		return LevelError
-	}
-	return e.RecordLevel
-}
-
-func (e ErrorEvent) Outcome() Outcome {
-	if e.RecordOutcome == "" {
-		return OutcomeFailure
-	}
-	return e.RecordOutcome
-}
-
-func (e ErrorEvent) Attributes() Attributes {
-	attrs := e.BaseRecord.Attributes()
-	attrs = attrs.Add(AttrComponent, e.Component)
-	attrs = attrs.Add(AttrStage, e.Stage)
-	attrs = attrs.Add(AttrReason, e.Reason)
-	attrs = attrs.Add(AttrError, e.Error)
-	return attrs
-}
-
-func (e ErrorEvent) Validate() error {
-	return validateCategory(e.RecordName, CategoryError)
-}
-
-type Metric struct {
-	Name        string
-	Value       string
-	Description string
-	Attributes  Attributes
-}
-
-type MetricRecord struct {
-	BaseRecord
-	Metrics []Metric
-}
-
-func (r MetricRecord) Kind() RecordKind {
-	return RecordKindMetric
-}
-
-func (r MetricRecord) Name() EventName {
-	if r.RecordName == "" {
-		return EventName("metric.recorded")
-	}
-	return r.RecordName
-}
-
-func (r MetricRecord) Title() string {
-	if r.RecordTitle != "" {
-		return r.RecordTitle
-	}
-	return r.Name().String()
-}
-
-func (r MetricRecord) Category() Category {
-	return CategoryMetric
-}
-
-func (r MetricRecord) Validate() error {
-	if len(r.Metrics) == 0 {
-		return errors.New("observability: at least one metric is required")
-	}
-	for i, metric := range r.Metrics {
-		if !validator.NotBlank(metric.Name) {
-			return fmt.Errorf("observability: metric[%d] name is required", i)
-		}
-	}
-	return nil
-}
-
-type Metadata struct {
-	Key   string
-	Value string
-}
-
-type MetadataRecord struct {
-	BaseRecord
-	Metadata []Metadata
-}
-
-func (r MetadataRecord) Kind() RecordKind {
-	return RecordKindMetadata
-}
-
-func (r MetadataRecord) Name() EventName {
-	if r.RecordName == "" {
-		return EventName("metadata.recorded")
-	}
-	return r.RecordName
-}
-
-func (r MetadataRecord) Title() string {
-	if r.RecordTitle != "" {
-		return r.RecordTitle
-	}
-	return r.Name().String()
-}
-
-func (r MetadataRecord) Category() Category {
-	return CategoryMetadata
-}
-
-func (r MetadataRecord) Validate() error {
-	if len(r.Metadata) == 0 {
-		return errors.New("observability: at least one metadata entry is required")
-	}
-	for i, metadata := range r.Metadata {
-		if !validator.NotBlank(metadata.Key) {
-			return fmt.Errorf("observability: metadata[%d] key is required", i)
-		}
-	}
-	return nil
-}
-
-func validateEventName(name EventName) error {
-	if !validator.NotBlank(name.String()) {
-		return errors.New("observability: event name is required")
-	}
-	if !name.IsKnown() {
-		return fmt.Errorf("observability: unknown event name %q", name)
-	}
-	return nil
-}
-
-func validateCategory(name EventName, category Category) error {
-	if err := validateEventName(name); err != nil {
-		return err
-	}
-	if !name.HasCategory(category) {
-		return fmt.Errorf("observability: %q is not a %s event", name, category)
-	}
-	return nil
-}
+func (RecordWebhook) isRecord() {}

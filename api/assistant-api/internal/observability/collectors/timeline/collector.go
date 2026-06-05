@@ -9,13 +9,14 @@ package timeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/pkg/commons"
+	"github.com/rapidaai/pkg/configs"
 	"github.com/rapidaai/pkg/connectors"
 	"github.com/rapidaai/pkg/validator"
 )
@@ -23,9 +24,10 @@ import (
 const defaultIndexPrefix = "rapida-timeline"
 
 type Config struct {
-	Logger      commons.Logger
-	OpenSearch  connectors.OpenSearchConnector
-	IndexPrefix string
+	Logger           commons.Logger
+	OpenSearch       connectors.OpenSearchConnector
+	OpenSearchConfig *configs.OpenSearchConfig
+	IndexPrefix      string
 }
 
 type Collector struct {
@@ -34,9 +36,13 @@ type Collector struct {
 	indexPrefix string
 }
 
-func New(cfg Config) observability.Collector {
-	if !validator.NonNil(cfg.OpenSearch) {
-		return observability.NoopCollector{}
+func New(ctx context.Context, cfg Config) (observability.Collector, error) {
+	openSearch, err := openSearchConnector(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if !validator.NonNil(openSearch) {
+		return observability.NoopCollector{}, nil
 	}
 	indexPrefix := strings.TrimSpace(cfg.IndexPrefix)
 	if !validator.NotBlank(indexPrefix) {
@@ -44,24 +50,66 @@ func New(cfg Config) observability.Collector {
 	}
 	return &Collector{
 		logger:      cfg.Logger,
-		opensearch:  cfg.OpenSearch,
+		opensearch:  openSearch,
 		indexPrefix: indexPrefix,
-	}
+	}, nil
 }
 
-func (c *Collector) Collect(ctx context.Context, envelope observability.Envelope) error {
+func (c *Collector) Collect(ctx context.Context, record observability.Record) error {
 	if !validator.NonNil(c) || !validator.NonNil(c.opensearch) {
 		return nil
 	}
-	doc := newDocument(envelope)
-	if !validator.NotBlank(doc.ID) {
-		doc.ID = uuid.NewString()
+	switch typed := record.(type) {
+	case observability.RecordLog:
+		doc := newDocument("log", typed.CommonRecord)
+		doc.Level = string(typed.Level)
+		doc.Title = typed.Message
+		doc.Attributes = typed.Attributes.Clone()
+		return c.bulk(ctx, c.index(doc.OccurredAt), doc)
+	case observability.RecordEvent:
+		doc := newDocument("event", typed.CommonRecord)
+		doc.Name = typed.Event.String()
+		doc.Component = typed.Component.String()
+		doc.Attributes = typed.Attributes.Clone()
+		return c.bulk(ctx, c.index(doc.OccurredAt), doc)
+	case observability.RecordMetric:
+		doc := newDocument("metric", typed.CommonRecord)
+		return c.bulk(ctx, c.index(doc.OccurredAt), doc)
+	case observability.RecordMetadata:
+		doc := newDocument("metadata", typed.CommonRecord)
+		return c.bulk(ctx, c.index(doc.OccurredAt), doc)
+	case observability.RecordUsage:
+		doc := newDocument("usage", typed.CommonRecord)
+		doc.Component = typed.Component.String()
+		doc.Attributes = typed.Attributes.Clone()
+		return c.bulk(ctx, c.index(doc.OccurredAt), doc)
+	default:
+		return nil
 	}
-	return c.bulk(ctx, c.index(doc.OccurredAt), doc)
 }
 
-func (c *Collector) Shutdown(context.Context) error {
-	return nil
+func (c *Collector) Close(ctx context.Context) error {
+	if !validator.NonNil(c) || !validator.NonNil(c.opensearch) {
+		return nil
+	}
+	return c.opensearch.Disconnect(ctx)
+}
+
+func openSearchConnector(ctx context.Context, cfg Config) (connectors.OpenSearchConnector, error) {
+	if validator.NonNil(cfg.OpenSearch) {
+		return cfg.OpenSearch, nil
+	}
+	if !validator.NonNil(cfg.OpenSearchConfig) {
+		return nil, nil
+	}
+	if !cfg.OpenSearchConfig.IsValid() {
+		return nil, errors.New("observability timeline: opensearch config is required")
+	}
+	openSearch := connectors.NewOpenSearchConnector(cfg.OpenSearchConfig, cfg.Logger)
+	if err := openSearch.Connect(ctx); err != nil {
+		return nil, err
+	}
+	return openSearch, nil
 }
 
 func (c *Collector) index(at time.Time) string {
@@ -73,7 +121,11 @@ func (c *Collector) index(at time.Time) string {
 
 func (c *Collector) bulk(ctx context.Context, index string, doc document) error {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf(`{ "index": { "_index": "%s", "_id": "%s" } }`, index, doc.ID))
+	if validator.NotBlank(doc.ID) {
+		sb.WriteString(fmt.Sprintf(`{ "index": { "_index": "%s", "_id": "%s" } }`, index, doc.ID))
+	} else {
+		sb.WriteString(fmt.Sprintf(`{ "index": { "_index": "%s" } }`, index))
+	}
 	sb.WriteByte('\n')
 	body, err := json.Marshal(doc)
 	if err != nil {
@@ -91,50 +143,41 @@ func (c *Collector) bulk(ctx context.Context, index string, doc document) error 
 }
 
 type document struct {
-	ID                      string                 `json:"id"`
-	Kind                    string                 `json:"kind"`
-	Name                    string                 `json:"name"`
-	Category                string                 `json:"category"`
-	Level                   string                 `json:"level"`
-	Outcome                 string                 `json:"outcome"`
-	Title                   string                 `json:"title"`
-	ProjectID               uint64                 `json:"projectId"`
-	OrganizationID          uint64                 `json:"organizationId"`
-	AssistantID             uint64                 `json:"assistantId"`
-	AssistantConversationID uint64                 `json:"assistantConversationId"`
-	ContextID               string                 `json:"contextId"`
-	Attributes              map[string]string      `json:"attributes,omitempty"`
-	Data                    map[string]interface{} `json:"data,omitempty"`
-	OccurredAt              time.Time              `json:"occurredAt"`
-	ReceivedAt              time.Time              `json:"receivedAt"`
-	DurationMs              int64                  `json:"durationMs,omitempty"`
+	ID                      string            `json:"id"`
+	Kind                    string            `json:"kind"`
+	Name                    string            `json:"name"`
+	Component               string            `json:"component"`
+	Level                   string            `json:"level"`
+	Outcome                 string            `json:"outcome"`
+	Title                   string            `json:"title"`
+	ProjectID               uint64            `json:"projectId"`
+	OrganizationID          uint64            `json:"organizationId"`
+	Scope                   string            `json:"scope"`
+	AssistantID             uint64            `json:"assistantId"`
+	AssistantConversationID uint64            `json:"assistantConversationId"`
+	MessageID               string            `json:"messageId,omitempty"`
+	MessageRole             string            `json:"messageRole,omitempty"`
+	ContextID               string            `json:"contextId"`
+	Attributes              map[string]string `json:"attributes,omitempty"`
+	OccurredAt              time.Time         `json:"occurredAt"`
 }
 
-func newDocument(envelope observability.Envelope) document {
-	occurredAt := envelope.OccurredAt
-	if occurredAt.IsZero() {
-		occurredAt = envelope.ReceivedAt
-	}
+func newDocument(kind string, common observability.CommonRecord) document {
+	occurredAt := common.OccurredAt
 	if occurredAt.IsZero() {
 		occurredAt = time.Now().UTC()
 	}
 	return document{
-		ID:                      envelope.ID,
-		Kind:                    string(envelope.Kind),
-		Name:                    envelope.Name.String(),
-		Category:                envelope.Category.String(),
-		Level:                   string(envelope.Level),
-		Outcome:                 string(envelope.Outcome),
-		Title:                   envelope.Title,
-		ProjectID:               envelope.Scope.ProjectID,
-		OrganizationID:          envelope.Scope.OrganizationID,
-		AssistantID:             envelope.Scope.AssistantID,
-		AssistantConversationID: envelope.Scope.ConversationID,
-		ContextID:               envelope.Scope.ContextID,
-		Attributes:              envelope.Attributes.Clone(),
-		Data:                    envelope.Data.Clone(),
+		ID:                      common.ID,
+		Kind:                    kind,
+		ProjectID:               common.Scope.GlobalScopeValue().ProjectID,
+		OrganizationID:          common.Scope.GlobalScopeValue().OrganizationID,
+		Scope:                   string(common.Scope.ScopeType()),
+		AssistantID:             common.Scope.AssistantScopeID(),
+		AssistantConversationID: common.Scope.ConversationScopeID(),
+		MessageID:               common.Scope.MessageScopeID(),
+		MessageRole:             string(common.Scope.MessageScopeRole()),
+		ContextID:               common.Scope.ContextID(),
 		OccurredAt:              occurredAt,
-		ReceivedAt:              envelope.ReceivedAt,
-		DurationMs:              envelope.Duration.Milliseconds(),
 	}
 }

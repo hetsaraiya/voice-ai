@@ -137,8 +137,8 @@ func (o *ConversationObserver) MetricCollectors() MetricCollector {
 
 // Shutdown waits for all in-flight exports to complete and shuts down exporters.
 func (o *ConversationObserver) Shutdown(ctx context.Context) {
-	o.events.Shutdown(ctx)
-	o.metrics.Shutdown(ctx)
+	o.events.Close(ctx)
+	o.metrics.Close(ctx)
 }
 
 // Meta returns the session metadata for this observer.

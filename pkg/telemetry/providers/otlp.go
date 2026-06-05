@@ -129,14 +129,14 @@ func (e *OTLPExporter) ExportMetric(ctx context.Context, meta telemetry.SessionM
 	return nil
 }
 
-// Shutdown flushes the batch processor and releases OTLP resources.
-func (e *OTLPExporter) Shutdown(ctx context.Context) error {
+// Close flushes the batch processor and releases OTLP resources.
+func (e *OTLPExporter) Close(ctx context.Context) error {
 	var err error
 	e.once.Do(func() {
 		if ferr := e.provider.ForceFlush(ctx); ferr != nil {
 			err = ferr
 		}
-		if serr := e.provider.Shutdown(ctx); serr != nil && err == nil {
+		if serr := e.provider.Close(ctx); serr != nil && err == nil {
 			err = serr
 		}
 	})

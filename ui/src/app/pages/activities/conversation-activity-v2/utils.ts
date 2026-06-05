@@ -1,0 +1,551 @@
+import type {
+  LatencyBucket,
+  MetricSummary,
+  SpanCountBucket,
+  TimelineDocument,
+  TimelineGroup,
+  TimelineItem,
+  TraceSummary,
+} from './types';
+
+const MIN_VISIBLE_WIDTH_PCT = 0.75;
+const LATENCY_COMPONENTS = ['stt', 'tts', 'llm', 'eos'] as const;
+type LatencyComponent = (typeof LATENCY_COMPONENTS)[number];
+
+const isLatencyComponent = (component: string): component is LatencyComponent =>
+  LATENCY_COMPONENTS.includes(component as LatencyComponent);
+
+export const COMPONENT_COLORS: Record<string, string> = {
+  call: '#0f62fe',
+  telephony: '#0f62fe',
+  conversation: '#8a3ffc',
+  vad: '#007d79',
+  eos: '#007d79',
+  stt: '#198038',
+  llm: '#f1c21b',
+  tool: '#ff7eb6',
+  knowledge: '#009d9a',
+  tts: '#fa4d56',
+  error: '#da1e28',
+};
+
+const getTimeMs = (value: string): number => {
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+export const getDocumentComponent = (doc: TimelineDocument): string => {
+  const attributeComponent =
+    doc.attributes?.component || doc.attributes?.provider || doc.category;
+  const firstNamePart = doc.name.split('.')[0];
+  return (attributeComponent || firstNamePart || 'conversation').toLowerCase();
+};
+
+export const getDocumentColor = (doc: TimelineDocument): string => {
+  if (doc.level === 'error' || doc.outcome === 'failure') {
+    return COMPONENT_COLORS.error;
+  }
+
+  const component = getDocumentComponent(doc);
+  return COMPONENT_COLORS[component] || '#6f6f6f';
+};
+
+export const buildTimelineItems = (
+  documents: TimelineDocument[],
+): TimelineItem[] => {
+  if (documents.length === 0) return [];
+
+  const starts = documents.map(doc => getTimeMs(doc.occurredAt));
+  const ends = documents.map(doc => {
+    const start = getTimeMs(doc.occurredAt);
+    return start + Math.max(doc.durationMs || 0, 1);
+  });
+  const rangeStart = Math.min(...starts);
+  const rangeEnd = Math.max(...ends);
+  const range = Math.max(rangeEnd - rangeStart, 1);
+
+  return documents
+    .map(doc => {
+      const startMs = getTimeMs(doc.occurredAt);
+      const endMs = startMs + Math.max(doc.durationMs || 0, 1);
+      const offsetPct = ((startMs - rangeStart) / range) * 100;
+      const widthPct = Math.max(
+        ((endMs - startMs) / range) * 100,
+        MIN_VISIBLE_WIDTH_PCT,
+      );
+
+      return {
+        ...doc,
+        startMs,
+        endMs,
+        offsetPct,
+        widthPct,
+      };
+    })
+    .sort((a, b) => a.startMs - b.startMs || a.name.localeCompare(b.name));
+};
+
+export const groupTimelineItems = (
+  documents: TimelineDocument[],
+): TimelineGroup[] => {
+  const items = buildTimelineItems(documents);
+  const groups = new Map<string, TimelineItem[]>();
+
+  items.forEach(item => {
+    const key =
+      item.contextId || `conversation-${item.assistantConversationId}`;
+    const current = groups.get(key) || [];
+    current.push(item);
+    groups.set(key, current);
+  });
+
+  return Array.from(groups.entries())
+    .map(([contextId, groupItems], index) => {
+      const startMs = Math.min(...groupItems.map(item => item.startMs));
+      const endMs = Math.max(...groupItems.map(item => item.endMs));
+      const title =
+        groupItems.find(item => item.kind === 'event')?.title ||
+        groupItems[0]?.title ||
+        `Turn ${index + 1}`;
+
+      return {
+        contextId,
+        title,
+        items: groupItems,
+        startMs,
+        endMs,
+        durationMs: endMs - startMs,
+      };
+    })
+    .sort((a, b) => a.startMs - b.startMs);
+};
+
+export const getTraceSummaries = (
+  documents: TimelineDocument[],
+): TraceSummary[] =>
+  groupTimelineItems(documents).map(group => {
+    const failureCount = group.items.filter(
+      item => item.outcome === 'failure' || item.level === 'error',
+    ).length;
+    const components = Array.from(
+      new Set(group.items.map(item => getDocumentComponent(item))),
+    );
+    const firstItem = group.items[0];
+
+    return {
+      assistantConversationId: firstItem?.assistantConversationId || 0,
+      assistantId: firstItem?.assistantId || 0,
+      components,
+      contextId: group.contextId,
+      durationMs: group.durationMs,
+      endMs: group.endMs,
+      failureCount,
+      level: failureCount > 0 ? 'error' : firstItem?.level || 'info',
+      outcome: failureCount > 0 ? 'failure' : 'success',
+      spanCount: group.items.length,
+      startMs: group.startMs,
+      title: group.title,
+    };
+  });
+
+const percentile = (values: number[], pct: number): number => {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.ceil((pct / 100) * sorted.length) - 1,
+  );
+  return sorted[index] || 0;
+};
+
+export const getMetricSummaries = (
+  documents: TimelineDocument[],
+): MetricSummary[] => {
+  const byComponent = new Map<string, TimelineDocument[]>();
+
+  documents.forEach(document => {
+    const component = getDocumentComponent(document);
+    const current = byComponent.get(component) || [];
+    current.push(document);
+    byComponent.set(component, current);
+  });
+
+  return Array.from(byComponent.entries())
+    .map(([component, componentDocuments]) => {
+      const durations = componentDocuments.map(document =>
+        Math.max(document.durationMs || 0, 0),
+      );
+      const totalDuration = durations.reduce(
+        (sum, duration) => sum + duration,
+        0,
+      );
+      const slowest = componentDocuments.reduce(
+        (current, document) =>
+          (document.durationMs || 0) > (current.durationMs || 0)
+            ? document
+            : current,
+        componentDocuments[0],
+      );
+
+      return {
+        averageDurationMs:
+          componentDocuments.length > 0
+            ? Math.round(totalDuration / componentDocuments.length)
+            : 0,
+        component,
+        count: componentDocuments.length,
+        failureCount: componentDocuments.filter(
+          document =>
+            document.outcome === 'failure' || document.level === 'error',
+        ).length,
+        p95DurationMs: percentile(durations, 95),
+        slowestContextId:
+          slowest?.contextId ||
+          `conversation-${slowest?.assistantConversationId || 'unknown'}`,
+        slowestDurationMs: slowest?.durationMs || 0,
+      };
+    })
+    .sort(
+      (a, b) => b.count - a.count || a.component.localeCompare(b.component),
+    );
+};
+
+export const getSpanCountBuckets = (
+  documents: TimelineDocument[],
+  bucketCount = 18,
+): SpanCountBucket[] => {
+  if (documents.length === 0) return [];
+
+  const timestamps = documents.map(document => getTimeMs(document.occurredAt));
+  const minTime = Math.min(...timestamps);
+  const maxTime = Math.max(...timestamps);
+  const range = Math.max(maxTime - minTime, 1);
+  const bucketSize = Math.max(Math.ceil(range / bucketCount), 1);
+
+  const buckets = Array.from({ length: bucketCount }, (_, index) => {
+    const startMs = minTime + index * bucketSize;
+    return {
+      endMs: startMs + bucketSize,
+      failureCount: 0,
+      label: formatTime(new Date(startMs).toISOString()),
+      spanCount: 0,
+      startMs,
+    };
+  });
+
+  documents.forEach(document => {
+    const offset = getTimeMs(document.occurredAt) - minTime;
+    const index = Math.min(
+      buckets.length - 1,
+      Math.max(0, Math.floor(offset / bucketSize)),
+    );
+    buckets[index].spanCount += 1;
+    if (document.outcome === 'failure' || document.level === 'error') {
+      buckets[index].failureCount += 1;
+    }
+  });
+
+  return buckets;
+};
+
+export const getLatencyBuckets = (
+  documents: TimelineDocument[],
+  bucketCount = 18,
+): LatencyBucket[] => {
+  if (documents.length === 0) return [];
+
+  const timestamps = documents.map(document => getTimeMs(document.occurredAt));
+  const minTime = Math.min(...timestamps);
+  const maxTime = Math.max(...timestamps);
+  const range = Math.max(maxTime - minTime, 1);
+  const bucketSize = Math.max(Math.ceil(range / bucketCount), 1);
+
+  const buckets: LatencyBucket[] = Array.from(
+    { length: bucketCount },
+    (_, index) => {
+      const startMs = minTime + index * bucketSize;
+      return {
+        endMs: startMs + bucketSize,
+        eos: 0,
+        label: formatTime(new Date(startMs).toISOString()),
+        llm: 0,
+        startMs,
+        stt: 0,
+        total: 0,
+        tts: 0,
+      };
+    },
+  );
+
+  documents.forEach(document => {
+    const component = getDocumentComponent(document);
+    if (!isLatencyComponent(component)) return;
+
+    const offset = getTimeMs(document.occurredAt) - minTime;
+    const index = Math.min(
+      buckets.length - 1,
+      Math.max(0, Math.floor(offset / bucketSize)),
+    );
+    const durationMs = Math.max(document.durationMs || 0, 0);
+    const bucket = buckets[index];
+    bucket[component] += durationMs;
+    bucket.total += durationMs;
+  });
+
+  return buckets;
+};
+
+export const matchesTimelineSearch = (
+  doc: TimelineDocument,
+  searchText: string,
+): boolean => {
+  const query = searchText.trim().toLowerCase();
+  if (!query) return true;
+
+  return [
+    doc.id,
+    doc.kind,
+    doc.name,
+    doc.category,
+    doc.level,
+    doc.outcome,
+    doc.scope,
+    doc.title,
+    doc.messageId,
+    doc.messageRole,
+    doc.contextId,
+    JSON.stringify(doc.attributes || {}),
+    JSON.stringify(doc.data || {}),
+  ]
+    .join('\n')
+    .toLowerCase()
+    .includes(query);
+};
+
+export const formatDurationMs = (durationMs?: number): string => {
+  if (!durationMs || durationMs <= 0) return '<1 ms';
+  if (durationMs < 1000) return `${durationMs} ms`;
+  return `${(durationMs / 1000).toFixed(2)} s`;
+};
+
+export const formatTime = (value: string): string => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+  return date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: 3,
+  });
+};
+
+export const formatDateTime = (value: string | number): string => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value);
+  return date.toLocaleString([], {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+};
+
+export const sampleTimelineDocuments: TimelineDocument[] = [
+  {
+    id: 'evt-call-started',
+    kind: 'event',
+    name: 'call.started',
+    category: 'call',
+    level: 'info',
+    outcome: 'success',
+    title: 'Inbound call started',
+    projectId: 2,
+    organizationId: 1,
+    scope: 'conversation',
+    assistantId: 1001,
+    assistantConversationId: 80001,
+    contextId: 'turn-1',
+    attributes: { component: 'telephony', provider: 'twilio' },
+    data: { from: '+15551234567', to: '+15557654321' },
+    occurredAt: '2026-06-04T03:10:00.000Z',
+    receivedAt: '2026-06-04T03:10:00.090Z',
+    durationMs: 280,
+  },
+  {
+    id: 'evt-stt-final',
+    kind: 'event',
+    name: 'stt.final_transcript',
+    category: 'stt',
+    level: 'info',
+    outcome: 'success',
+    title: 'User speech transcribed',
+    projectId: 2,
+    organizationId: 1,
+    scope: 'message',
+    assistantId: 1001,
+    assistantConversationId: 80001,
+    messageId: 'user-turn-1',
+    messageRole: 'user',
+    contextId: 'turn-1',
+    attributes: { component: 'stt', provider: 'deepgram' },
+    data: { text: 'I need to reschedule my appointment.' },
+    occurredAt: '2026-06-04T03:10:01.050Z',
+    receivedAt: '2026-06-04T03:10:01.270Z',
+    durationMs: 620,
+  },
+  {
+    id: 'evt-llm-response',
+    kind: 'event',
+    name: 'llm.response.completed',
+    category: 'llm',
+    level: 'info',
+    outcome: 'success',
+    title: 'Assistant response generated',
+    projectId: 2,
+    organizationId: 1,
+    scope: 'message',
+    assistantId: 1001,
+    assistantConversationId: 80001,
+    messageId: 'assistant-turn-1',
+    messageRole: 'assistant',
+    contextId: 'turn-1',
+    attributes: { component: 'llm', provider: 'openai', model: 'gpt-4.1' },
+    data: { promptTokens: 542, completionTokens: 68 },
+    occurredAt: '2026-06-04T03:10:01.760Z',
+    receivedAt: '2026-06-04T03:10:02.650Z',
+    durationMs: 890,
+  },
+  {
+    id: 'evt-tool-calendar',
+    kind: 'event',
+    name: 'tool.calendar.lookup',
+    category: 'tool',
+    level: 'info',
+    outcome: 'success',
+    title: 'Calendar availability checked',
+    projectId: 2,
+    organizationId: 1,
+    scope: 'message',
+    assistantId: 1001,
+    assistantConversationId: 80001,
+    messageId: 'assistant-turn-1',
+    messageRole: 'assistant',
+    contextId: 'turn-1',
+    attributes: { component: 'tool', tool: 'calendar.lookup' },
+    data: { slots: 3 },
+    occurredAt: '2026-06-04T03:10:02.720Z',
+    receivedAt: '2026-06-04T03:10:03.080Z',
+    durationMs: 360,
+  },
+  {
+    id: 'evt-tts-started',
+    kind: 'event',
+    name: 'tts.audio.started',
+    category: 'tts',
+    level: 'info',
+    outcome: 'success',
+    title: 'Assistant audio started',
+    projectId: 2,
+    organizationId: 1,
+    scope: 'message',
+    assistantId: 1001,
+    assistantConversationId: 80001,
+    messageId: 'assistant-turn-1',
+    messageRole: 'assistant',
+    contextId: 'turn-1',
+    attributes: { component: 'tts', provider: 'cartesia' },
+    data: { voice: 'sonic' },
+    occurredAt: '2026-06-04T03:10:03.190Z',
+    receivedAt: '2026-06-04T03:10:03.300Z',
+    durationMs: 480,
+  },
+  {
+    id: 'evt-stt-final-2',
+    kind: 'event',
+    name: 'stt.final_transcript',
+    category: 'stt',
+    level: 'info',
+    outcome: 'success',
+    title: 'User speech transcribed',
+    projectId: 2,
+    organizationId: 1,
+    scope: 'message',
+    assistantId: 1001,
+    assistantConversationId: 80001,
+    messageId: 'user-turn-2',
+    messageRole: 'user',
+    contextId: 'turn-2',
+    attributes: { component: 'stt', provider: 'deepgram' },
+    data: { text: 'Tomorrow afternoon works.' },
+    occurredAt: '2026-06-04T03:10:08.250Z',
+    receivedAt: '2026-06-04T03:10:08.420Z',
+    durationMs: 510,
+  },
+  {
+    id: 'evt-llm-response-2',
+    kind: 'event',
+    name: 'llm.response.completed',
+    category: 'llm',
+    level: 'info',
+    outcome: 'success',
+    title: 'Assistant response generated',
+    projectId: 2,
+    organizationId: 1,
+    scope: 'message',
+    assistantId: 1001,
+    assistantConversationId: 80001,
+    messageId: 'assistant-turn-2',
+    messageRole: 'assistant',
+    contextId: 'turn-2',
+    attributes: { component: 'llm', provider: 'openai', model: 'gpt-4.1' },
+    data: { promptTokens: 610, completionTokens: 42 },
+    occurredAt: '2026-06-04T03:10:08.950Z',
+    receivedAt: '2026-06-04T03:10:09.580Z',
+    durationMs: 630,
+  },
+  {
+    id: 'evt-tool-calendar-write',
+    kind: 'event',
+    name: 'tool.calendar.reschedule',
+    category: 'tool',
+    level: 'info',
+    outcome: 'success',
+    title: 'Appointment rescheduled',
+    projectId: 2,
+    organizationId: 1,
+    scope: 'message',
+    assistantId: 1001,
+    assistantConversationId: 80001,
+    messageId: 'assistant-turn-2',
+    messageRole: 'assistant',
+    contextId: 'turn-2',
+    attributes: { component: 'tool', tool: 'calendar.reschedule' },
+    data: { appointmentId: 'apt_0912', status: 'confirmed' },
+    occurredAt: '2026-06-04T03:10:09.640Z',
+    receivedAt: '2026-06-04T03:10:10.320Z',
+    durationMs: 680,
+  },
+  {
+    id: 'evt-tts-started-2',
+    kind: 'event',
+    name: 'tts.audio.started',
+    category: 'tts',
+    level: 'info',
+    outcome: 'success',
+    title: 'Confirmation audio started',
+    projectId: 2,
+    organizationId: 1,
+    scope: 'message',
+    assistantId: 1001,
+    assistantConversationId: 80001,
+    messageId: 'assistant-turn-2',
+    messageRole: 'assistant',
+    contextId: 'turn-2',
+    attributes: { component: 'tts', provider: 'cartesia' },
+    data: { voice: 'sonic' },
+    occurredAt: '2026-06-04T03:10:10.390Z',
+    receivedAt: '2026-06-04T03:10:10.500Z',
+    durationMs: 430,
+  },
+];

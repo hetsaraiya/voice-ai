@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/pkg/types"
 	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
@@ -497,6 +498,7 @@ const (
 	InitializationStageBehavior            InitializationStage = "behavior"
 	InitializationStageAnalysis            InitializationStage = "analysis"
 	InitializationStageWebhook             InitializationStage = "webhook"
+	InitializationStageRecording           InitializationStage = "recording"
 	InitializationStageInputNormalizer     InitializationStage = "input_normalizer"
 	InitializationStageOutputNormalizer    InitializationStage = "output_normalizer"
 	InitializationStageInitializationFinal InitializationStage = "initialization_completed"
@@ -1135,6 +1137,78 @@ func (f UserMessageMetadataPacket) ContextId() string { return f.ContextID }
 // =============================================================================
 // Observability
 // =============================================================================
+
+// ObservabilityRecordPacket is the base packet for emitting a typed observability record.
+type ObservabilityRecordPacket interface {
+	ContextId() string
+	GetRecord() observability.Record
+}
+
+// ObservabilityLogRecordPacket emits an observability.RecordLog.
+type ObservabilityLogRecordPacket struct {
+	ContextID string
+	Record    observability.RecordLog
+}
+
+func (p ObservabilityLogRecordPacket) ContextId() string { return p.ContextID }
+func (p ObservabilityLogRecordPacket) GetRecord() observability.Record {
+	return p.Record
+}
+
+// ObservabilityEventRecordPacket emits an observability.RecordEvent.
+type ObservabilityEventRecordPacket struct {
+	ContextID string
+	Record    observability.RecordEvent
+}
+
+func (p ObservabilityEventRecordPacket) ContextId() string { return p.ContextID }
+func (p ObservabilityEventRecordPacket) GetRecord() observability.Record {
+	return p.Record
+}
+
+// ObservabilityMetricRecordPacket emits an observability.RecordMetric.
+type ObservabilityMetricRecordPacket struct {
+	ContextID string
+	Record    observability.RecordMetric
+}
+
+func (p ObservabilityMetricRecordPacket) ContextId() string { return p.ContextID }
+func (p ObservabilityMetricRecordPacket) GetRecord() observability.Record {
+	return p.Record
+}
+
+// ObservabilityMetadataRecordPacket emits an observability.RecordMetadata.
+type ObservabilityMetadataRecordPacket struct {
+	ContextID string
+	Record    observability.RecordMetadata
+}
+
+func (p ObservabilityMetadataRecordPacket) ContextId() string { return p.ContextID }
+func (p ObservabilityMetadataRecordPacket) GetRecord() observability.Record {
+	return p.Record
+}
+
+// ObservabilityUsageRecordPacket emits an observability.RecordUsage.
+type ObservabilityUsageRecordPacket struct {
+	ContextID string
+	Record    observability.RecordUsage
+}
+
+func (p ObservabilityUsageRecordPacket) ContextId() string { return p.ContextID }
+func (p ObservabilityUsageRecordPacket) GetRecord() observability.Record {
+	return p.Record
+}
+
+// ObservabilityWebhookRecordPacket emits an observability.RecordWebhook.
+type ObservabilityWebhookRecordPacket struct {
+	ContextID string
+	Record    observability.RecordWebhook
+}
+
+func (p ObservabilityWebhookRecordPacket) ContextId() string { return p.ContextID }
+func (p ObservabilityWebhookRecordPacket) GetRecord() observability.Record {
+	return p.Record
+}
 
 // ConversationEventPacket carries a named pipeline event for the debugger.
 // Each component emits these alongside its existing packets; they flow through

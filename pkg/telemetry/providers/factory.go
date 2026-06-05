@@ -9,26 +9,17 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/rapidaai/config"
 	"github.com/rapidaai/pkg/commons"
-	"github.com/rapidaai/pkg/connectors"
 	"github.com/rapidaai/pkg/telemetry"
 )
-
-// FactoryDependencies contains shared dependencies required by some providers.
-type FactoryDependencies struct {
-	Logger     commons.Logger
-	AppConfig  *config.AppConfig
-	OpenSearch connectors.OpenSearchConnector
-}
 
 // NewExporterFromOptions constructs a telemetry exporter using provider-specific
 // typed config parsed from a flat option map.
 func NewExporterFromOptions(
+	Logger commons.Logger,
 	ctx context.Context,
 	provider string,
 	opts map[string]interface{},
-	deps FactoryDependencies,
 ) (telemetry.Exporter, error) {
 	switch telemetry.ExporterType(provider) {
 	case telemetry.OTLP_HTTP, telemetry.OTLP_GRPC:
@@ -62,26 +53,13 @@ func NewExporterFromOptions(
 		}
 		return NewDatadogExporter(ctx, cfg)
 	case telemetry.LOGGING:
-		if deps.Logger == nil {
-			return nil, fmt.Errorf("telemetry/logging: logger is required")
-		}
 		cfg, err := LoggingConfigFromOptions(opts)
 		if err != nil {
 			return nil, err
 		}
-		return NewLoggingExporter(deps.Logger, cfg), nil
+		return NewLoggingExporter(Logger, cfg), nil
 	case telemetry.OPENSEARCH:
-		if deps.Logger == nil {
-			return nil, fmt.Errorf("telemetry/opensearch: logger is required")
-		}
-		if deps.OpenSearch == nil {
-			return nil, fmt.Errorf("telemetry/opensearch: opensearch connector is not available")
-		}
-		cfg, err := OpenSearchConfigFromOptions(opts)
-		if err != nil {
-			return nil, err
-		}
-		return NewOpenSearchExporter(deps.Logger, deps.AppConfig, deps.OpenSearch, cfg), nil
+		return NewOpenSearchExporterFromOptions(ctx, Logger, opts)
 	default:
 		return nil, fmt.Errorf("telemetry: unknown exporter type %q", provider)
 	}

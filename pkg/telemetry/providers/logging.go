@@ -39,4 +39,4 @@ func (e *LoggingExporter) ExportMetric(_ context.Context, meta telemetry.Session
 	return nil
 }
 
-func (e *LoggingExporter) Shutdown(_ context.Context) error { return nil }
+func (e *LoggingExporter) Close(_ context.Context) error { return nil }

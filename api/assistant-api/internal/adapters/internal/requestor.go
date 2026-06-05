@@ -8,7 +8,6 @@ package adapter_internal
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -27,8 +26,7 @@ import (
 	internal_llm "github.com/rapidaai/api/assistant-api/internal/llm"
 	internal_input_normalizer "github.com/rapidaai/api/assistant-api/internal/normalizer/input"
 	internal_output_normalizer "github.com/rapidaai/api/assistant-api/internal/normalizer/output"
-	observe "github.com/rapidaai/api/assistant-api/internal/observe"
-	observe_exporters "github.com/rapidaai/api/assistant-api/internal/observe/exporters"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
 	internal_assistant_service "github.com/rapidaai/api/assistant-api/internal/services/assistant"
 	internal_knowledge_service "github.com/rapidaai/api/assistant-api/internal/services/knowledge"
@@ -46,15 +44,14 @@ import (
 )
 
 const (
-	Unknown               = adapter_lifecycle.Unknown
-	Interrupt             = adapter_lifecycle.Interrupt
-	Interrupted           = adapter_lifecycle.Interrupted
-	LLMGenerating         = adapter_lifecycle.LLMGenerating
-	LLMGenerated          = adapter_lifecycle.LLMGenerated
-	dbWriteTimeout        = 5 * time.Second
-	collectorWriteTimeout = 10 * time.Second
-	connectDeadline       = 30 * time.Second
-	disconnectDeadline    = 30 * time.Second
+	Unknown            = adapter_lifecycle.Unknown
+	Interrupt          = adapter_lifecycle.Interrupt
+	Interrupted        = adapter_lifecycle.Interrupted
+	LLMGenerating      = adapter_lifecycle.LLMGenerating
+	LLMGenerated       = adapter_lifecycle.LLMGenerated
+	dbWriteTimeout     = 5 * time.Second
+	connectDeadline    = 30 * time.Second
+	disconnectDeadline = 30 * time.Second
 )
 
 var (
@@ -82,9 +79,7 @@ type genericRequestor struct {
 	queryEmbedder internal_agent_embeddings.QueryEmbedding
 	textReranker  internal_agent_rerankers.TextReranking
 
-	// observe — shared observability infrastructure (DB + exporters)
-	observer *observe.ConversationObserver
-
+	observabilityRecorder observability.Recorder
 	// integration client
 	vaultClient       web_client.VaultClient
 	integrationClient integration_client.IntegrationServiceClient
@@ -172,7 +167,7 @@ func NewGenericRequestor(
 		deploymentClient:  endpoint_client.NewDeploymentServiceClientGRPC(&config.AppConfig, logger, redis),
 		vaultClient:       web_client.NewVaultClientGRPC(&config.AppConfig, logger, redis),
 
-		// observer and hook executors are initialized after session creation in initializeCollectors
+		// Observability is initialized after session creation.
 
 		messageLifecycle: adapter_lifecycle.NewMessageLifecycle(),
 		sessionLifecycle: adapter_lifecycle.NewSessionLifecycle(),
@@ -237,12 +232,7 @@ func (talking *genericRequestor) ResumeConversation(ctx context.Context, assista
 	talking.assistant = assistant
 	conversation, err := talking.GetAssistantConversation(ctx, talking.Auth(), assistant.Id, config.GetAssistantConversationId())
 	if err != nil {
-		talking.logger.Errorf("failed to get assistant conversation: %+v", err)
 		return err
-	}
-	if conversation == nil {
-		talking.logger.Errorf("conversation not found: %d", config.GetAssistantConversationId())
-		return fmt.Errorf("conversation not found: %d", config.GetAssistantConversationId())
 	}
 	talking.assistantConversation = conversation
 	talking.args = conversation.GetArguments()
@@ -303,22 +293,6 @@ func (r *genericRequestor) SwitchMode(mm type_enums.MessageMode) {
 	r.messageLifecycle.SetMode(mm)
 }
 
-// Transition advances the interaction state machine.
-//
-// Valid transitions:
-//
-//	LLMGenerating | LLMGenerated | Interrupt → Interrupt    (VAD soft-interrupt)
-//	LLMGenerating | LLMGenerated | Interrupt → Interrupted  (word-interrupt, rotates contextID)
-//	Unknown | Interrupted                    → LLMGenerating (new turn starts)
-//	LLMGenerating                            → LLMGenerated  (LLM finished, TTS may still play)
-//	Any except Unknown                       → LLMGenerated  (also used for error recovery)
-//
-// Blocked:
-//
-//   - → Unknown                          (no explicit reset)
-//     Unknown     → Interrupt | Interrupted (nothing active — no LLM, no TTS)
-//     Interrupted → Interrupted             (already interrupted)
-//     Interrupt   → Interrupt               (already soft-interrupted)
 func (r *genericRequestor) Transition(newState adapter_lifecycle.MessageState) error {
 	oldCtxID := r.GetID()
 	if err := r.messageLifecycle.Transition(newState); err != nil {
@@ -352,134 +326,4 @@ func (r *genericRequestor) canAcceptInput() bool {
 
 func (r *genericRequestor) canSwitchSession() bool {
 	return r.sessionLifecycle.CanBe(adapter_lifecycle.EventSwitchRequested)
-}
-
-// initializeCollectors builds EventCollector and MetricCollector from the
-// assistant's telemetry provider configuration stored in the database.
-// Connection details come from the provider's Options key-value pairs.
-// Collectors default to no-op when no providers are configured.
-func (r *genericRequestor) initializeCollectors(ctx context.Context) {
-	providers, err := r.GetTelemetryProvider(ctx)
-	if err != nil {
-		r.logger.Errorf("observe: failed to load telemetry providers: %v", err)
-	}
-
-	var projectID, orgID uint64
-	if pid := r.auth.GetCurrentProjectId(); pid != nil {
-		projectID = *pid
-	}
-	if oid := r.auth.GetCurrentOrganizationId(); oid != nil {
-		orgID = *oid
-	}
-	meta := observe.SessionMeta{
-		AssistantID:             r.assistant.Id,
-		AssistantConversationID: r.assistantConversation.Id,
-		ProjectID:               projectID,
-		OrganizationID:          orgID,
-	}
-
-	var eventExporters []observe.EventExporter
-	var metricExporters []observe.MetricExporter
-	// Register one default telemetry exporter from env config (asset-store style).
-	if r.config != nil && r.config.TelemetryConfig != nil {
-		envProviderType := r.config.TelemetryConfig.Type()
-		if envProviderType != "" {
-			envOpts := r.config.TelemetryConfig.ToMap()
-			evtExp, metExp, err := observe_exporters.GetExporter(
-				ctx, r.logger, &r.config.AppConfig, r.opensearch, string(envProviderType), envOpts,
-			)
-			if err != nil {
-				r.logger.Errorf("observe: env telemetry exporter creation failed for type %s: %v", envProviderType, err)
-			} else if evtExp == nil || metExp == nil {
-				r.logger.Warnf("observe: env telemetry exporter returned nil for type %s", envProviderType)
-			} else {
-				eventExporters = append(eventExporters, evtExp)
-				metricExporters = append(metricExporters, metExp)
-			}
-		}
-	}
-
-	for _, p := range providers {
-		opts := p.GetOptions()
-		credID, parseErr := opts.GetUint64("rapida.credential_id")
-		if parseErr != nil {
-			r.logger.Errorf("observe: invalid credential_id for provider %d (%s): %v", p.Id, p.ProviderType, parseErr)
-		} else {
-			credential, credErr := r.VaultCaller().GetCredential(ctx, r.Auth(), credID)
-			if credErr != nil {
-				r.logger.Errorf("observe: vault credential lookup failed for provider %d (%s): %v", p.Id, p.ProviderType, credErr)
-			} else if credential != nil && credential.GetValue() != nil {
-				for k, v := range credential.GetValue().AsMap() {
-					if s, ok := v.(string); ok {
-						opts[k] = s
-					}
-				}
-			}
-		}
-
-		evtExp, metExp, err := observe_exporters.GetExporter(ctx, r.logger, &r.config.AppConfig, r.opensearch, p.ProviderType, opts)
-		if err != nil {
-			r.logger.Errorf("observe: exporter creation failed for provider %d (%s): %v", p.Id, p.ProviderType, err)
-			continue
-		}
-		if evtExp == nil || metExp == nil {
-			_, err := opts.GetString("endpoint")
-			if (p.ProviderType == string(observe.OTLP_HTTP) || p.ProviderType == string(observe.OTLP_GRPC)) && err != nil {
-				r.logger.Warnf("observe: skipping provider %d (%s): missing endpoint", p.Id, p.ProviderType)
-				continue
-			}
-			r.logger.Warnf("observe: exporter returned nil for provider %d (%s)", p.Id, p.ProviderType)
-			continue
-		}
-		eventExporters = append(eventExporters, evtExp)
-		metricExporters = append(metricExporters, metExp)
-	}
-
-	r.observer = observe.NewConversationObserver(&observe.ConversationObserverConfig{
-		Logger:         r.logger,
-		Auth:           r.auth,
-		AssistantID:    r.assistant.Id,
-		ConversationID: r.assistantConversation.Id,
-		ProjectID:      projectID,
-		OrganizationID: orgID,
-		Persist: &observe.ServicePersister{
-			ApplyMetrics: func(ctx context.Context, auth types.SimplePrinciple, assistantID, conversationID uint64, metrics []*types.Metric) (interface{}, error) {
-				dbCtx, cancel := context.WithTimeout(context.Background(), dbWriteTimeout)
-				defer cancel()
-				return r.conversationService.ApplyConversationMetrics(dbCtx, auth, assistantID, conversationID, metrics)
-			},
-			ApplyMetadata: func(ctx context.Context, auth types.SimplePrinciple, assistantID, conversationID uint64, metadata []*types.Metadata) (interface{}, error) {
-				dbCtx, cancel := context.WithTimeout(context.Background(), dbWriteTimeout)
-				defer cancel()
-				return r.conversationService.ApplyConversationMetadata(dbCtx, auth, assistantID, conversationID, metadata)
-			},
-		},
-		Events:  observe.NewEventCollector(r.logger, meta, eventExporters...),
-		Metrics: observe.NewMetricCollector(r.logger, meta, metricExporters...),
-	})
-
-}
-
-// shutdownCollectors waits for in-flight exports and shuts down all exporters.
-func (r *genericRequestor) shutdownCollectors(ctx context.Context) {
-	if r.observer != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), collectorWriteTimeout)
-		defer cancel()
-		r.observer.Shutdown(shutdownCtx)
-	}
-	for _, analysis := range r.assistantAnalyseExecutors {
-		if err := analysis.Close(ctx); err != nil {
-			r.logger.Errorf("close analysis executor: %v", err)
-		}
-	}
-	for _, webhook := range r.assistantWebhookExecutors {
-		if err := webhook.Close(ctx); err != nil {
-			r.logger.Errorf("close webhook executor: %v", err)
-		}
-	}
-	if r.authenticationExecutor != nil {
-		if err := r.authenticationExecutor.Close(ctx); err != nil {
-			r.logger.Errorf("close authentication executor: %v", err)
-		}
-	}
 }

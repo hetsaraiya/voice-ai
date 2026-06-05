@@ -13,8 +13,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	rapida_config "github.com/rapidaai/config"
+	"github.com/mitchellh/mapstructure"
 	"github.com/rapidaai/pkg/commons"
+	"github.com/rapidaai/pkg/configs"
 	"github.com/rapidaai/pkg/connectors"
 	"github.com/rapidaai/pkg/telemetry"
 )
@@ -22,25 +23,67 @@ import (
 // OpenSearchExporter indexes events and metrics to dedicated OpenSearch indices.
 type OpenSearchExporter struct {
 	logger    commons.Logger
-	cfg       *rapida_config.AppConfig
+	config    OpenSearchConfig
 	connector connectors.OpenSearchConnector
 }
 
 func NewOpenSearchExporter(
 	logger commons.Logger,
-	cfg *rapida_config.AppConfig,
+	config OpenSearchConfig,
 	connector connectors.OpenSearchConnector,
-	_ OpenSearchConfig,
 ) *OpenSearchExporter {
-	return &OpenSearchExporter{logger: logger, cfg: cfg, connector: connector}
+	return &OpenSearchExporter{logger: logger, config: config, connector: connector}
+}
+
+func NewOpenSearchExporterFromOptions(
+	ctx context.Context,
+	logger commons.Logger,
+	opts map[string]interface{},
+) (telemetry.Exporter, error) {
+	connectorConfig := &configs.OpenSearchConfig{}
+	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		Result:           connectorConfig,
+		TagName:          "mapstructure",
+		WeaklyTypedInput: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := decoder.Decode(opts); err != nil {
+		return nil, err
+	}
+	if !connectorConfig.IsValid() {
+		return nil, fmt.Errorf("telemetry/opensearch: opensearch config is required")
+	}
+	exporterConfig, err := OpenSearchConfigFromOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	connector := connectors.NewOpenSearchConnector(connectorConfig, logger)
+	if err := connector.Connect(ctx); err != nil {
+		return nil, err
+	}
+	return &OpenSearchExporter{
+		logger:    logger,
+		config:    exporterConfig,
+		connector: connector,
+	}, nil
 }
 
 func (e *OpenSearchExporter) eventIndex() string {
-	return "rapida-events-" + time.Now().UTC().Format("20060102")
+	prefix := "rapida"
+	if strings.TrimSpace(e.config.IndexPrefix) != "" {
+		prefix = strings.TrimSpace(e.config.IndexPrefix)
+	}
+	return prefix + "-events-" + time.Now().UTC().Format("20060102")
 }
 
 func (e *OpenSearchExporter) metricIndex() string {
-	return "rapida-metrics-" + time.Now().UTC().Format("20060102")
+	prefix := "rapida"
+	if strings.TrimSpace(e.config.IndexPrefix) != "" {
+		prefix = strings.TrimSpace(e.config.IndexPrefix)
+	}
+	return prefix + "-metrics-" + time.Now().UTC().Format("20060102")
 }
 
 type opensearchEventDoc struct {
@@ -120,7 +163,12 @@ func (e *OpenSearchExporter) ExportMetric(ctx context.Context, meta telemetry.Se
 	return e.bulk(ctx, e.metricIndex(), doc)
 }
 
-func (e *OpenSearchExporter) Shutdown(_ context.Context) error { return nil }
+func (e *OpenSearchExporter) Close(ctx context.Context) error {
+	if e.connector != nil {
+		return e.connector.Disconnect(ctx)
+	}
+	return nil
+}
 
 func (e *OpenSearchExporter) bulk(ctx context.Context, index string, doc interface{}) error {
 	var sb strings.Builder

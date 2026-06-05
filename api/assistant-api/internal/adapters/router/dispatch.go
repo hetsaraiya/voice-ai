@@ -50,16 +50,16 @@ type DispatchHandler interface {
 	HandleRecordAssistantAudio(context.Context, internal_type.RecordAssistantAudioPacket)
 	HandleConversationRecordingCompleted(context.Context, internal_type.ConversationRecordingCompletedPacket)
 	HandleMessageCreate(context.Context, internal_type.MessageCreatePacket)
-	HandleConversationMetric(context.Context, internal_type.ConversationMetricPacket)
-	HandleConversationMetadata(context.Context, internal_type.ConversationMetadataPacket)
-	HandleUserMessageMetric(context.Context, internal_type.UserMessageMetricPacket)
-	HandleAssistantMessageMetric(context.Context, internal_type.AssistantMessageMetricPacket)
-	HandleUserMessageMetadata(context.Context, internal_type.UserMessageMetadataPacket)
-	HandleAssistantMessageMetadata(context.Context, internal_type.AssistantMessageMetadataPacket)
+	// HandleConversationMetric(context.Context, internal_type.ConversationMetricPacket)
+	// HandleConversationMetadata(context.Context, internal_type.ConversationMetadataPacket)
+	// HandleUserMessageMetric(context.Context, internal_type.UserMessageMetricPacket)
+	// HandleAssistantMessageMetric(context.Context, internal_type.AssistantMessageMetricPacket)
+	// HandleUserMessageMetadata(context.Context, internal_type.UserMessageMetadataPacket)
+	// HandleAssistantMessageMetadata(context.Context, internal_type.AssistantMessageMetadataPacket)
 	HandleToolLogCreate(context.Context, internal_type.ToolLogCreatePacket)
 	HandleToolLogUpdate(context.Context, internal_type.ToolLogUpdatePacket)
 	HandleHTTPLogCreate(context.Context, internal_type.HTTPLogCreatePacket)
-	HandleConversationEvent(context.Context, internal_type.ConversationEventPacket)
+	// HandleConversationEvent(context.Context, internal_type.ConversationEventPacket)
 	HandleInitializeAssistant(context.Context, internal_type.InitializeAssistantPacket)
 	HandleInitializeConversation(context.Context, internal_type.InitializeConversationPacket)
 	HandleInitializeSessionRuntime(context.Context, internal_type.InitializeSessionRuntimePacket)
@@ -101,6 +101,7 @@ type DispatchHandler interface {
 	HandleFinalizationCompleted(context.Context, internal_type.FinalizationCompletedPacket)
 	HandleExecuteAnalysis(context.Context, internal_type.ExecuteAnalysisPacket)
 	HandleExecuteWebhook(context.Context, internal_type.ExecuteWebhookPacket)
+	HandleObservabilityRecordPacket(context.Context, internal_type.ObservabilityRecordPacket)
 }
 
 // DispatchPacket routes a packet to the matching typed method on handler.
@@ -175,26 +176,27 @@ func DispatchPacket(ctx context.Context, p internal_type.Packet, handler Dispatc
 		handler.HandleInitializeDenoise(ctx, vl)
 	case internal_type.MessageCreatePacket:
 		handler.HandleMessageCreate(ctx, vl)
-	case internal_type.ConversationMetricPacket:
-		handler.HandleConversationMetric(ctx, vl)
-	case internal_type.ConversationMetadataPacket:
-		handler.HandleConversationMetadata(ctx, vl)
-	case internal_type.UserMessageMetricPacket:
-		handler.HandleUserMessageMetric(ctx, vl)
-	case internal_type.AssistantMessageMetricPacket:
-		handler.HandleAssistantMessageMetric(ctx, vl)
-	case internal_type.UserMessageMetadataPacket:
-		handler.HandleUserMessageMetadata(ctx, vl)
-	case internal_type.AssistantMessageMetadataPacket:
-		handler.HandleAssistantMessageMetadata(ctx, vl)
+
+	// case internal_type.ConversationMetricPacket:
+	// 	handler.HandleConversationMetric(ctx, vl)
+	// case internal_type.ConversationMetadataPacket:
+	// 	handler.HandleConversationMetadata(ctx, vl)
+	// case internal_type.UserMessageMetricPacket:
+	// 	handler.HandleUserMessageMetric(ctx, vl)
+	// case internal_type.AssistantMessageMetricPacket:
+	// 	handler.HandleAssistantMessageMetric(ctx, vl)
+	// case internal_type.UserMessageMetadataPacket:
+	// 	handler.HandleUserMessageMetadata(ctx, vl)
+	// case internal_type.AssistantMessageMetadataPacket:
+	// 	handler.HandleAssistantMessageMetadata(ctx, vl)
 	case internal_type.ToolLogCreatePacket:
 		handler.HandleToolLogCreate(ctx, vl)
 	case internal_type.ToolLogUpdatePacket:
 		handler.HandleToolLogUpdate(ctx, vl)
 	case internal_type.HTTPLogCreatePacket:
 		handler.HandleHTTPLogCreate(ctx, vl)
-	case internal_type.ConversationEventPacket:
-		handler.HandleConversationEvent(ctx, vl)
+	// case internal_type.ConversationEventPacket:
+	// 	handler.HandleConversationEvent(ctx, vl)
 	case internal_type.InitializeAssistantPacket:
 		handler.HandleInitializeAssistant(ctx, vl)
 	case internal_type.InitializeConversationPacket:
@@ -275,6 +277,8 @@ func DispatchPacket(ctx context.Context, p internal_type.Packet, handler Dispatc
 		handler.HandleExecuteAnalysis(ctx, vl)
 	case internal_type.ExecuteWebhookPacket:
 		handler.HandleExecuteWebhook(ctx, vl)
+	case internal_type.ObservabilityRecordPacket:
+		handler.HandleObservabilityRecordPacket(ctx, vl)
 	case internal_type.EndOfSpeechInterruptionPacket:
 		handler.HandleEndOfSpeechInterruption(ctx, vl)
 	case internal_type.EndOfSpeechAudioPacket:
