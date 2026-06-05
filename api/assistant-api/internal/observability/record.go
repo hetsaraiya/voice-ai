@@ -251,6 +251,33 @@ type RecordEvent struct {
 	Attributes Attributes
 }
 
+func NewConversationEventRecord(event EventName, attr Attributes) RecordEvent {
+	return RecordEvent{
+		CommonRecord: CommonRecord{Scope: ConversationScope{}},
+		Event:        event,
+		Attributes:   attr,
+	}
+}
+
+func NewMessageEventRecord(messageID string, role MessageRole, event EventName, attr Attributes) RecordEvent {
+	return RecordEvent{
+		CommonRecord: CommonRecord{
+			Scope: MessageScope{
+				MessageID: messageID,
+				Role:      role,
+			},
+		},
+		Event:      event,
+		Attributes: attr,
+	}
+}
+
+func NewMessageRecord(ctxID string, component ComponentName, event EventName, role MessageRole, attr Attributes) RecordEvent {
+	rec := NewMessageEventRecord(ctxID, role, event, attr)
+	rec.Component = component
+	return rec
+}
+
 func (RecordEvent) isRecord() {}
 
 type RecordMetric struct {
@@ -258,11 +285,49 @@ type RecordMetric struct {
 	Metrics []*protos.Metric
 }
 
+func NewConversationMetricRecord(metrics []*protos.Metric) RecordMetric {
+	return RecordMetric{
+		CommonRecord: CommonRecord{Scope: ConversationScope{}},
+		Metrics:      metrics,
+	}
+}
+
+func NewMessageMetricRecord(messageID string, role MessageRole, metrics []*protos.Metric) RecordMetric {
+	return RecordMetric{
+		CommonRecord: CommonRecord{
+			Scope: MessageScope{
+				MessageID: messageID,
+				Role:      role,
+			},
+		},
+		Metrics: metrics,
+	}
+}
+
 func (RecordMetric) isRecord() {}
 
 type RecordMetadata struct {
 	CommonRecord
 	Metadata []*protos.Metadata
+}
+
+func NewConversationMetadataRecord(metadata []*protos.Metadata) RecordMetadata {
+	return RecordMetadata{
+		CommonRecord: CommonRecord{Scope: ConversationScope{}},
+		Metadata:     metadata,
+	}
+}
+
+func NewMessageMetadataRecord(messageID string, role MessageRole, metadata []*protos.Metadata) RecordMetadata {
+	return RecordMetadata{
+		CommonRecord: CommonRecord{
+			Scope: MessageScope{
+				MessageID: messageID,
+				Role:      role,
+			},
+		},
+		Metadata: metadata,
+	}
 }
 
 func (RecordMetadata) isRecord() {}

@@ -58,17 +58,18 @@ func (h requestorDispatchHandler) HandleUserText(ctx context.Context, vl interna
 	vl.ContextID = h.r.GetID()
 	h.r.OnPacket(ctx,
 		internal_type.InterimEndOfSpeechPacket{Speech: vl.Text, ContextID: vl.ContextID},
-		internal_type.ConversationEventPacket{Name: "eos", Data: map[string]string{"type": "interim", "speech": vl.Text}},
+		internal_type.ObservabilityEventRecordPacket{
+			ContextID: vl.ContextID,
+			Record:    observability.NewMessageRecord(vl.ContextID, observability.ComponentEOS, observability.EOSStarted, observability.MessageRoleUser, observability.Attributes{"speech": vl.Text}),
+		},
 		internal_type.EndOfSpeechPacket{Speech: vl.Text, ContextID: vl.ContextID},
-		internal_type.ConversationEventPacket{
-			Name: "eos",
-			Data: map[string]string{
-				"type":       "detected",
+		internal_type.ObservabilityEventRecordPacket{
+			ContextID: vl.ContextID,
+			Record: observability.NewMessageRecord(vl.ContextID, observability.ComponentEOS, observability.EOSCompleted, observability.MessageRoleUser, observability.Attributes{
 				"provider":   "text_input",
 				"context_id": vl.ContextID,
 				"speech":     vl.Text,
-			},
-			Time: time.Now(),
+			}),
 		},
 	)
 }
@@ -196,16 +197,35 @@ func (h requestorDispatchHandler) HandleUserInput(ctx context.Context, p interna
 	}
 	h.r.OnPacket(ctx,
 		internal_type.MessageCreatePacket{ContextID: contextID, MessageRole: "user", Text: p.Text},
-		internal_type.UserMessageMetadataPacket{ContextID: contextID, Metadata: []*protos.Metadata{
-			{
-				Key:   "language",
-				Value: p.Language.Name,
-			},
-			{
-				Key:   "language_code",
-				Value: p.Language.ISO639_1,
-			}}},
-		internal_type.UserMessageMetricPacket{ContextID: contextID, Metrics: []*protos.Metric{{Name: "user_turn", Value: type_enums.CONVERSATION_COMPLETE.String(), Description: "User turn started"}}},
+		internal_type.ObservabilityMetadataRecordPacket{
+			ContextID: contextID,
+			Record: observability.NewMessageMetadataRecord(
+				contextID,
+				observability.MessageRoleUser,
+				[]*protos.Metadata{
+					{
+						Key:   "language",
+						Value: p.Language.Name,
+					},
+					{
+						Key:   "language_code",
+						Value: p.Language.ISO639_1,
+					},
+				},
+			),
+		},
+		internal_type.ObservabilityMetricRecordPacket{
+			ContextID: contextID,
+			Record: observability.NewMessageMetricRecord(
+				contextID,
+				observability.MessageRoleUser,
+				[]*protos.Metric{{
+					Name:        "user_turn",
+					Value:       type_enums.CONVERSATION_COMPLETE.String(),
+					Description: "User turn completed and ready for assistant response generation",
+				}},
+			),
+		},
 	)
 
 	if h.r.assistantExecutor != nil {
@@ -1759,11 +1779,10 @@ func (h requestorDispatchHandler) HandleInitializeTelemetry(ctx context.Context,
 		ConversationService: h.r.conversationService,
 	}))
 
-	h.r.observabilityRecorder = observability.New(
-		observability.WithLogger(h.r.logger),
+	h.r.observabilityRecorder = observability.New(observability.WithLogger(h.r.logger),
 		observability.WithAuth(h.r.auth),
 		observability.WithCollectors(configuredCollectors...),
-	)
+		observability.WithConversationScope(h.r.assistant.Id, h.r.assistantConversation.Id))
 }
 
 func (h requestorDispatchHandler) HandleInitializeOutboundDispatcher(ctx context.Context, p internal_type.InitializeOutboundDispatcherPacket) {

@@ -27,6 +27,7 @@ type recorderOptions struct {
 	logger      commons.Logger
 	auth        types.SimplePrinciple
 	globalScope GlobalScope
+	defaultScope Scope
 	clock       func() time.Time
 	buffer      int
 	collectors  []Collector
@@ -70,6 +71,21 @@ func WithScope(scope GlobalScope) Option {
 	return WithGlobalScope(scope)
 }
 
+func WithAssistantScope(assistantID uint64) Option {
+	return newOption(func(recorderOptions *recorderOptions) {
+		recorderOptions.defaultScope = AssistantScope{AssistantID: assistantID}
+	})
+}
+
+func WithConversationScope(assistantID uint64, conversationID uint64) Option {
+	return newOption(func(recorderOptions *recorderOptions) {
+		recorderOptions.defaultScope = ConversationScope{
+			AssistantScope: AssistantScope{AssistantID: assistantID},
+			ConversationID: conversationID,
+		}
+	})
+}
+
 func WithClock(clock func() time.Time) Option {
 	return newOption(func(recorderOptions *recorderOptions) {
 		recorderOptions.clock = clock
@@ -96,6 +112,7 @@ type recorder struct {
 	logger      commons.Logger
 	auth        types.SimplePrinciple
 	globalScope GlobalScope
+	defaultScope Scope
 	clock       func() time.Time
 	fanout      Collector
 	queue       chan Record
@@ -143,6 +160,7 @@ func New(options ...Option) Recorder {
 		logger:      resolvedOptions.logger,
 		auth:        resolvedOptions.auth,
 		globalScope: globalScope,
+		defaultScope: resolvedOptions.defaultScope,
 		clock:       clock,
 		fanout:      NewCollectors(resolvedOptions.collectors...),
 		queue:       make(chan Record, buffer),
@@ -183,7 +201,7 @@ func (r *recorder) normalize(record Record) (Record, error) {
 	now := r.clock()
 	switch typed := record.(type) {
 	case RecordLog:
-		if err := normalizeCommonRecord(&typed.CommonRecord, now, r.auth, r.globalScope); err != nil {
+		if err := normalizeCommonRecord(&typed.CommonRecord, now, r.auth, r.globalScope, r.defaultScope); err != nil {
 			return nil, err
 		}
 		if !validator.NotBlank(typed.Message) {
@@ -199,7 +217,7 @@ func (r *recorder) normalize(record Record) (Record, error) {
 		typed.Attributes = typed.Attributes.Clone()
 		return typed, nil
 	case RecordEvent:
-		if err := normalizeCommonRecord(&typed.CommonRecord, now, r.auth, r.globalScope); err != nil {
+		if err := normalizeCommonRecord(&typed.CommonRecord, now, r.auth, r.globalScope, r.defaultScope); err != nil {
 			return nil, err
 		}
 		if !validator.NotBlank(typed.Event.String()) {
@@ -214,7 +232,7 @@ func (r *recorder) normalize(record Record) (Record, error) {
 		typed.Attributes = typed.Attributes.Clone()
 		return typed, nil
 	case RecordMetric:
-		if err := normalizeCommonRecord(&typed.CommonRecord, now, r.auth, r.globalScope); err != nil {
+		if err := normalizeCommonRecord(&typed.CommonRecord, now, r.auth, r.globalScope, r.defaultScope); err != nil {
 			return nil, err
 		}
 		if len(typed.Metrics) == 0 {
@@ -227,7 +245,7 @@ func (r *recorder) normalize(record Record) (Record, error) {
 		}
 		return typed, nil
 	case RecordMetadata:
-		if err := normalizeCommonRecord(&typed.CommonRecord, now, r.auth, r.globalScope); err != nil {
+		if err := normalizeCommonRecord(&typed.CommonRecord, now, r.auth, r.globalScope, r.defaultScope); err != nil {
 			return nil, err
 		}
 		if len(typed.Metadata) == 0 {
@@ -240,7 +258,7 @@ func (r *recorder) normalize(record Record) (Record, error) {
 		}
 		return typed, nil
 	case RecordUsage:
-		if err := normalizeCommonRecord(&typed.CommonRecord, now, r.auth, r.globalScope); err != nil {
+		if err := normalizeCommonRecord(&typed.CommonRecord, now, r.auth, r.globalScope, r.defaultScope); err != nil {
 			return nil, err
 		}
 		if typed.Scope.ScopeType() == ScopeMessage {
@@ -252,7 +270,7 @@ func (r *recorder) normalize(record Record) (Record, error) {
 		typed.Attributes = typed.Attributes.Clone()
 		return typed, nil
 	case RecordWebhook:
-		if err := normalizeCommonRecord(&typed.CommonRecord, now, r.auth, r.globalScope); err != nil {
+		if err := normalizeCommonRecord(&typed.CommonRecord, now, r.auth, r.globalScope, r.defaultScope); err != nil {
 			return nil, err
 		}
 		if !validator.NotBlank(typed.Event.String()) {
@@ -267,7 +285,7 @@ func (r *recorder) normalize(record Record) (Record, error) {
 	}
 }
 
-func normalizeCommonRecord(record *CommonRecord, now time.Time, auth types.SimplePrinciple, global GlobalScope) error {
+func normalizeCommonRecord(record *CommonRecord, now time.Time, auth types.SimplePrinciple, global GlobalScope, defaultScope Scope) error {
 	if !validator.NonNil(record) {
 		return errors.New("observability: record is nil")
 	}
@@ -275,6 +293,7 @@ func normalizeCommonRecord(record *CommonRecord, now time.Time, auth types.Simpl
 	if !validator.NonNil(record.Scope) {
 		return errors.New("observability: scope is required")
 	}
+	record.Scope = resolveScope(record.Scope, defaultScope)
 	record.Scope = record.Scope.WithGlobal(global)
 	if err := ValidateScope(record.Scope); err != nil {
 		return err
@@ -283,6 +302,36 @@ func normalizeCommonRecord(record *CommonRecord, now time.Time, auth types.Simpl
 		record.OccurredAt = now
 	}
 	return nil
+}
+
+func resolveScope(scope Scope, defaultScope Scope) Scope {
+	if !validator.NonNil(scope) || !validator.NonNil(defaultScope) {
+		return scope
+	}
+	switch typed := scope.(type) {
+	case AssistantScope:
+		if typed.AssistantID == 0 {
+			typed.AssistantID = defaultScope.AssistantScopeID()
+		}
+		return typed
+	case ConversationScope:
+		return resolveConversationScope(typed, defaultScope)
+	case MessageScope:
+		typed.ConversationScope = resolveConversationScope(typed.ConversationScope, defaultScope)
+		return typed
+	default:
+		return scope
+	}
+}
+
+func resolveConversationScope(scope ConversationScope, defaultScope Scope) ConversationScope {
+	if scope.AssistantScope.AssistantID == 0 {
+		scope.AssistantScope.AssistantID = defaultScope.AssistantScopeID()
+	}
+	if scope.ConversationID == 0 {
+		scope.ConversationID = defaultScope.ConversationScopeID()
+	}
+	return scope
 }
 
 func (r *recorder) run() {

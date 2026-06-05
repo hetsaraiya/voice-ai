@@ -114,6 +114,116 @@ func TestRecorder_RecordMetric_FansOutAndInjectsGlobalScope(t *testing.T) {
 	}
 }
 
+func TestRecorder_WithConversationScope_ResolvesMessageEventScope(t *testing.T) {
+	collector := &recordingCollector{}
+	recorder := New(
+		WithConversationScope(10, 20),
+		WithCollector(collector),
+	)
+
+	err := recorder.Record(context.Background(), NewMessageEventRecord(
+		"msg-1",
+		MessageRoleUser,
+		EOSCompleted,
+		Attributes{"speech": "hello"},
+	))
+	if err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	if len(collector.events) != 1 {
+		t.Fatalf("expected one event, got %d", len(collector.events))
+	}
+	scope := collector.events[0].Scope
+	if scope.AssistantScopeID() != 10 || scope.ConversationScopeID() != 20 || scope.MessageScopeID() != "msg-1" || scope.MessageScopeRole() != MessageRoleUser {
+		t.Fatalf("unexpected message scope: assistant=%d conversation=%d message=%q role=%q",
+			scope.AssistantScopeID(), scope.ConversationScopeID(), scope.MessageScopeID(), scope.MessageScopeRole())
+	}
+}
+
+func TestRecorder_WithConversationScope_ResolvesConversationMetricScope(t *testing.T) {
+	collector := &recordingCollector{}
+	recorder := New(
+		WithConversationScope(10, 20),
+		WithCollector(collector),
+	)
+
+	err := recorder.Record(context.Background(), NewConversationMetricRecord(
+		[]*protos.Metric{{Name: MetricConversationStatus, Value: MetricConversationInProgress}},
+	))
+	if err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	if len(collector.metrics) != 1 {
+		t.Fatalf("expected one metric, got %d", len(collector.metrics))
+	}
+	scope := collector.metrics[0].Scope
+	if scope.AssistantScopeID() != 10 || scope.ConversationScopeID() != 20 {
+		t.Fatalf("unexpected conversation scope: assistant=%d conversation=%d", scope.AssistantScopeID(), scope.ConversationScopeID())
+	}
+}
+
+func TestRecorder_WithAssistantScope_DoesNotResolveMessageScope(t *testing.T) {
+	recorder := New(
+		WithAssistantScope(10),
+		WithCollector(&recordingCollector{}),
+	)
+	defer recorder.Close(context.Background())
+
+	err := recorder.Record(context.Background(), NewMessageEventRecord(
+		"msg-1",
+		MessageRoleUser,
+		EOSCompleted,
+		nil,
+	))
+	if err == nil {
+		t.Fatal("expected message scope resolution error")
+	}
+}
+
+func TestRecorder_DefaultScope_DoesNotOverwriteExplicitScope(t *testing.T) {
+	collector := &recordingCollector{}
+	recorder := New(
+		WithConversationScope(10, 20),
+		WithCollector(collector),
+	)
+
+	err := recorder.Record(context.Background(), RecordEvent{
+		CommonRecord: CommonRecord{
+			Scope: MessageScope{
+				ConversationScope: ConversationScope{
+					AssistantScope: AssistantScope{AssistantID: 11},
+					ConversationID: 21,
+				},
+				MessageID: "msg-1",
+				Role:      MessageRoleAssistant,
+			},
+		},
+		Event: TTSCompleted,
+	})
+	if err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	if len(collector.events) != 1 {
+		t.Fatalf("expected one event, got %d", len(collector.events))
+	}
+	scope := collector.events[0].Scope
+	if scope.AssistantScopeID() != 11 || scope.ConversationScopeID() != 21 {
+		t.Fatalf("explicit scope was overwritten: assistant=%d conversation=%d", scope.AssistantScopeID(), scope.ConversationScopeID())
+	}
+}
+
 func TestRecorder_RecordWebhook_FansOut(t *testing.T) {
 	first := &recordingCollector{}
 	second := &recordingCollector{}

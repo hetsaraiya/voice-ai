@@ -69,18 +69,6 @@ func (s *dispatchHandlerStub) HandleConversationRecordingCompleted(context.Conte
 }
 func (s *dispatchHandlerStub) HandleMessageCreate(context.Context, internal_type.MessageCreatePacket) {
 }
-func (s *dispatchHandlerStub) HandleConversationMetric(context.Context, internal_type.ConversationMetricPacket) {
-}
-func (s *dispatchHandlerStub) HandleConversationMetadata(context.Context, internal_type.ConversationMetadataPacket) {
-}
-func (s *dispatchHandlerStub) HandleUserMessageMetric(context.Context, internal_type.UserMessageMetricPacket) {
-}
-func (s *dispatchHandlerStub) HandleAssistantMessageMetric(context.Context, internal_type.AssistantMessageMetricPacket) {
-}
-func (s *dispatchHandlerStub) HandleUserMessageMetadata(context.Context, internal_type.UserMessageMetadataPacket) {
-}
-func (s *dispatchHandlerStub) HandleAssistantMessageMetadata(context.Context, internal_type.AssistantMessageMetadataPacket) {
-}
 func (s *dispatchHandlerStub) HandleToolLogCreate(context.Context, internal_type.ToolLogCreatePacket) {
 }
 func (s *dispatchHandlerStub) HandleToolLogUpdate(context.Context, internal_type.ToolLogUpdatePacket) {

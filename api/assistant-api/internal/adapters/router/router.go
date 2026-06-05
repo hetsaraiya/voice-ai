@@ -103,9 +103,6 @@ func Classify(p internal_type.Packet) Route {
 		internal_type.RecordAssistantAudioPacket,
 		internal_type.ConversationRecordingCompletedPacket,
 		internal_type.MessageCreatePacket,
-		internal_type.ConversationMetadataPacket,
-		internal_type.UserMessageMetadataPacket,
-		internal_type.AssistantMessageMetadataPacket,
 		internal_type.ToolLogCreatePacket,
 		internal_type.ToolLogUpdatePacket,
 		internal_type.HTTPLogCreatePacket,
@@ -124,11 +121,7 @@ func Classify(p internal_type.Packet) Route {
 		return RouteData
 
 	// Background — observer-touching telemetry. Dispatcher starts after telemetry init.
-	case internal_type.ConversationEventPacket,
-		internal_type.ConversationMetricPacket,
-		internal_type.UserMessageMetricPacket,
-		internal_type.AssistantMessageMetricPacket,
-		internal_type.ObservabilityRecordPacket:
+	case internal_type.ObservabilityRecordPacket:
 		return RouteBackground
 	default:
 		return RouteBackground

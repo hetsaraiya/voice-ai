@@ -53,7 +53,7 @@ func TestClassify(t *testing.T) {
 		},
 		{
 			name:      "background",
-			pkt:       internal_type.ConversationEventPacket{ContextID: "c"},
+			pkt:       internal_type.ObservabilityEventRecordPacket{ContextID: "c"},
 			wantRoute: RouteBackground,
 			wantOK:    true,
 		},
