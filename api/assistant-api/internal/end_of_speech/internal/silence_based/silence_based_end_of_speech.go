@@ -99,6 +99,7 @@ func NewSilenceBasedEndOfSpeech(
 					Message: "eos initialized",
 					Attributes: observability.Attributes{
 						"component":          observability.ComponentEOS.String(),
+						"operation":          "initialize",
 						"provider":           endOfSpeech.Name(),
 						"init_ms":            fmt.Sprintf("%d", time.Since(start).Milliseconds()),
 						"silence_timeout_ms": fmt.Sprintf("%d", silenceTimeout.Milliseconds()),
@@ -418,6 +419,7 @@ func (endOfSpeech *silenceBasedEndOfSpeech) Close(ctx context.Context) error {
 					Message: "eos closed",
 					Attributes: observability.Attributes{
 						"component": observability.ComponentEOS.String(),
+						"operation": "close",
 						"provider":  endOfSpeech.Name(),
 					},
 				},

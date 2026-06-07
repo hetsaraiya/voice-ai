@@ -210,6 +210,7 @@ func NewLivekitEndOfSpeech(
 					Message: "eos initialized",
 					Attributes: observability.Attributes{
 						"component":           observability.ComponentEOS.String(),
+						"operation":           "initialize",
 						"provider":            eosName,
 						"init_ms":             fmt.Sprintf("%d", time.Since(start).Milliseconds()),
 						"threshold":           fmt.Sprintf("%.4f", endOfSpeech.threshold),
@@ -595,6 +596,7 @@ func (endOfSpeech *livekitEndOfSpeech) Close(ctx context.Context) error {
 					Message: "eos closed",
 					Attributes: observability.Attributes{
 						"component": observability.ComponentEOS.String(),
+						"operation": "close",
 						"provider":  endOfSpeech.Name(),
 					},
 				},

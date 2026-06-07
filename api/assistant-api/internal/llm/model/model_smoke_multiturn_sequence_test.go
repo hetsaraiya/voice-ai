@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/require"
@@ -193,11 +194,11 @@ func TestModel_MultiTurn_5Turn_WithContextSwitchDuringPendingTool(t *testing.T) 
 		Metrics: []*protos.Metric{{Name: "token_count", Value: "2"}},
 	})
 
-	events := findPackets[internal_type.ConversationEventPacket](comm.pkts)
+	events := findPackets[internal_type.ObservabilityLogRecordPacket](comm.pkts)
 	require.NotEmpty(t, events)
 	foundIgnoredOldTool := false
 	for _, ev := range events {
-		if ev.Name == "tool" && ev.Data["type"] == "tool_result_ignored" && ev.Data["reason"] == "context_or_id_mismatch" {
+		if ev.Record.Attributes["component"] == observability.ComponentTool.String() && ev.Record.Attributes["operation"] == "ignore_tool_result" && ev.Record.Attributes["reason"] == "context_or_id_mismatch" {
 			foundIgnoredOldTool = true
 			break
 		}

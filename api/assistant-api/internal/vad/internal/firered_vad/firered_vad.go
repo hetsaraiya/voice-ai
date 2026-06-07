@@ -109,6 +109,7 @@ func NewFireRedVAD(
 					Message: "vad initialized",
 					Attributes: observability.Attributes{
 						"component": observability.ComponentVAD.String(),
+						"operation": "initialize",
 						"provider":  vadName,
 						"init_ms":   fmt.Sprintf("%d", time.Since(start).Milliseconds()),
 					},
@@ -198,10 +199,13 @@ func (v *FireRedVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRec
 							Level:   observability.LevelError,
 							Message: "vad inference failed",
 							Attributes: observability.Attributes{
-								"component":  observability.ComponentVAD.String(),
-								"provider":   vadName,
-								"context_id": pkt.ContextID,
-								"error":      err.Error(),
+								"component":   observability.ComponentVAD.String(),
+								"operation":   "infer",
+								"provider":    vadName,
+								"context_id":  pkt.ContextID,
+								"audio_bytes": fmt.Sprintf("%d", len(pkt.Audio)),
+								"error":       err.Error(),
+								"error_type":  fmt.Sprintf("%T", err),
 							},
 						},
 					},
@@ -299,6 +303,7 @@ func (v *FireRedVAD) Close(ctx context.Context) error {
 					Message: "vad closed",
 					Attributes: observability.Attributes{
 						"component": observability.ComponentVAD.String(),
+						"operation": "close",
 						"provider":  vadName,
 					},
 				},

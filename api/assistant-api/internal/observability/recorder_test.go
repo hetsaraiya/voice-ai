@@ -185,8 +185,9 @@ func TestRecorder_RecordWebhook_FansOut(t *testing.T) {
 	}
 }
 
-func TestRecorder_RecordUsage_RejectsMessageScope(t *testing.T) {
-	recorder := New(WithCollector(&recordingCollector{}))
+func TestRecorder_RecordUsage_AllowsMessageScope(t *testing.T) {
+	collector := &recordingCollector{}
+	recorder := New(WithCollector(collector))
 	defer recorder.Close(context.Background())
 
 	err := recorder.Record(context.Background(), MessageScope{
@@ -200,8 +201,14 @@ func TestRecorder_RecordUsage_RejectsMessageScope(t *testing.T) {
 		Component: ComponentUsage,
 		Duration:  time.Second,
 	})
-	if err == nil {
-		t.Fatal("expected message-scoped usage error")
+	if err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if len(collector.usage) != 1 {
+		t.Fatalf("expected usage record, got %d", len(collector.usage))
 	}
 }
 

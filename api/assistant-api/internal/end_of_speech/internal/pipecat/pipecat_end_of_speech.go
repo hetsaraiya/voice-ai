@@ -167,6 +167,7 @@ func NewPipecatEndOfSpeech(
 					Message: "eos initialized",
 					Attributes: observability.Attributes{
 						"component":           observability.ComponentEOS.String(),
+						"operation":           "initialize",
 						"provider":            endOfSpeech.Name(),
 						"init_ms":             fmt.Sprintf("%d", time.Since(start).Milliseconds()),
 						"threshold":           fmt.Sprintf("%.4f", endOfSpeech.threshold),
@@ -611,6 +612,7 @@ func (endOfSpeech *pipecatEndOfSpeech) Close(ctx context.Context) error {
 					Message: "eos closed",
 					Attributes: observability.Attributes{
 						"component": observability.ComponentEOS.String(),
+						"operation": "close",
 						"provider":  endOfSpeech.Name(),
 					},
 				},

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/require"
@@ -18,11 +19,11 @@ func TestModel_ToolResultIgnored_EmitsEvent(t *testing.T) {
 	err := e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{ContextID: "ctx-1", ToolID: "t1", Name: "weather", Result: map[string]string{"ok": "1"}})
 	require.NoError(t, err)
 
-	evt, ok := findPacket[internal_type.ConversationEventPacket](comm.pkts)
+	evt, ok := findPacket[internal_type.ObservabilityLogRecordPacket](comm.pkts)
 	require.True(t, ok)
-	require.Equal(t, "tool", evt.Name)
-	require.Equal(t, "tool_result_ignored", evt.Data["type"])
-	require.Equal(t, "no_pending_block", evt.Data["reason"])
+	require.Equal(t, observability.ComponentTool.String(), evt.Record.Attributes["component"])
+	require.Equal(t, "ignore_tool_result", evt.Record.Attributes["operation"])
+	require.Equal(t, "no_pending_block", evt.Record.Attributes["reason"])
 }
 
 func TestModel_ToolResultResolved_TriggersFollowUp(t *testing.T) {
@@ -199,11 +200,11 @@ func TestModel_ToolResult_DuplicateID_SecondIgnored(t *testing.T) {
 	require.NoError(t, e.Execute(context.Background(), comm, internal_type.LLMToolResultPacket{
 		ContextID: "ctx-dup", ToolID: "t1", Name: "fn", Result: map[string]string{"ok": "1"},
 	}))
-	evts := findPackets[internal_type.ConversationEventPacket](comm.pkts)
+	evts := findPackets[internal_type.ObservabilityLogRecordPacket](comm.pkts)
 	require.NotEmpty(t, evts)
 	last := evts[len(evts)-1]
-	require.Equal(t, "tool_result_ignored", last.Data["type"])
-	require.Equal(t, "no_pending_block", last.Data["reason"])
+	require.Equal(t, "ignore_tool_result", last.Record.Attributes["operation"])
+	require.Equal(t, "no_pending_block", last.Record.Attributes["reason"])
 }
 
 func TestModel_ToolResult_WrongContext_Ignored(t *testing.T) {
@@ -214,12 +215,12 @@ func TestModel_ToolResult_WrongContext_Ignored(t *testing.T) {
 		ContextID: "ctx-b", ToolID: "t1", Name: "fn", Result: map[string]string{"ok": "1"},
 	}))
 	require.Len(t, stream.sendCalls, 0)
-	evts := findPackets[internal_type.ConversationEventPacket](comm.pkts)
+	evts := findPackets[internal_type.ObservabilityLogRecordPacket](comm.pkts)
 	require.NotEmpty(t, evts)
 	last := evts[len(evts)-1]
-	require.Equal(t, "tool_result_ignored", last.Data["type"])
-	require.Equal(t, "context_or_id_mismatch", last.Data["reason"])
-	require.Equal(t, "ctx-a", last.Data["pending_context"])
+	require.Equal(t, "ignore_tool_result", last.Record.Attributes["operation"])
+	require.Equal(t, "context_or_id_mismatch", last.Record.Attributes["reason"])
+	require.Equal(t, "ctx-a", last.Record.Attributes["pending_context"])
 }
 
 func TestModel_ToolResult_UnknownID_Ignored(t *testing.T) {
@@ -230,11 +231,11 @@ func TestModel_ToolResult_UnknownID_Ignored(t *testing.T) {
 		ContextID: "ctx-u", ToolID: "bad-id", Name: "fn", Result: map[string]string{"ok": "1"},
 	}))
 	require.Len(t, stream.sendCalls, 0)
-	evts := findPackets[internal_type.ConversationEventPacket](comm.pkts)
+	evts := findPackets[internal_type.ObservabilityLogRecordPacket](comm.pkts)
 	require.NotEmpty(t, evts)
 	last := evts[len(evts)-1]
-	require.Equal(t, "tool_result_ignored", last.Data["type"])
-	require.Equal(t, "context_or_id_mismatch", last.Data["reason"])
+	require.Equal(t, "ignore_tool_result", last.Record.Attributes["operation"])
+	require.Equal(t, "context_or_id_mismatch", last.Record.Attributes["reason"])
 }
 
 func TestModel_InterruptThenLateToolResult_NoFollowUp(t *testing.T) {
@@ -303,13 +304,13 @@ func TestModel_ContextSwitch_OldToolResultIgnored_NewUserContinues(t *testing.T)
 	}))
 	require.Len(t, stream.sendCalls, 2, "old tool result must not trigger follow-up send")
 
-	events := findPackets[internal_type.ConversationEventPacket](comm.pkts)
+	events := findPackets[internal_type.ObservabilityLogRecordPacket](comm.pkts)
 	require.NotEmpty(t, events)
 	lastEvent := events[len(events)-1]
-	require.Equal(t, "tool", lastEvent.Name)
-	require.Equal(t, "tool_result_ignored", lastEvent.Data["type"])
-	require.Equal(t, "context_or_id_mismatch", lastEvent.Data["reason"])
-	require.Equal(t, "ctx-1", lastEvent.Data["pending_context"])
+	require.Equal(t, observability.ComponentTool.String(), lastEvent.Record.Attributes["component"])
+	require.Equal(t, "ignore_tool_result", lastEvent.Record.Attributes["operation"])
+	require.Equal(t, "context_or_id_mismatch", lastEvent.Record.Attributes["reason"])
+	require.Equal(t, "ctx-1", lastEvent.Record.Attributes["pending_context"])
 
 	// Confirm ctx-2 can still complete normally (not stuck).
 	e.handleResponse(context.Background(), comm, &protos.StreamChatOutput{

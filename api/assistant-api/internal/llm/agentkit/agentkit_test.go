@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/protos"
@@ -171,12 +172,11 @@ func TestExecute_UserTextReceivedPacket(t *testing.T) {
 
 	require.NoError(t, err)
 
-	// Verify ConversationEventPacket emitted
-	evs := findPackets[internal_type.ConversationEventPacket](collector.all())
+	// Verify observability event emitted
+	evs := findPackets[internal_type.ObservabilityEventRecordPacket](collector.all())
 	require.Len(t, evs, 1)
-	assert.Equal(t, "executing", evs[0].Data["type"])
-	assert.Equal(t, "hello world", evs[0].Data["script"])
-	assert.Equal(t, "11", evs[0].Data["input_char_count"])
+	assert.Equal(t, observability.LLMStarted, evs[0].Record.Event)
+	assert.Equal(t, "11", evs[0].Record.Attributes["input_char_count"])
 
 	// Verify talker.Send was called
 	talker.mu.Lock()
@@ -494,7 +494,7 @@ func TestHandleResponse_CompletedTextContextID(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "unique-ctx", done.ContextID)
 
-	ev, ok := findPacket[internal_type.ConversationEventPacket](pkts)
+	ev, ok := findPacket[internal_type.ObservabilityEventRecordPacket](pkts)
 	require.True(t, ok)
 	assert.Equal(t, "unique-ctx", ev.ContextID)
 }
@@ -518,9 +518,9 @@ func TestHandleResponse_ToolResultFailed(t *testing.T) {
 	}
 	e.handleResponse(context.Background(), comm, resp)
 
-	evs := findPackets[internal_type.ConversationEventPacket](collector.all())
-	require.Len(t, evs, 1)
-	assert.Equal(t, "tool_result", evs[0].Data["type"])
+	logs := findPackets[internal_type.ObservabilityLogRecordPacket](collector.all())
+	require.Len(t, logs, 1)
+	assert.Equal(t, "tool_result", logs[0].Record.Attributes["operation"])
 }
 
 // =============================================================================
@@ -676,9 +676,9 @@ func TestE2E_FullConversationTurn(t *testing.T) {
 	assert.Equal(t, "What is Go?", talker.sendCalls[0].GetMessage().GetText())
 	talker.mu.Unlock()
 
-	evs := findPackets[internal_type.ConversationEventPacket](collector.all())
+	evs := findPackets[internal_type.ObservabilityEventRecordPacket](collector.all())
 	require.Len(t, evs, 1)
-	assert.Equal(t, "executing", evs[0].Data["type"])
+	assert.Equal(t, observability.LLMStarted, evs[0].Record.Event)
 
 	// 2. Simulate streaming deltas from agent
 	e.handleResponse(context.Background(), comm, &protos.TalkOutput{
@@ -808,17 +808,17 @@ func TestE2E_ToolCallAndResult(t *testing.T) {
 
 	pkts := collector.all()
 
-	// tool_call is now LLMToolCallPacket (not ConversationEventPacket)
+	// tool_call is emitted as LLMToolCallPacket.
 	toolCalls := findPackets[internal_type.LLMToolCallPacket](pkts)
 	require.Len(t, toolCalls, 1, "expected 1 LLMToolCallPacket for tool call")
 	assert.Equal(t, "get_weather", toolCalls[0].Name)
 
-	// tool_result is still a ConversationEventPacket
-	events := findPackets[internal_type.ConversationEventPacket](pkts)
+	// tool_result is now an observability log record
+	logs := findPackets[internal_type.ObservabilityLogRecordPacket](pkts)
 	toolResultEvents := make([]string, 0)
-	for _, ev := range events {
-		if ev.Name == "tool" && ev.Data["type"] == "tool_result" {
-			toolResultEvents = append(toolResultEvents, ev.Data["type"])
+	for _, log := range logs {
+		if log.Record.Attributes["component"] == observability.ComponentTool.String() && log.Record.Attributes["operation"] == "tool_result" {
+			toolResultEvents = append(toolResultEvents, log.Record.Attributes["operation"])
 		}
 	}
 	assert.Equal(t, []string{"tool_result"}, toolResultEvents)

@@ -8,8 +8,6 @@ package observe
 
 import (
 	"context"
-	"strconv"
-	"time"
 
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/types"
@@ -77,20 +75,6 @@ func NewConversationObserver(cfg *ConversationObserverConfig) *ConversationObser
 // EmitEvent sends an event to telemetry exporters only (no DB write).
 // Events are temporal — they belong in event streams, not the metadata table.
 func (o *ConversationObserver) EmitEvent(ctx context.Context, name string, data map[string]string) {
-	o.events.Collect(ctx, EventRecord{
-		CommonRecord: CommonRecord{
-			ProjectID:      o.meta.ProjectID,
-			OrganizationID: o.meta.OrganizationID,
-			Scope:          "conversation",
-			ScopeAttributes: map[string]string{
-				"assistantId":             strconv.FormatUint(o.meta.AssistantID, 10),
-				"assistantConversationId": strconv.FormatUint(o.meta.AssistantConversationID, 10),
-			},
-			Attributes: data,
-			OccurredAt: time.Now(),
-		},
-		Event: name,
-	})
 }
 
 // EmitMetric persists metrics to DB and sends to telemetry exporters.
@@ -102,21 +86,7 @@ func (o *ConversationObserver) EmitMetric(ctx context.Context, metrics []*protos
 		if metric == nil {
 			continue
 		}
-		o.metrics.Collect(ctx, MetricRecord{
-			CommonRecord: CommonRecord{
-				ProjectID:      o.meta.ProjectID,
-				OrganizationID: o.meta.OrganizationID,
-				Scope:          "conversation",
-				ScopeAttributes: map[string]string{
-					"assistantId":             strconv.FormatUint(o.meta.AssistantID, 10),
-					"assistantConversationId": strconv.FormatUint(o.meta.AssistantConversationID, 10),
-				},
-				OccurredAt: time.Now(),
-			},
-			Name:        metric.GetName(),
-			Value:       metric.GetValue(),
-			Description: metric.GetDescription(),
-		})
+
 	}
 	// if o.persist != nil {
 	// 	converted := make([]*types.Metric, 0, len(metrics))

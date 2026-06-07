@@ -16,6 +16,5 @@ type SessionMeta struct {
 	OrganizationID          uint64
 }
 
-type CommonRecord = telemetry.CommonRecord
 type EventRecord = telemetry.EventRecord
 type MetricRecord = telemetry.MetricRecord

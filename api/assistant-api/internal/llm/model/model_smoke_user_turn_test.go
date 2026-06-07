@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	gorm_models "github.com/rapidaai/pkg/models/gorm"
 	"github.com/rapidaai/pkg/utils"
@@ -26,10 +27,10 @@ func TestModel_ExecuteUserTurn_SendsChatAndAppendsUser(t *testing.T) {
 	require.Equal(t, "hello", msgs[len(msgs)-1].GetUser().GetContent())
 	require.Len(t, e.history.Snapshot(), 1)
 
-	evt, ok := findPacket[internal_type.ConversationEventPacket](comm.pkts)
+	evt, ok := findPacket[internal_type.ObservabilityEventRecordPacket](comm.pkts)
 	require.True(t, ok)
-	require.Equal(t, "llm", evt.Name)
-	require.Equal(t, "executing", evt.Data["type"])
+	require.Equal(t, observability.LLMStarted, evt.Record.Event)
+	require.Equal(t, "5", evt.Record.Attributes["input_char_count"])
 }
 
 func TestModel_ExecuteUserTurn_BlocksInvalidHistory(t *testing.T) {
@@ -114,11 +115,10 @@ func TestModel_ExecuteUserTurn_SupersedesOpenToolBlock(t *testing.T) {
 	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{ContextID: "ctx-new", Text: "new user msg"})
 	require.NoError(t, err)
 
-	evt, ok := findPacket[internal_type.ConversationEventPacket](comm.pkts)
+	evt, ok := findPacket[internal_type.ObservabilityLogRecordPacket](comm.pkts)
 	require.True(t, ok)
-	require.Equal(t, "tool", evt.Name)
-	require.Equal(t, "tool_block_superseded", evt.Data["type"])
-	require.Equal(t, "user_interrupted", evt.Data["reason"])
+	require.Equal(t, "supersede_tool_block", evt.Record.Attributes["operation"])
+	require.Equal(t, "user_interrupted", evt.Record.Attributes["reason"])
 }
 
 func TestModel_ExecuteUserTurn_FiltersConnectionAndCredentialFromModelParameters(t *testing.T) {

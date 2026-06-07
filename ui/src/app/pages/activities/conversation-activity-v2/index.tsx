@@ -310,7 +310,7 @@ const TelemetryStreamTable = ({
                 )}
               </div>
             </TableCell>
-            <TableCell className="whitespace-nowrap text-sm">
+            <TableCell className="text-[13px]! whitespace-nowrap">
               {formatDateTime(document.occurredAt)}
             </TableCell>
           </TableRow>

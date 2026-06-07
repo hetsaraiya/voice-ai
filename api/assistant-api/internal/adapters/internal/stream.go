@@ -11,7 +11,7 @@ import (
 	"time"
 
 	adapter_lifecycle "github.com/rapidaai/api/assistant-api/internal/adapters/lifecycle"
-	observe "github.com/rapidaai/api/assistant-api/internal/observe"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/types"
 	type_enums "github.com/rapidaai/pkg/types/enums"
@@ -58,43 +58,55 @@ func (t *genericRequestor) Talk(_ context.Context, auth types.SimplePrinciple) e
 		case *protos.ConversationBridgeOperatorAudio:
 			t.OnPacket(t.streamer.Context(), internal_type.RecordAssistantAudioPacket{ContextID: t.GetID(), Audio: payload.Audio, Timestamp: payload.Time.AsTime()})
 		case *protos.ConversationMetadata:
-			t.OnPacket(t.streamer.Context(), internal_type.ConversationMetadataPacket{
-				ContextID: payload.GetAssistantConversationId(),
-				Metadata:  payload.GetMetadata(),
+			t.OnPacket(t.streamer.Context(), internal_type.ObservabilityMetadataRecordPacket{
+				ContextID: fmt.Sprintf("%d", payload.GetAssistantConversationId()),
+				Scope:     internal_type.ObservabilityRecordScopeConversation,
+				Record:    observability.NewConversationMetadataRecord(payload.GetMetadata()),
 			})
 		case *protos.ConversationMetric:
-			t.OnPacket(t.streamer.Context(), internal_type.ConversationMetricPacket{
-				ContextID: payload.GetAssistantConversationId(),
-				Metrics:   payload.GetMetrics(),
+			t.OnPacket(t.streamer.Context(), internal_type.ObservabilityMetricRecordPacket{
+				ContextID: fmt.Sprintf("%d", payload.GetAssistantConversationId()),
+				Scope:     internal_type.ObservabilityRecordScopeConversation,
+				Record:    observability.NewConversationMetricRecord(payload.GetMetrics()),
 			})
 		case *protos.ConversationEvent:
 			eventTime := time.Now()
 			if payload.Time != nil {
 				eventTime = payload.Time.AsTime()
 			}
-			t.OnPacket(t.streamer.Context(), internal_type.ConversationEventPacket{
-				Name: payload.Name,
-				Data: payload.Data,
-				Time: eventTime,
+			t.OnPacket(t.streamer.Context(), internal_type.ObservabilityEventRecordPacket{
+				ContextID: payload.GetId(),
+				Scope:     internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordEvent{
+					Component:  observability.ComponentConversation,
+					Event:      observability.EventName(payload.Name),
+					Attributes: observability.Attributes(payload.Data),
+					OccurredAt: eventTime,
+				},
 			})
 		case *protos.ConversationDisconnection:
 			if t.Conversation() != nil {
 				ctx := context.Background()
 				t.OnPacket(ctx,
-					internal_type.ConversationEventPacket{
+					internal_type.ObservabilityEventRecordPacket{
 						ContextID: t.GetID(),
-						Name:      observe.ComponentSession,
-						Data: map[string]string{
-							observe.DataType:   observe.EventDisconnectRequested,
-							observe.DataReason: payload.GetType().String()},
-						Time: time.Now(),
+						Scope:     internal_type.ObservabilityRecordScopeConversation,
+						Record: observability.RecordEvent{
+							Component: observability.ComponentSession,
+							Event:     observability.SessionDisconnectRequested,
+							Attributes: observability.Attributes{
+								"reason": payload.GetType().String(),
+							},
+							OccurredAt: time.Now(),
+						},
 					},
-					internal_type.ConversationMetadataPacket{
-						ContextID: t.Conversation().Id,
-						Metadata: []*protos.Metadata{{
+					internal_type.ObservabilityMetadataRecordPacket{
+						ContextID: fmt.Sprintf("%d", t.Conversation().Id),
+						Scope:     internal_type.ObservabilityRecordScopeConversation,
+						Record: observability.NewConversationMetadataRecord([]*protos.Metadata{{
 							Key:   "disconnect_reason",
 							Value: payload.GetType().String(),
-						}},
+						}}),
 					})
 			}
 
@@ -132,9 +144,10 @@ func (t *genericRequestor) OnCallCompletion(startTime time.Time) {
 	}
 	duration := time.Since(startTime)
 	t.OnPacket(context.Background(),
-		internal_type.ConversationMetricPacket{
-			ContextID: conv.Id,
-			Metrics: []*protos.Metric{
+		internal_type.ObservabilityMetricRecordPacket{
+			ContextID: fmt.Sprintf("%d", conv.Id),
+			Scope:     internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewConversationMetricRecord([]*protos.Metric{
 				{
 					Name:        type_enums.CONVERSATION_STATUS.String(),
 					Value:       type_enums.CONVERSATION_COMPLETE.String(),
@@ -145,17 +158,20 @@ func (t *genericRequestor) OnCallCompletion(startTime time.Time) {
 					Value:       fmt.Sprintf("%d", duration),
 					Description: "Conversation duration from first message to end",
 				},
-			},
+			}),
 		},
-		internal_type.ConversationEventPacket{
+		internal_type.ObservabilityEventRecordPacket{
 			ContextID: t.GetID(),
-			Name:      observe.ComponentSession,
-			Data: map[string]string{
-				observe.DataType:     observe.EventCleanup,
-				observe.DataDuration: fmt.Sprintf("%d", duration.Milliseconds()),
-				observe.DataMessages: fmt.Sprintf("%d", len(t.GetHistories())),
+			Scope:     internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentSession,
+				Event:     observability.SessionCleanup,
+				Attributes: observability.Attributes{
+					"duration_ms": fmt.Sprintf("%d", duration.Milliseconds()),
+					"messages":    fmt.Sprintf("%d", len(t.GetHistories())),
+				},
+				OccurredAt: time.Now(),
 			},
-			Time: time.Now(),
 		},
 	)
 }
@@ -191,20 +207,25 @@ func (r *genericRequestor) OnConnect(ctx context.Context, auth types.SimplePrinc
 		}
 		if r.Ready() {
 			r.OnPacket(r.sessionCtx,
-				internal_type.ConversationEventPacket{
+				internal_type.ObservabilityEventRecordPacket{
 					ContextID: r.GetID(),
-					Name:      observe.ComponentSession,
-					Data: map[string]string{
-						observe.DataType:   observe.EventDisconnectRequested,
-						observe.DataReason: protos.ConversationDisconnection_DISCONNECTION_TYPE_ERROR.String()},
-					Time: time.Now(),
+					Scope:     internal_type.ObservabilityRecordScopeConversation,
+					Record: observability.RecordEvent{
+						Component: observability.ComponentSession,
+						Event:     observability.SessionDisconnectRequested,
+						Attributes: observability.Attributes{
+							"reason": protos.ConversationDisconnection_DISCONNECTION_TYPE_ERROR.String(),
+						},
+						OccurredAt: time.Now(),
+					},
 				},
-				internal_type.ConversationMetadataPacket{
-					ContextID: r.Conversation().Id,
-					Metadata: []*protos.Metadata{{
+				internal_type.ObservabilityMetadataRecordPacket{
+					ContextID: fmt.Sprintf("%d", r.Conversation().Id),
+					Scope:     internal_type.ObservabilityRecordScopeConversation,
+					Record: observability.NewConversationMetadataRecord([]*protos.Metadata{{
 						Key:   "disconnect_reason",
 						Value: protos.ConversationDisconnection_DISCONNECTION_TYPE_ERROR.String(),
-					}},
+					}}),
 				},
 			)
 		}
@@ -215,11 +236,17 @@ func (r *genericRequestor) OnConnect(ctx context.Context, auth types.SimplePrinc
 		r.cancelSession()
 	}, func(connectCtx context.Context) {
 		r.OnPacket(r.sessionCtx,
-			internal_type.ConversationEventPacket{
+			internal_type.ObservabilityEventRecordPacket{
 				ContextID: r.GetID(),
-				Name:      observe.ComponentSession,
-				Data:      map[string]string{observe.DataType: observe.EventInitializing, observe.DataMode: config.GetStreamMode().String()},
-				Time:      time.Now(),
+				Scope:     internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordEvent{
+					Component: observability.ComponentSession,
+					Event:     observability.SessionInitializing,
+					Attributes: observability.Attributes{
+						"mode": config.GetStreamMode().String(),
+					},
+					OccurredAt: time.Now(),
+				},
 			}, internal_type.InitializeAssistantPacket{
 				ContextID: r.GetID(),
 				Config:    config,

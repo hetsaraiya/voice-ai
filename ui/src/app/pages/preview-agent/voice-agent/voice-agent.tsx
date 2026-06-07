@@ -19,12 +19,15 @@ import {
 } from '@/app/components/carbon/notification';
 import { GhostButton, IconOnlyButton } from '@/app/components/carbon/button';
 import { EmptyState } from '@/app/components/carbon/empty-state';
-import { Activity, FilterRemove } from '@carbon/icons-react';
+import { Activity, Copy, FilterRemove } from '@carbon/icons-react';
 import { DismissibleTag, Tag } from '@carbon/react';
 import { Tabs } from '@/app/components/carbon/tabs';
 import { Text } from '@/app/components/carbon/text';
 import { ArrowLeft } from '@carbon/icons-react';
 import { TextArea } from '@/app/components/carbon/form';
+import { CustomerOptions } from '@/app/components/navigation/actionable-header';
+import { RapidaIcon } from '@/app/components/Icon/Rapida';
+import { RapidaTextIcon } from '@/app/components/Icon/RapidaText';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,6 +48,15 @@ type EventEntry = {
 };
 
 type MsgTab = 'messages' | 'events';
+
+const EDITABLE_ARGUMENT_TYPES = [
+  InputVarType.stringInput,
+  InputVarType.textInput,
+  InputVarType.paragraph,
+  InputVarType.number,
+  InputVarType.json,
+  InputVarType.url,
+];
 
 /** Returns the display label for an event — matches the 2nd column in the events table. */
 function getEventLabel(entry: EventEntry): string {
@@ -218,15 +230,40 @@ export const VoiceAgent: FC<{
   const [connectionStatus, setConnectionStatus] = useState<
     'idle' | 'connecting' | 'connected'
   >('idle');
-  const callbackRegistered = useRef(false);
   const eventsBottomRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    new VI(connectConfig, agentConfig, agentCallback)
+    let isMounted = true;
+    setAssistant(null);
+    setVariables([]);
+    setEvents([]);
+    setConversationError(null);
+
+    voiceAgentContextValue
       .getAssistant()
       .then(ex => {
-        if (ex.getSuccess()) setAssistant(ex.getData()!);
+        if (isMounted) {
+          if (ex.getSuccess()) setAssistant(ex.getData()!);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setConversationError({
+            message: 'Unable to load assistant configuration.',
+          } as ConversationError.AsObject);
+        }
       });
-  }, []);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [voiceAgentContextValue]);
+
+  useEffect(() => {
+    return () => {
+      voiceAgentContextValue.disconnect().catch(() => {});
+    };
+  }, [voiceAgentContextValue]);
 
   // Load variables from assistant
   useEffect(() => {
@@ -245,7 +282,7 @@ export const VoiceAgent: FC<{
       });
       setVariables(pmtVar);
     }
-  }, [assistant]);
+  }, [assistant, voiceAgentContextValue]);
 
   // Track connection state from agent events
   useEffect(() => {
@@ -265,51 +302,36 @@ export const VoiceAgent: FC<{
     };
   }, [voiceAgentContextValue]);
 
-  // Register callbacks once
   useEffect(() => {
-    if (callbackRegistered.current) return;
-    callbackRegistered.current = true;
+    let isActive = true;
+    const pushEvent = (entry: Omit<EventEntry, 'ts'>) => {
+      if (!isActive) return;
+      setEvents(p => [...p, { ...entry, ts: new Date() }]);
+    };
+
     voiceAgentContextValue.registerCallback({
       onToolCall: toolCall => {
-        setEvents(p => [
-          ...p,
-          { type: 'tool_call', ts: new Date(), payload: toolCall },
-        ]);
+        pushEvent({ type: 'tool_call', payload: toolCall });
       },
       onConfiguration: args =>
-        setEvents(p => [
-          ...p,
-          { type: 'configuration', ts: new Date(), payload: args },
-        ]),
-      onUserMessage: args =>
-        setEvents(p => [
-          ...p,
-          { type: 'userMessage', ts: new Date(), payload: args },
-        ]),
+        pushEvent({ type: 'configuration', payload: args }),
+      onUserMessage: args => pushEvent({ type: 'userMessage', payload: args }),
       onAssistantMessage: args => {
         if (args?.messageText)
-          setEvents(p => [
-            ...p,
-            { type: 'assistantMessage', ts: new Date(), payload: args },
-          ]);
+          pushEvent({ type: 'assistantMessage', payload: args });
       },
-      onInterrupt: args =>
-        setEvents(p => [
-          ...p,
-          { type: 'interrupt', ts: new Date(), payload: args },
-        ]),
+      onInterrupt: args => pushEvent({ type: 'interrupt', payload: args }),
       onConversationEvent: event =>
-        setEvents(p => [
-          ...p,
-          { type: 'pipelineEvent', ts: new Date(), payload: event },
-        ]),
-      onMetric: metric =>
-        setEvents(p => [
-          ...p,
-          { type: 'metric', ts: new Date(), payload: metric },
-        ]),
-      onConversationError: error => setConversationError(error),
+        pushEvent({ type: 'pipelineEvent', payload: event }),
+      onMetric: metric => pushEvent({ type: 'metric', payload: metric }),
+      onConversationError: error => {
+        if (isActive) setConversationError(error);
+      },
     });
+
+    return () => {
+      isActive = false;
+    };
   }, [voiceAgentContextValue]);
 
   // Auto-scroll events tab when new events arrive
@@ -347,208 +369,227 @@ export const VoiceAgent: FC<{
     });
   };
 
-  const voiceWarning = debug
-    ? !assistant?.getDebuggerdeployment()?.hasInputaudio()
-    : !assistant?.getApideployment()?.hasInputaudio();
+  const voiceWarning = assistant
+    ? debug
+      ? !assistant.getDebuggerdeployment()?.hasInputaudio()
+      : !assistant.getApideployment()?.hasInputaudio()
+    : false;
 
-  const enableVoiceHref = debug
-    ? `/deployment/assistant/${agentConfig.id}/deployment/debugger`
-    : `/deployment/assistant/${assistant?.getId()}/manage/deployment/debugger`;
+  const enableVoiceHref = `/deployment/assistant/${agentConfig.id}/deployment/debugger`;
 
   return (
-    <PanelGroup
-      className="!h-dvh !overflow-hidden !flex"
-      direction="horizontal"
-    >
-      {/* ── Left: messaging ─────────────────────────────────────────── */}
-      <Panel className="flex flex-col h-dvh overflow-hidden w-2/3  bg-white dark:bg-gray-950">
-        {/* Header */}
-        <div className="shrink-0">
-          {debug && (
-            <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-200 dark:border-gray-800">
-              <IconOnlyButton
-                kind="ghost"
-                size="sm"
-                renderIcon={ArrowLeft}
-                iconDescription="Back to Assistant"
-                onClick={() => {
-                  window.location.href = `/deployment/assistant/${agentConfig.id}/overview`;
-                }}
-              />
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                Back to Assistant
-              </span>
-            </div>
-          )}
-          {voiceWarning && (
-            <LinkNotification
-              kind="warning"
-              title="Voice disabled"
-              subtitle="Enable voice to enjoy a voice experience with your assistant."
-              linkText="Enable voice"
-              onLinkClick={() => window.open(enableVoiceHref, '_blank')}
-              hideCloseButton
-            />
-          )}
-          {connectionStatus === 'connecting' && (
-            <Notification
-              kind="info"
-              title="Establishing connection to the assistant..."
-              hideCloseButton
-            />
-          )}
-          {connectionStatus === 'connected' && (
-            <Notification
-              kind="success"
-              title="Connected"
-              subtitle="You are now connected. Start speaking."
-              hideCloseButton
-            />
-          )}
-          {conversationError && (
-            <Notification
-              kind="error"
-              title="Error"
-              subtitle={
-                conversationError.message ||
-                'An error occurred during the conversation.'
-              }
-              hideCloseButton={false}
-              onClose={() => setConversationError(null)}
-            />
-          )}
-          {/* Tab bar */}
-          <div className="border-b border-gray-200 dark:border-gray-800">
-            <Tabs
-              tabs={[
-                'Messages',
-                events.length > 0 ? `Events (${events.length})` : 'Events',
-              ]}
-              selectedIndex={msgTab === 'messages' ? 0 : 1}
-              onChange={idx => setMsgTab(idx === 0 ? 'messages' : 'events')}
-              contained
-              isLoading={!assistant}
-              aria-label="Message tabs"
-            />
-          </div>
-        </div>
-
-        {/* Messages tab */}
-        {msgTab === 'messages' &&
-          (() => {
-            const hasMessages = events.some(
-              e => e.type === 'userMessage' || e.type === 'assistantMessage',
-            );
-            return hasMessages ? (
-              <div className="flex flex-col grow min-h-0 overflow-y-auto px-4 py-4">
-                <ConversationMessages vag={voiceAgentContextValue} />
-              </div>
-            ) : (
-              <AssistantPlaceholder assistant={assistant} />
-            );
-          })()}
-
-        {/* Events tab — structured conversation event rows */}
-        {msgTab === 'events' && (
-          <div className="flex flex-col flex-1 min-h-0">
-            {/* Filter bar */}
-            {availableEventLabels.length > 0 && (
-              <div className="shrink-0 flex flex-wrap items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-800">
-                <span className="text-xs font-medium text-gray-500 dark:text-gray-400 select-none">
-                  Filter
+    <div className="flex h-dvh min-h-0 flex-col bg-white text-sm/6 dark:bg-gray-950">
+      <PreviewAgentHeader />
+      <PanelGroup
+        className="!flex !min-h-0 !flex-1 !overflow-hidden"
+        direction="horizontal"
+      >
+        {/* ── Left: messaging ─────────────────────────────────────────── */}
+        <Panel
+          defaultSize={70}
+          minSize={55}
+          className="flex h-full flex-col overflow-hidden bg-white dark:bg-gray-950"
+        >
+          {/* Header */}
+          <div className="shrink-0">
+            {debug && (
+              <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-200 dark:border-gray-800">
+                <IconOnlyButton
+                  kind="ghost"
+                  size="sm"
+                  renderIcon={ArrowLeft}
+                  iconDescription="Back to Assistant"
+                  onClick={() => {
+                    window.location.href = `/deployment/assistant/${agentConfig.id}/overview`;
+                  }}
+                />
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                  Back to Assistant
                 </span>
-                {availableEventLabels.map(label =>
-                  eventFilters.has(label) ? (
-                    <DismissibleTag
-                      key={label}
-                      text={label}
-                      type="blue"
-                      size="md"
-                      onClose={() => toggleEventFilter(label)}
-                    />
-                  ) : (
-                    <Tag
-                      key={label}
-                      type={eventFilters.size === 0 ? 'blue' : 'cool-gray'}
-                      size="md"
-                      onClick={() => toggleEventFilter(label)}
-                      className="cursor-pointer"
-                    >
-                      {label}
-                    </Tag>
-                  ),
-                )}
-                {eventFilters.size > 0 && (
-                  <GhostButton
-                    size="sm"
-                    onClick={() => setEventFilters(new Set())}
-                  >
-                    Clear all
-                  </GhostButton>
-                )}
               </div>
             )}
-
-            <div className="flex-1 min-h-0 overflow-y-auto py-1">
-              {filteredEvents.length === 0 ? (
-                <EmptyState
-                  icon={events.length === 0 ? Activity : FilterRemove}
-                  title={
-                    events.length === 0
-                      ? 'No events yet'
-                      : 'No events match the selected filters'
-                  }
-                  subtitle={
-                    events.length === 0
-                      ? 'Events will appear here once a conversation starts.'
-                      : 'Try removing some filters to see more events.'
-                  }
-                  className="h-full"
-                />
-              ) : (
-                <table className="w-full table-fixed font-mono text-sm/6 border-collapse">
-                  <colgroup>
-                    <col className="w-[9rem]" />
-                    <col className="w-[6rem]" />
-                    <col className="w-[10rem]" />
-                    <col />
-                  </colgroup>
-                  <tbody>
-                    {filteredEvents.map((entry, i) => (
-                      <ConversationEventRow key={i} entry={entry} />
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              <div ref={eventsBottomRef} />
+            {voiceWarning && debug && (
+              <LinkNotification
+                kind="warning"
+                title="Voice disabled"
+                subtitle="Enable voice to enjoy a voice experience with your assistant."
+                linkText="Enable voice"
+                onLinkClick={() => window.open(enableVoiceHref, '_blank')}
+                hideCloseButton
+              />
+            )}
+            {voiceWarning && !debug && (
+              <Notification
+                kind="warning"
+                title="Voice disabled"
+                subtitle="This assistant is currently available for text conversations."
+                hideCloseButton
+              />
+            )}
+            {connectionStatus === 'connecting' && (
+              <Notification
+                kind="info"
+                title="Establishing connection to the assistant..."
+                hideCloseButton
+              />
+            )}
+            {connectionStatus === 'connected' && (
+              <Notification
+                kind="success"
+                title="Connected"
+                subtitle="You are now connected. Start speaking."
+                hideCloseButton
+              />
+            )}
+            {conversationError && (
+              <Notification
+                kind="error"
+                title="Error"
+                subtitle={
+                  conversationError.message ||
+                  'An error occurred during the conversation.'
+                }
+                hideCloseButton={false}
+                onClose={() => setConversationError(null)}
+              />
+            )}
+            {/* Tab bar */}
+            <div className="border-b border-gray-200 dark:border-gray-800">
+              <Tabs
+                tabs={[
+                  'Messages',
+                  events.length > 0 ? `Events (${events.length})` : 'Events',
+                ]}
+                selectedIndex={msgTab === 'messages' ? 0 : 1}
+                onChange={idx => setMsgTab(idx === 0 ? 'messages' : 'events')}
+                contained
+                isLoading={!assistant}
+                aria-label="Message tabs"
+              />
             </div>
           </div>
-        )}
 
-        {/* Messaging action — always visible */}
-        <MessagingAction
-          assistant={assistant}
-          placeholder="How can I help you?"
-          className=" border-t"
-          voiceAgent={voiceAgentContextValue}
-        />
-      </Panel>
+          {/* Messages tab */}
+          {msgTab === 'messages' &&
+            (() => {
+              const hasMessages = events.some(
+                e => e.type === 'userMessage' || e.type === 'assistantMessage',
+              );
+              return hasMessages ? (
+                <div className="flex flex-col grow min-h-0 overflow-y-auto px-4 py-4">
+                  <ConversationMessages vag={voiceAgentContextValue} />
+                </div>
+              ) : (
+                <AssistantPlaceholder assistant={assistant} />
+              );
+            })()}
 
-      <PanelResizeHandle className="flex w-px! bg-gray-200 dark:bg-gray-800 hover:bg-blue-700 dark:hover:bg-blue-500 items-stretch"></PanelResizeHandle>
-      {/* ── Right: assistant + metrics ──────────────────────────────── */}
-      <Panel className="shrink-0 flex flex-col overflow-hidden w-1/3 ">
-        <VoiceAgentDebugger
-          debug={debug}
-          voiceAgent={voiceAgentContextValue}
-          assistant={assistant}
-          variables={variables}
-          events={events}
-          onChangeArgument={(k, v) =>
-            voiceAgentContextValue.agentConfiguration.addArgument(k, v)
-          }
-        />
-      </Panel>
-    </PanelGroup>
+          {/* Events tab — structured conversation event rows */}
+          {msgTab === 'events' && (
+            <div className="flex flex-col flex-1 min-h-0">
+              {/* Filter bar */}
+              {availableEventLabels.length > 0 && (
+                <div className="shrink-0 flex flex-wrap items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-800">
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 select-none">
+                    Filter
+                  </span>
+                  {availableEventLabels.map(label =>
+                    eventFilters.has(label) ? (
+                      <DismissibleTag
+                        key={label}
+                        text={label}
+                        type="blue"
+                        size="md"
+                        onClose={() => toggleEventFilter(label)}
+                      />
+                    ) : (
+                      <Tag
+                        key={label}
+                        type={eventFilters.size === 0 ? 'blue' : 'cool-gray'}
+                        size="md"
+                        onClick={() => toggleEventFilter(label)}
+                        className="cursor-pointer"
+                      >
+                        {label}
+                      </Tag>
+                    ),
+                  )}
+                  {eventFilters.size > 0 && (
+                    <GhostButton
+                      size="sm"
+                      onClick={() => setEventFilters(new Set())}
+                    >
+                      Clear all
+                    </GhostButton>
+                  )}
+                </div>
+              )}
+
+              <div className="flex-1 min-h-0 overflow-y-auto py-1">
+                {filteredEvents.length === 0 ? (
+                  <EmptyState
+                    icon={events.length === 0 ? Activity : FilterRemove}
+                    title={
+                      events.length === 0
+                        ? 'No events yet'
+                        : 'No events match the selected filters'
+                    }
+                    subtitle={
+                      events.length === 0
+                        ? 'Events will appear here once a conversation starts.'
+                        : 'Try removing some filters to see more events.'
+                    }
+                    className="h-full"
+                  />
+                ) : (
+                  <table className="w-full table-fixed font-mono text-sm/6 border-collapse">
+                    <colgroup>
+                      <col className="w-[9rem]" />
+                      <col className="w-[6rem]" />
+                      <col className="w-[10rem]" />
+                      <col />
+                    </colgroup>
+                    <tbody>
+                      {filteredEvents.map((entry, i) => (
+                        <ConversationEventRow key={i} entry={entry} />
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                <div ref={eventsBottomRef} />
+              </div>
+            </div>
+          )}
+
+          {/* Messaging action — always visible */}
+          <MessagingAction
+            assistant={assistant}
+            placeholder="How can I help you?"
+            className=" border-t"
+            voiceAgent={voiceAgentContextValue}
+          />
+        </Panel>
+
+        <PanelResizeHandle className="flex w-px! bg-gray-200 dark:bg-gray-800 hover:bg-blue-700 dark:hover:bg-blue-500 items-stretch"></PanelResizeHandle>
+        {/* ── Right: assistant + metrics ──────────────────────────────── */}
+        <Panel
+          defaultSize={30}
+          minSize={25}
+          className="shrink-0 flex flex-col overflow-hidden"
+        >
+          <VoiceAgentDebugger
+            debug={debug}
+            voiceAgent={voiceAgentContextValue}
+            assistant={assistant}
+            variables={variables}
+            events={events}
+            onChangeArgument={(k, v) =>
+              voiceAgentContextValue.agentConfiguration.addArgument(k, v)
+            }
+          />
+        </Panel>
+      </PanelGroup>
+    </div>
   );
 };
 
@@ -569,6 +610,7 @@ export const VoiceAgentDebugger: FC<{
   const RIGHT_TABS: RightTab[] = ['configuration', 'arguments', 'metrics'];
   const [tab, setTab] = useState<RightTab>('configuration');
   const metrics = useMemo(() => computeMetrics(events), [events]);
+  const metricCount = Object.keys(metrics).length;
 
   const deployment = assistant
     ? (debug
@@ -578,13 +620,28 @@ export const VoiceAgentDebugger: FC<{
   const stt = deployment?.getInputaudio() ?? null;
   const tts = deployment?.getOutputaudio() ?? null;
   const model = assistant?.getAssistantprovidermodel() ?? null;
+  const executor = assistant
+    ? assistant.hasAssistantprovideragentkit()
+      ? 'agentkit'
+      : assistant.hasAssistantproviderwebsocket()
+        ? 'websocket'
+        : 'model'
+    : '';
+  const inputMode = 'Text' + (stt ? ', Audio' : '');
+  const outputMode = 'Text' + (tts ? ', Audio' : '');
 
   return (
     <div className="flex flex-col h-full overflow-hidden text-sm">
       {/* Tab bar */}
       <div className="border-b border-gray-200 dark:border-gray-800">
         <Tabs
-          tabs={['Configuration', 'Arguments', 'Metrics']}
+          tabs={[
+            'Configuration',
+            variables.length > 0
+              ? `Arguments (${variables.length})`
+              : 'Arguments',
+            metricCount > 0 ? `Metrics (${metricCount})` : 'Metrics',
+          ]}
           selectedIndex={RIGHT_TABS.indexOf(tab)}
           onChange={idx => setTab(RIGHT_TABS[idx])}
           contained
@@ -595,52 +652,38 @@ export const VoiceAgentDebugger: FC<{
 
       {/* ── arguments tab ── */}
       {tab === 'arguments' && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {variables.length > 0 ? (
-            <div className="divide-y border-b">
-              {variables.map((x, idx) => (
-                <div key={idx} className="px-4 py-3">
-                  {[
-                    InputVarType.stringInput,
-                    InputVarType.textInput,
-                    InputVarType.paragraph,
-                    InputVarType.number,
-                    InputVarType.json,
-                    InputVarType.url,
-                  ].includes(x.getType() as InputVarType) && (
-                    <TextArea
-                      id={x.getName()}
-                      labelText={`{{${x.getName()}}}`}
-                      rows={
-                        x.getType() === InputVarType.paragraph ||
-                        x.getType() === InputVarType.json
-                          ? 4
-                          : 2
-                      }
-                      defaultValue={x.getDefaultvalue()}
-                      placeholder="Enter variable value..."
-                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                        onChangeArgument(x.getName(), e.target.value)
-                      }
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <Text
-              as="p"
-              className="p-4 text-sm/6 text-gray-400 dark:text-gray-500"
-            >
-              No arguments defined.
-            </Text>
-          )}
-        </div>
+        <DebuggerScrollArea>
+          <DebuggerTabHeader
+            title="Arguments"
+            subtitle={`${variables.length} prompt variables`}
+          />
+          <ArgumentList
+            variables={variables}
+            onChangeArgument={onChangeArgument}
+          />
+        </DebuggerScrollArea>
       )}
 
       {/* ── configuration tab ── */}
       {tab === 'configuration' && (
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <DebuggerScrollArea>
+          <ConfigBlock
+            title="deployment"
+            isLoading={!assistant}
+            skeletonRows={4}
+          >
+            {assistant && (
+              <>
+                <InfoRow label="executor" value={executor} />
+                <InfoRow
+                  label="model"
+                  value={model?.getModelprovidername() || 'not configured'}
+                />
+                <InfoRow label="input mode" value={inputMode} />
+                <InfoRow label="output mode" value={outputMode} />
+              </>
+            )}
+          </ConfigBlock>
           <ConfigBlock
             title="assistant"
             isLoading={!assistant}
@@ -649,16 +692,7 @@ export const VoiceAgentDebugger: FC<{
             {assistant && (
               <>
                 <InfoRow label="name" value={assistant.getName()} />
-                <InfoRow
-                  label="executor"
-                  value={
-                    assistant.hasAssistantprovideragentkit()
-                      ? 'agentkit'
-                      : assistant.hasAssistantproviderwebsocket()
-                        ? 'websocket'
-                        : 'model'
-                  }
-                />
+                <InfoRow label="arguments" value={String(variables.length)} />
                 {assistant.getDescription() && (
                   <InfoRow
                     label="description"
@@ -670,7 +704,7 @@ export const VoiceAgentDebugger: FC<{
           </ConfigBlock>
 
           <ConfigBlock title="stt" isLoading={!assistant} skeletonRows={2}>
-            {stt && (
+            {stt ? (
               <>
                 <InfoRow label="provider" value={stt.getAudioprovider()} />
                 {stt.getAudiooptionsList().map(m => (
@@ -681,11 +715,13 @@ export const VoiceAgentDebugger: FC<{
                   />
                 ))}
               </>
+            ) : (
+              <ConfigEmpty label="Audio input is not configured." />
             )}
           </ConfigBlock>
 
           <ConfigBlock title="tts" isLoading={!assistant} skeletonRows={2}>
-            {tts && (
+            {tts ? (
               <>
                 <InfoRow label="provider" value={tts.getAudioprovider()} />
                 {tts.getAudiooptionsList().map(m => (
@@ -696,11 +732,13 @@ export const VoiceAgentDebugger: FC<{
                   />
                 ))}
               </>
+            ) : (
+              <ConfigEmpty label="Audio output is not configured." />
             )}
           </ConfigBlock>
 
           <ConfigBlock title="llm" isLoading={!assistant} skeletonRows={2}>
-            {model && (
+            {model ? (
               <>
                 <InfoRow
                   label="provider"
@@ -714,26 +752,22 @@ export const VoiceAgentDebugger: FC<{
                   />
                 ))}
               </>
+            ) : (
+              <ConfigEmpty label="Model configuration is not available." />
             )}
           </ConfigBlock>
-        </div>
+        </DebuggerScrollArea>
       )}
 
       {/* ── metrics tab ── */}
       {tab === 'metrics' && (
-        <div className="flex-1 min-h-0 overflow-y-auto p-4">
-          {Object.keys(metrics).length === 0 ? (
-            <Text as="p" className="text-sm/6 text-gray-400 dark:text-gray-500">
-              No metrics yet.
-            </Text>
-          ) : (
-            <div className="grid grid-cols-2 gap-x-6 gap-y-5">
-              {Object.entries(metrics).map(([k, v]) => (
-                <MetricCard key={k} label={k} value={String(v)} />
-              ))}
-            </div>
-          )}
-        </div>
+        <DebuggerScrollArea>
+          <DebuggerTabHeader
+            title="Metrics"
+            subtitle={`${metricCount} live signals`}
+          />
+          <MetricGrid metrics={metrics} />
+        </DebuggerScrollArea>
       )}
     </div>
   );
@@ -774,14 +808,130 @@ const AssistantPlaceholder: FC<{
   );
 };
 
+export const PreviewAgentHeader: FC = () => (
+  <header className="flex h-12 shrink-0 items-center justify-between border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+    <div className="flex min-w-0 items-center gap-2 px-4 text-blue-600 dark:text-blue-500">
+      <RapidaIcon className="h-6 w-6 shrink-0" />
+      <RapidaTextIcon className="h-5 shrink-0" />
+    </div>
+    <CustomerOptions showProjectSelector={false} />
+  </header>
+);
+
+const DebuggerScrollArea: FC<{ children: React.ReactNode }> = ({
+  children,
+}) => (
+  <div className="flex-1 min-h-0 overflow-y-auto bg-white dark:bg-gray-950">
+    {children}
+  </div>
+);
+
+export const DebuggerTabHeader: FC<{
+  title: string;
+  subtitle?: string;
+}> = ({ title, subtitle }) => (
+  <div className="border-b border-gray-200/90 px-4 py-3 dark:border-gray-800">
+    <div className="min-w-0">
+      <h3 className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+        {title}
+      </h3>
+      {subtitle && (
+        <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
+          {subtitle}
+        </p>
+      )}
+    </div>
+  </div>
+);
+
+export const ArgumentList: FC<{
+  variables: Variable[];
+  onChangeArgument: (k: string, v: string) => void;
+}> = ({ variables, onChangeArgument }) => {
+  if (variables.length === 0) {
+    return (
+      <EmptyState
+        title="No arguments defined"
+        subtitle="This assistant does not expose prompt variables."
+        className="min-h-[18rem]"
+      />
+    );
+  }
+
+  return (
+    <div className="divide-y divide-gray-200/90 border-b border-gray-200/90 dark:divide-gray-800 dark:border-gray-800">
+      {variables.map(variable => (
+        <ArgumentRow
+          key={variable.getName()}
+          variable={variable}
+          onChangeArgument={onChangeArgument}
+        />
+      ))}
+    </div>
+  );
+};
+
+const ArgumentRow: FC<{
+  variable: Variable;
+  onChangeArgument: (k: string, v: string) => void;
+}> = ({ variable, onChangeArgument }) => {
+  const type = variable.getType() as InputVarType;
+  const editable = EDITABLE_ARGUMENT_TYPES.includes(type);
+  const rows =
+    type === InputVarType.paragraph || type === InputVarType.json ? 4 : 2;
+
+  return (
+    <div className="px-4 py-3">
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div
+            className="truncate font-mono text-sm font-semibold text-gray-900 dark:text-gray-100"
+            title={variable.getName()}
+          >
+            {`{{${variable.getName()}}}`}
+          </div>
+          {variable.getDefaultvalue() && (
+            <div className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
+              Default value loaded
+            </div>
+          )}
+        </div>
+        <ArgumentTypePill type={variable.getType()} />
+      </div>
+
+      {editable ? (
+        <TextArea
+          id={variable.getName()}
+          labelText={`{{${variable.getName()}}}`}
+          hideLabel
+          rows={rows}
+          defaultValue={variable.getDefaultvalue()}
+          placeholder="Enter variable value"
+          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+            onChangeArgument(variable.getName(), e.target.value)
+          }
+        />
+      ) : (
+        <ConfigEmpty label="This argument type is not editable in preview." />
+      )}
+    </div>
+  );
+};
+
+const ArgumentTypePill: FC<{ type: string }> = ({ type }) => (
+  <span className="shrink-0 border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-medium lowercase text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-300">
+    {type || 'unknown'}
+  </span>
+);
+
 export const ConfigBlock: FC<{
   title: string;
   children: React.ReactNode;
   isLoading?: boolean;
   skeletonRows?: number;
 }> = ({ title, children, isLoading = false, skeletonRows = 3 }) => (
-  <section className="border-b border-gray-200/90 dark:border-gray-800">
-    <div className="px-4 pt-3 pb-2 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+  <section>
+    <div className="border-y border-gray-200/90 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:border-gray-800 dark:text-gray-400">
       {title}
     </div>
     {isLoading ? (
@@ -795,20 +945,41 @@ export const ConfigBlock: FC<{
 export const InfoRow: FC<{ label: string; value: string }> = ({
   label,
   value,
-}) => (
-  <div className="grid grid-cols-[12rem_minmax(0,1fr)] gap-x-4 border-t border-gray-100/80 dark:border-gray-900/80 py-2.5 first:border-t-0">
-    <span
-      className="text-sm text-gray-500 dark:text-gray-400 lowercase tracking-wide truncate"
-      title={label}
-    >
-      {label}
-    </span>
-    <span
-      className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right whitespace-normal break-words"
-      title={value}
-    >
-      {value}
-    </span>
+}) => {
+  const copyValue = () => {
+    navigator.clipboard?.writeText(value).catch(() => {});
+  };
+
+  return (
+    <div className="grid grid-cols-[8rem_minmax(0,1fr)_2rem] items-center gap-x-3 border-t border-gray-100/80 py-2.5 first:border-t-0 dark:border-gray-900/80">
+      <span
+        className="truncate text-sm lowercase tracking-wide text-gray-500 dark:text-gray-400"
+        title={label}
+      >
+        {label}
+      </span>
+      <span
+        className="truncate text-right text-sm font-medium text-gray-900 dark:text-gray-100"
+        title={value}
+      >
+        {value}
+      </span>
+      <IconOnlyButton
+        kind="ghost"
+        size="xs"
+        renderIcon={Copy}
+        iconDescription={`Copy ${label}`}
+        tooltipPosition="left"
+        onClick={copyValue}
+        className="justify-self-end"
+      />
+    </div>
+  );
+};
+
+export const ConfigEmpty: FC<{ label: string }> = ({ label }) => (
+  <div className="border-t border-gray-100/80 dark:border-gray-900/80 py-2.5 first:border-t-0">
+    <span className="text-sm text-gray-400 dark:text-gray-500">{label}</span>
   </div>
 );
 
@@ -826,15 +997,69 @@ const ConfigRowsSkeleton: FC<{ rowCount: number }> = ({ rowCount }) => (
   </div>
 );
 
+const MetricGrid: FC<{
+  metrics: Record<string, string | number>;
+}> = ({ metrics }) => {
+  const entries = Object.entries(metrics);
+  const primaryKeys = ['messages_sent', 'messages_received', 'pipeline_events'];
+  const primary = primaryKeys
+    .map(key => entries.find(([metric]) => metric === key))
+    .filter(Boolean) as Array<[string, string | number]>;
+  const rest = entries.filter(([key]) => !primaryKeys.includes(key));
+
+  if (entries.length === 0) {
+    return (
+      <EmptyState
+        title="No metrics yet"
+        subtitle="Metrics appear once a conversation starts."
+        className="min-h-[18rem]"
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4 p-4">
+      <MetricSection title="conversation" entries={primary} emphasized />
+      {rest.length > 0 && <MetricSection title="signals" entries={rest} />}
+    </div>
+  );
+};
+
+const MetricSection: FC<{
+  title: string;
+  entries: Array<[string, string | number]>;
+  emphasized?: boolean;
+}> = ({ title, entries, emphasized = false }) => {
+  if (entries.length === 0) return null;
+
+  return (
+    <section>
+      <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
+        {title}
+      </div>
+      <div
+        className={cn('grid gap-2', emphasized ? 'grid-cols-3' : 'grid-cols-2')}
+      >
+        {entries.map(([k, v]) => (
+          <MetricCard key={k} label={k} value={String(v)} />
+        ))}
+      </div>
+    </section>
+  );
+};
+
 export const MetricCard: FC<{ label: string; value: string }> = ({
   label,
   value,
 }) => (
-  <div className="flex flex-col gap-0.5">
-    <span className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 truncate">
+  <div className="min-w-0 border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-gray-800 dark:bg-gray-900">
+    <span className="block truncate text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">
       {label.replace(/_/g, ' ')}
     </span>
-    <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+    <span
+      className="mt-1 block truncate text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100"
+      title={value}
+    >
       {value}
     </span>
   </div>

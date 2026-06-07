@@ -131,7 +131,7 @@ func TestTalk_BuffersPacketsBeforeInitialization(t *testing.T) {
 	assert.Equal(t, 1, len(r.channels.IngressChannel()))
 	assert.Equal(t, 0, len(r.channels.EgressChannel()))
 	assert.Equal(t, 1, len(r.channels.DataChannel()))
-	assert.Equal(t, 2, len(r.channels.BackgroundChannel()))
+	assert.Equal(t, 3, len(r.channels.BackgroundChannel()))
 	assert.Equal(t, 0, len(streamer.modes))
 }
 

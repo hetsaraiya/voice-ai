@@ -2776,6 +2776,9 @@
   .min-h-40 {
     min-height: calc(var(--spacing) * 40);
   }
+  .min-h-\[18rem\] {
+    min-height: 18rem;
+  }
   .min-h-\[20px\] {
     min-height: 20px;
   }
@@ -3433,6 +3436,9 @@
   .grid-cols-\[1fr_2\.5rem_minmax\(0\,var\(--container-2xl\)\)_2\.5rem_1fr\] {
     grid-template-columns: 1fr 2.5rem minmax(0,var(--container-2xl)) 2.5rem 1fr;
   }
+  .grid-cols-\[8rem_minmax\(0\,1fr\)_2rem\] {
+    grid-template-columns: 8rem minmax(0,1fr) 2rem;
+  }
   .grid-cols-\[12rem_minmax\(0\,1fr\)\] {
     grid-template-columns: 12rem minmax(0,1fr);
   }
@@ -3727,6 +3733,14 @@
       border-color: var(--color-gray-200);
     }
   }
+  .divide-gray-200\/90 {
+    :where(& > :not(:last-child)) {
+      border-color: color-mix(in srgb, #eaeaea 90%, transparent);
+      @supports (color: color-mix(in lab, red, red)) {
+        border-color: color-mix(in oklab, var(--color-gray-200) 90%, transparent);
+      }
+    }
+  }
   .divide-gray-300 {
     :where(& > :not(:last-child)) {
       border-color: var(--color-gray-300);
@@ -3734,6 +3748,9 @@
   }
   .\!self-start {
     align-self: flex-start !important;
+  }
+  .justify-self-end {
+    justify-self: flex-end;
   }
   .truncate {
     overflow: hidden;
@@ -4211,6 +4228,12 @@
     background-color: color-mix(in srgb, #eaeaea 30%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-gray-200) 30%, transparent);
+    }
+  }
+  .bg-gray-200\/90 {
+    background-color: color-mix(in srgb, #eaeaea 90%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-gray-200) 90%, transparent);
     }
   }
   .bg-gray-300 {
@@ -4897,6 +4920,9 @@
   .text-\[13px\] {
     font-size: 13px;
   }
+  .text-\[13px\]\! {
+    font-size: 13px !important;
+  }
   .text-\[14px\] {
     font-size: 14px;
   }
@@ -5290,6 +5316,9 @@
   }
   .uppercase {
     text-transform: uppercase;
+  }
+  .uppercase\! {
+    text-transform: uppercase !important;
   }
   .italic {
     font-style: italic;
@@ -6989,6 +7018,16 @@
       width: calc(2/3 * 100%);
     }
   }
+  .lg\:w-\[30\%\] {
+    @media (width >= 64rem) {
+      width: 30%;
+    }
+  }
+  .lg\:w-\[70\%\] {
+    @media (width >= 64rem) {
+      width: 70%;
+    }
+  }
   .lg\:grid-cols-2 {
     @media (width >= 64rem) {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7454,6 +7493,16 @@
       @supports (color: color-mix(in lab, red, red)) {
         background-color: color-mix(in oklab, var(--color-blue-200) 10%, transparent);
       }
+    }
+  }
+  .dark\:bg-blue-400 {
+    @media (prefers-color-scheme: dark) {
+      &:not(.light *) {
+        background-color: var(--color-blue-400);
+      }
+    }
+    &:is(.dark *) {
+      background-color: var(--color-blue-400);
     }
   }
   .dark\:bg-blue-600\/10 {

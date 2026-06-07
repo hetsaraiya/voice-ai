@@ -72,7 +72,8 @@ export function ActionableHeader(props: { reload?: boolean }) {
 export const CustomerOptions: FC<{
   placement?: 'top' | 'bottom';
   isLoading?: boolean;
-}> = ({ placement, isLoading }) => {
+  showProjectSelector?: boolean;
+}> = ({ placement, isLoading, showProjectSelector = true }) => {
   const { projectRoles, currentProjectRole, setCurrentProjectRole } =
     useContext(AuthContext);
 
@@ -82,7 +83,7 @@ export const CustomerOptions: FC<{
   return (
     <HeaderGlobalBar>
       {/* Project selector — Carbon Dropdown */}
-      {projectRoles && setCurrentProjectRole && (
+      {showProjectSelector && projectRoles && setCurrentProjectRole && (
         <Dropdown
           id="project-selector"
           titleText=""
@@ -126,13 +127,13 @@ export const CustomerOptions: FC<{
       <HeaderPanel expanded={accountDropdownOpen}>
         <Switcher aria-label="Account" expanded={accountDropdownOpen}>
           <li className="cds--switcher__item--divider">
-            <span className="uppercase">Account</span>
+            <span className="uppercase!">Account</span>
           </li>
           <SwitcherItem aria-label="Account Settings" href="/account">
             Account Settings
           </SwitcherItem>
           <li className="cds--switcher__item--divider">
-            <span className="uppercase">Resources</span>
+            <span className="uppercase!">Resources</span>
           </li>
           <SwitcherItem
             aria-label="Documentation"
@@ -149,7 +150,7 @@ export const CustomerOptions: FC<{
             Contact us
           </SwitcherItem>
           <li className="cds--switcher__item--divider">
-            <span className="uppercase">Session</span>
+            <span className="uppercase!">Session</span>
           </li>
           <SwitcherItem aria-label="Sign out" href="/auth/signin">
             Sign out

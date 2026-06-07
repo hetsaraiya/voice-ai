@@ -15,6 +15,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
@@ -119,14 +120,31 @@ func (e *agentkitExecutor) Initialize(ctx context.Context, comm internal_type.Co
 		e.listen(ctx, comm)
 	})
 
-	comm.OnPacket(ctx, internal_type.ConversationEventPacket{
-		Name: "agentkit",
-		Data: map[string]string{
-			"type": "agentkit_initialized", "provider": "agentkit",
-			"url": provider.Url, "init_ms": fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+	comm.OnPacket(ctx,
+		internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewConversationEventRecord(observability.LLMStarted, observability.Attributes{
+				"type":     "agentkit_initialized",
+				"provider": "agentkit",
+				"url":      provider.Url,
+				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+			}),
 		},
-		Time: time.Now(),
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelDebug,
+				Message: "agentkit initialized",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentLLM.String(),
+					"operation": "initialize",
+					"provider":  "agentkit",
+					"url":       provider.Url,
+					"init_ms":   fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+				},
+			},
+		},
+	)
 	return nil
 }
 

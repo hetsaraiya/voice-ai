@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
@@ -27,11 +28,11 @@ func TestHandleResponse_AllTypes(t *testing.T) {
 			},
 			wantFunc: func(t *testing.T, pkts []internal_type.Packet) {
 				require.Len(t, pkts, 1)
-				ev, ok := pkts[0].(internal_type.ConversationEventPacket)
+				log, ok := pkts[0].(internal_type.ObservabilityLogRecordPacket)
 				require.True(t, ok)
-				assert.Equal(t, "agentkit", ev.Name)
-				assert.Equal(t, "initialization_ack", ev.Data["type"])
-				assert.Equal(t, "42", ev.Data["conversation_id"])
+				assert.Equal(t, observability.LevelDebug, log.Record.Level)
+				assert.Equal(t, "initialization_ack", log.Record.Attributes["operation"])
+				assert.Equal(t, "42", log.Record.Attributes["conversation_id"])
 			},
 		},
 		{
@@ -42,14 +43,17 @@ func TestHandleResponse_AllTypes(t *testing.T) {
 				},
 			},
 			wantFunc: func(t *testing.T, pkts []internal_type.Packet) {
-				require.Len(t, pkts, 2)
+				require.Len(t, pkts, 3)
 				ip, ok := pkts[0].(internal_type.InterruptionDetectedPacket)
 				require.True(t, ok)
 				assert.Equal(t, "ctx-1", ip.ContextID)
 				assert.Equal(t, internal_type.InterruptionSourceWord, ip.Source)
-				ev, ok := pkts[1].(internal_type.ConversationEventPacket)
+				ev, ok := pkts[1].(internal_type.ObservabilityEventRecordPacket)
 				require.True(t, ok)
-				assert.Equal(t, "interruption", ev.Data["type"])
+				assert.Equal(t, observability.LLMDiscarded, ev.Record.Event)
+				log, ok := pkts[2].(internal_type.ObservabilityLogRecordPacket)
+				require.True(t, ok)
+				assert.Equal(t, "interrupt", log.Record.Attributes["operation"])
 			},
 		},
 		{
@@ -64,17 +68,11 @@ func TestHandleResponse_AllTypes(t *testing.T) {
 				},
 			},
 			wantFunc: func(t *testing.T, pkts []internal_type.Packet) {
-				require.Len(t, pkts, 2)
+				require.Len(t, pkts, 1)
 				delta, ok := pkts[0].(internal_type.LLMResponseDeltaPacket)
 				require.True(t, ok)
 				assert.Equal(t, "msg-1", delta.ContextID)
 				assert.Equal(t, "hello ", delta.Text)
-				ev, ok := pkts[1].(internal_type.ConversationEventPacket)
-				require.True(t, ok)
-				assert.Equal(t, "agentkit", ev.Name)
-				assert.Equal(t, "chunk", ev.Data["type"])
-				assert.Equal(t, "hello ", ev.Data["text"])
-				assert.Equal(t, "6", ev.Data["response_char_count"])
 			},
 		},
 		{
@@ -89,15 +87,19 @@ func TestHandleResponse_AllTypes(t *testing.T) {
 				},
 			},
 			wantFunc: func(t *testing.T, pkts []internal_type.Packet) {
-				require.Len(t, pkts, 2)
+				require.Len(t, pkts, 3)
 				done, ok := pkts[0].(internal_type.LLMResponseDonePacket)
 				require.True(t, ok)
 				assert.Equal(t, "msg-2", done.ContextID)
 				assert.Equal(t, "world", done.Text)
-				ev, ok := pkts[1].(internal_type.ConversationEventPacket)
+				ev, ok := pkts[1].(internal_type.ObservabilityEventRecordPacket)
 				require.True(t, ok)
-				assert.Equal(t, "completed", ev.Data["type"])
-				assert.Equal(t, "5", ev.Data["response_char_count"])
+				assert.Equal(t, observability.LLMCompleted, ev.Record.Event)
+				assert.Equal(t, "5", ev.Record.Attributes["response_char_count"])
+				metric, ok := pkts[2].(internal_type.ObservabilityMetricRecordPacket)
+				require.True(t, ok)
+				require.Len(t, metric.Record.Metrics, 1)
+				assert.Equal(t, "llm_response_char_count", metric.Record.Metrics[0].Name)
 			},
 		},
 		{
@@ -156,11 +158,10 @@ func TestHandleResponse_AllTypes(t *testing.T) {
 				assert.Equal(t, "get_weather", toolResult.Name)
 				assert.Equal(t, map[string]string{"ok": "true"}, toolResult.Result)
 
-				ev, ok := pkts[1].(internal_type.ConversationEventPacket)
+				log, ok := pkts[1].(internal_type.ObservabilityLogRecordPacket)
 				require.True(t, ok)
-				assert.Equal(t, "tool", ev.Name)
-				assert.Equal(t, "tool_result", ev.Data["type"])
-				assert.Equal(t, "tool-42", ev.Data["tool_id"])
+				assert.Equal(t, "tool_result", log.Record.Attributes["operation"])
+				assert.Equal(t, "tool-42", log.Record.Attributes["tool_id"])
 			},
 		},
 		{
@@ -174,17 +175,20 @@ func TestHandleResponse_AllTypes(t *testing.T) {
 				},
 			},
 			wantFunc: func(t *testing.T, pkts []internal_type.Packet) {
-				require.Len(t, pkts, 3)
+				require.Len(t, pkts, 4)
 				errPkt, ok := pkts[0].(internal_type.LLMErrorPacket)
 				require.True(t, ok)
 				assert.Contains(t, errPkt.Error.Error(), "agent crashed")
 
-				ev, ok := pkts[1].(internal_type.ConversationEventPacket)
+				ev, ok := pkts[1].(internal_type.ObservabilityEventRecordPacket)
 				require.True(t, ok)
-				assert.Equal(t, "error", ev.Data["type"])
-				assert.Equal(t, "500", ev.Data["code"])
+				assert.Equal(t, observability.LLMError, ev.Record.Event)
+				assert.Equal(t, "500", ev.Record.Attributes["code"])
+				log, ok := pkts[2].(internal_type.ObservabilityLogRecordPacket)
+				require.True(t, ok)
+				assert.Equal(t, observability.LevelError, log.Record.Level)
 
-				dir, ok := pkts[2].(internal_type.LLMToolCallPacket)
+				dir, ok := pkts[3].(internal_type.LLMToolCallPacket)
 				require.True(t, ok)
 				assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, dir.Action)
 			},

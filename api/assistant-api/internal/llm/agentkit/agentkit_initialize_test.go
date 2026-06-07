@@ -11,6 +11,7 @@ import (
 
 	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_conversation_entity "github.com/rapidaai/api/assistant-api/internal/entity/conversations"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
@@ -99,17 +100,17 @@ func acquireClosedTCPAddress(t *testing.T) string {
 	return addr
 }
 
-func findEventPacketByType(pkts []internal_type.Packet, eventType string) (internal_type.ConversationEventPacket, bool) {
+func findEventPacketByType(pkts []internal_type.Packet, eventType observability.EventName) (internal_type.ObservabilityEventRecordPacket, bool) {
 	for _, pkt := range pkts {
-		event, ok := pkt.(internal_type.ConversationEventPacket)
+		event, ok := pkt.(internal_type.ObservabilityEventRecordPacket)
 		if !ok {
 			continue
 		}
-		if event.Data["type"] == eventType {
+		if event.Record.Event == eventType {
 			return event, true
 		}
 	}
-	return internal_type.ConversationEventPacket{}, false
+	return internal_type.ObservabilityEventRecordPacket{}, false
 }
 
 func TestInitialize_ReturnsErrorWhenConnectionFails(t *testing.T) {
@@ -198,11 +199,10 @@ func TestInitialize_SendsInitializationAndEmitsInitializedEvent(t *testing.T) {
 	}
 
 	pkts := collector.all()
-	event, found := findEventPacketByType(pkts, "agentkit_initialized")
+	event, found := findEventPacketByType(pkts, observability.LLMStarted)
 	require.True(t, found, "expected agentkit_initialized event")
-	assert.Equal(t, "agentkit", event.Name)
-	assert.Equal(t, "agentkit", event.Data["provider"])
-	assert.Equal(t, addr, event.Data["url"])
+	assert.Equal(t, "agentkit", event.Record.Attributes["provider"])
+	assert.Equal(t, addr, event.Record.Attributes["url"])
 
 	e.stateMu.RLock()
 	defer e.stateMu.RUnlock()

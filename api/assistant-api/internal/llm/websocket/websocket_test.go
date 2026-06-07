@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/protos"
@@ -142,11 +143,18 @@ func TestHandleResponse_Complete_EmitsLLMResponseDonePacket(t *testing.T) {
 		Data: json.RawMessage(`{"id":"ctx-1","content":"done text","metrics":[{"name":"tokens","value":10}]}`),
 	}, onPacket)
 
-	require.Len(t, collected, 1)
+	require.Len(t, collected, 3)
 	done, ok := collected[0].(internal_type.LLMResponseDonePacket)
 	require.True(t, ok)
 	assert.Equal(t, "ctx-1", done.ContextID)
 	assert.Equal(t, "done text", done.Text)
+	ev, ok := collected[1].(internal_type.ObservabilityEventRecordPacket)
+	require.True(t, ok)
+	assert.Equal(t, observability.LLMCompleted, ev.Record.Event)
+	metric, ok := collected[2].(internal_type.ObservabilityMetricRecordPacket)
+	require.True(t, ok)
+	require.Len(t, metric.Record.Metrics, 1)
+	assert.Equal(t, "tokens", metric.Record.Metrics[0].Name)
 }
 
 func TestHandleResponse_Complete_StaleContextDropped(t *testing.T) {
@@ -197,10 +205,13 @@ func TestHandleResponse_Interruption(t *testing.T) {
 		Data: json.RawMessage(`{"id":"ctx-1","source":"vad"}`),
 	}, onPacket)
 
-	require.Len(t, collected, 1)
+	require.Len(t, collected, 2)
 	ip, ok := collected[0].(internal_type.InterruptionDetectedPacket)
 	require.True(t, ok)
 	assert.Equal(t, internal_type.InterruptionSourceVad, ip.Source)
+	ev, ok := collected[1].(internal_type.ObservabilityEventRecordPacket)
+	require.True(t, ok)
+	assert.Equal(t, observability.LLMDiscarded, ev.Record.Event)
 }
 
 func TestHandleResponse_Interruption_WordSource(t *testing.T) {
@@ -217,10 +228,13 @@ func TestHandleResponse_Interruption_WordSource(t *testing.T) {
 		Data: json.RawMessage(`{"id":"ctx-1","source":"word"}`),
 	}, onPacket)
 
-	require.Len(t, collected, 1)
+	require.Len(t, collected, 2)
 	ip, ok := collected[0].(internal_type.InterruptionDetectedPacket)
 	require.True(t, ok)
 	assert.Equal(t, internal_type.InterruptionSourceWord, ip.Source)
+	ev, ok := collected[1].(internal_type.ObservabilityEventRecordPacket)
+	require.True(t, ok)
+	assert.Equal(t, observability.LLMDiscarded, ev.Record.Event)
 }
 
 func TestHandleResponse_Close(t *testing.T) {
@@ -256,8 +270,11 @@ func TestHandleResponse_Error(t *testing.T) {
 		Data: json.RawMessage(`{"code":500,"message":"server error"}`),
 	}, onPacket)
 
-	// Error type logs but doesn't emit packets
-	assert.Empty(t, collected)
+	require.Len(t, collected, 1)
+	log, ok := collected[0].(internal_type.ObservabilityLogRecordPacket)
+	require.True(t, ok)
+	assert.Equal(t, observability.LevelError, log.Record.Level)
+	assert.Equal(t, "response", log.Record.Attributes["operation"])
 }
 
 // =============================================================================

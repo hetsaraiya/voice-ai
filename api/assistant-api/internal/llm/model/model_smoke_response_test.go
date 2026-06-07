@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/require"
@@ -37,9 +38,9 @@ func TestModel_ResponsePipeline_Error_EmitsLLMErrorAndEvent(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "ctx-1", errPkt.ContextID)
 	require.EqualError(t, errPkt.Error, "provider down")
-	evt, ok := findPacket[internal_type.ConversationEventPacket](comm.pkts)
+	evt, ok := findPacket[internal_type.ObservabilityEventRecordPacket](comm.pkts)
 	require.True(t, ok)
-	require.Equal(t, "error", evt.Data["type"])
+	require.Equal(t, observability.LLMError, evt.Record.Event)
 }
 
 func TestModel_ResponsePipeline_Chunk_EmitsDeltaEvenWhenEmpty(t *testing.T) {

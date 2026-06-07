@@ -249,9 +249,6 @@ func (r *recorder) normalize(scope Scope, record Record) (observation, error) {
 		}
 		return observation{scope: normalizedScope, record: typed}, nil
 	case RecordUsage:
-		if normalizedScope.ScopeType() == ScopeMessage {
-			return observation{}, errors.New("observability: usage cannot be message-scoped")
-		}
 		if typed.Duration <= 0 {
 			return observation{}, errors.New("observability: usage duration must be greater than zero")
 		}

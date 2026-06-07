@@ -127,6 +127,7 @@ func NewTenVAD(
 					Message: "vad initialized",
 					Attributes: observability.Attributes{
 						"component": observability.ComponentVAD.String(),
+						"operation": "initialize",
 						"provider":  vadName,
 						"init_ms":   fmt.Sprintf("%d", time.Since(start).Milliseconds()),
 					},
@@ -187,10 +188,13 @@ func (t *TenVAD) Execute(ctx context.Context, pkt internal_type.UserAudioReceive
 						Level:   observability.LevelError,
 						Message: "vad detection failed",
 						Attributes: observability.Attributes{
-							"component":  observability.ComponentVAD.String(),
-							"provider":   vadName,
-							"context_id": pkt.ContextID,
-							"error":      err.Error(),
+							"component":   observability.ComponentVAD.String(),
+							"operation":   "detect",
+							"provider":    vadName,
+							"context_id":  pkt.ContextID,
+							"audio_bytes": fmt.Sprintf("%d", len(pkt.Audio)),
+							"error":       err.Error(),
+							"error_type":  fmt.Sprintf("%T", err),
 						},
 					},
 				},
@@ -269,6 +273,7 @@ func (t *TenVAD) Close(ctx context.Context) error {
 					Message: "vad closed",
 					Attributes: observability.Attributes{
 						"component": observability.ComponentVAD.String(),
+						"operation": "close",
 						"provider":  vadName,
 					},
 				},

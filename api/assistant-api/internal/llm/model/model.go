@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_agent_tool "github.com/rapidaai/api/assistant-api/internal/tool"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/api/assistant-api/internal/variable"
@@ -105,7 +106,25 @@ func (e *modelAssistantExecutor) Initialize(ctx context.Context, communication i
 	llmData["type"] = "llm_initialized"
 	llmData["provider"] = communication.Assistant().AssistantProviderModel.ModelProviderName
 	llmData["init_ms"] = fmt.Sprintf("%d", time.Since(start).Milliseconds())
-	communication.OnPacket(ctx, internal_type.ConversationEventPacket{Name: "llm", Data: llmData, Time: time.Now()})
+	communication.OnPacket(ctx,
+		internal_type.ObservabilityEventRecordPacket{
+			Scope:  internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewConversationEventRecord(observability.LLMStarted, observability.Attributes(llmData)),
+		},
+		internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelDebug,
+				Message: "llm initialized",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentLLM.String(),
+					"operation": "initialize",
+					"provider":  communication.Assistant().AssistantProviderModel.ModelProviderName,
+					"init_ms":   fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+				},
+			},
+		},
+	)
 	return nil
 }
 
@@ -205,9 +224,22 @@ func (e *modelAssistantExecutor) Execute(ctx context.Context, communication inte
 	switch p := pctk.(type) {
 	case internal_type.UserInputPacket:
 		if supersededCtx := e.history.SupersedePending(); supersededCtx != "" {
-			communication.OnPacket(ctx, internal_type.ConversationEventPacket{
-				ContextID: supersededCtx, Name: "tool", Time: time.Now(),
-				Data: map[string]string{"type": "tool_block_superseded", "reason": "user_interrupted"},
+			communication.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+				ContextID:   supersededCtx,
+				Scope:       internal_type.ObservabilityRecordScopeMessage,
+				MessageRole: observability.MessageRoleAssistant,
+				Record: observability.RecordLog{
+					Level:   observability.LevelInfo,
+					Message: "tool block superseded",
+					Attributes: observability.Attributes{
+						"component":             observability.ComponentTool.String(),
+						"operation":             "supersede_tool_block",
+						"context_id":            supersededCtx,
+						"message_role":          string(observability.MessageRoleAssistant),
+						"reason":                "user_interrupted",
+						"superseded_context_id": supersededCtx,
+					},
+				},
 			})
 		}
 		e.mu.Lock()
@@ -269,14 +301,47 @@ func (e *modelAssistantExecutor) handleUserTurn(ctx context.Context, communicati
 		return
 	}
 
-	communication.OnPacket(ctx, internal_type.ConversationEventPacket{
-		ContextID: p.ContextID, Name: "llm", Time: time.Now(),
-		Data: map[string]string{
-			"type": "executing", "script": p.Text,
-			"input_char_count": fmt.Sprintf("%d", len(p.Text)),
-			"history_count":    fmt.Sprintf("%d", len(snapshot)),
+	communication.OnPacket(ctx,
+		internal_type.ObservabilityEventRecordPacket{
+			ContextID:   p.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleAssistant,
+			Record: observability.NewMessageRecord(p.ContextID, observability.ComponentLLM, observability.LLMStarted, observability.MessageRoleAssistant, observability.Attributes{
+				"provider":         communication.Assistant().AssistantProviderModel.ModelProviderName,
+				"context_id":       p.ContextID,
+				"message_role":     string(observability.MessageRoleAssistant),
+				"input_char_count": fmt.Sprintf("%d", len(p.Text)),
+				"history_count":    fmt.Sprintf("%d", len(snapshot)),
+			}),
 		},
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			ContextID:   p.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleAssistant,
+			Record: observability.RecordLog{
+				Level:   observability.LevelDebug,
+				Message: "llm request started",
+				Attributes: observability.Attributes{
+					"component":        observability.ComponentLLM.String(),
+					"operation":        "execute",
+					"provider":         communication.Assistant().AssistantProviderModel.ModelProviderName,
+					"context_id":       p.ContextID,
+					"message_role":     string(observability.MessageRoleAssistant),
+					"input_char_count": fmt.Sprintf("%d", len(p.Text)),
+					"history_count":    fmt.Sprintf("%d", len(snapshot)),
+				},
+			},
+		},
+		internal_type.ObservabilityMetricRecordPacket{
+			ContextID:   p.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleAssistant,
+			Record: observability.NewMessageMetricRecord(p.ContextID, observability.MessageRoleAssistant, []*protos.Metric{
+				{Name: "llm_input_char_count", Value: fmt.Sprintf("%d", len(p.Text)), Description: "Input character count sent to LLM"},
+				{Name: "llm_history_count", Value: fmt.Sprintf("%d", len(snapshot)), Description: "History message count sent to LLM"},
+			}),
+		},
+	)
 
 	userMsg := &protos.Message{
 		Role:    "user",
@@ -301,8 +366,24 @@ func (e *modelAssistantExecutor) handleToolResult(ctx context.Context, communica
 			data["reason"] = reason
 			data["pending_context"] = pendingCtx
 		}
-		communication.OnPacket(ctx, internal_type.ConversationEventPacket{
-			ContextID: p.ContextID, Name: "tool", Time: time.Now(), Data: data,
+		communication.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+			ContextID:   p.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleAssistant,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "tool result ignored",
+				Attributes: observability.Attributes{
+					"component":       observability.ComponentTool.String(),
+					"operation":       "ignore_tool_result",
+					"context_id":      p.ContextID,
+					"message_role":    string(observability.MessageRoleAssistant),
+					"reason":          data["reason"],
+					"tool_id":         p.ToolID,
+					"name":            p.Name,
+					"pending_context": data["pending_context"],
+				},
+			},
 		})
 		return
 	}
@@ -312,9 +393,21 @@ func (e *modelAssistantExecutor) handleToolResult(ctx context.Context, communica
 
 	contextID, followUp := e.history.FlushToolBlock()
 	if !followUp {
-		communication.OnPacket(ctx, internal_type.ConversationEventPacket{
-			ContextID: contextID, Name: "tool", Time: time.Now(),
-			Data: map[string]string{"type": "tool_block_discarded", "reason": "superseded"},
+		communication.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+			ContextID:   contextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleAssistant,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "tool block discarded",
+				Attributes: observability.Attributes{
+					"component":    observability.ComponentTool.String(),
+					"operation":    "discard_tool_block",
+					"context_id":   contextID,
+					"message_role": string(observability.MessageRoleAssistant),
+					"reason":       "superseded",
+				},
+			},
 		})
 		return
 	}
@@ -335,7 +428,32 @@ func (e *modelAssistantExecutor) handleResponse(ctx context.Context, communicati
 		errMsg := resp.GetError().GetErrorMessage()
 		communication.OnPacket(ctx,
 			internal_type.LLMErrorPacket{ContextID: contextID, Error: errors.New(errMsg)},
-			internal_type.ConversationEventPacket{ContextID: contextID, Name: "llm", Data: map[string]string{"type": "error", "error": errMsg}, Time: time.Now()},
+			internal_type.ObservabilityEventRecordPacket{
+				ContextID:   contextID,
+				Scope:       internal_type.ObservabilityRecordScopeMessage,
+				MessageRole: observability.MessageRoleAssistant,
+				Record: observability.NewMessageRecord(contextID, observability.ComponentLLM, observability.LLMError, observability.MessageRoleAssistant, observability.Attributes{
+					"context_id":   contextID,
+					"message_role": string(observability.MessageRoleAssistant),
+					"error":        errMsg,
+				}),
+			},
+			internal_type.ObservabilityLogRecordPacket{
+				ContextID:   contextID,
+				Scope:       internal_type.ObservabilityRecordScopeMessage,
+				MessageRole: observability.MessageRoleAssistant,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "llm response failed",
+					Attributes: observability.Attributes{
+						"component":    observability.ComponentLLM.String(),
+						"operation":    "response",
+						"context_id":   contextID,
+						"message_role": string(observability.MessageRoleAssistant),
+						"error":        errMsg,
+					},
+				},
+			},
 		)
 		return
 	}
@@ -438,12 +556,7 @@ func (e *modelAssistantExecutor) listen(ctx context.Context, communication inter
 
 func (e *modelAssistantExecutor) onStreamingChunk(ctx context.Context, communication internal_type.Communication, contextID string, output *protos.Message) {
 	text := strings.Join(output.GetAssistant().GetContents(), "")
-	communication.OnPacket(ctx,
-		internal_type.LLMResponseDeltaPacket{ContextID: contextID, Text: text},
-		internal_type.ConversationEventPacket{ContextID: contextID, Name: "llm", Time: time.Now(),
-			Data: map[string]string{"type": "chunk", "text": text, "response_char_count": fmt.Sprintf("%d", len(text))},
-		},
-	)
+	communication.OnPacket(ctx, internal_type.LLMResponseDeltaPacket{ContextID: contextID, Text: text})
 }
 
 func (e *modelAssistantExecutor) onCompletion(ctx context.Context, communication internal_type.Communication, contextID, finishReason string, output *protos.Message, metrics []*protos.Metric) {
@@ -454,25 +567,77 @@ func (e *modelAssistantExecutor) onCompletion(ctx context.Context, communication
 	supersededCtx := e.history.AppendAssistant(contextID, output)
 	if supersededCtx != "" {
 		e.logger.Errorf("new tool block while previous unresolved (context=%s), superseding", supersededCtx)
-		communication.OnPacket(ctx, internal_type.ConversationEventPacket{
-			ContextID: supersededCtx, Name: "tool", Time: time.Now(),
-			Data: map[string]string{"type": "tool_block_superseded", "reason": "new_tool_block"},
+		communication.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+			ContextID:   supersededCtx,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleAssistant,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "tool block superseded",
+				Attributes: observability.Attributes{
+					"component":             observability.ComponentTool.String(),
+					"operation":             "supersede_tool_block",
+					"context_id":            supersededCtx,
+					"message_role":          string(observability.MessageRoleAssistant),
+					"reason":                "new_tool_block",
+					"superseded_context_id": supersededCtx,
+				},
+			},
 		})
 	}
 	if len(toolCalls) > 0 {
 		e.toolExecutor.ExecuteAll(ctx, contextID, toolCalls, communication)
 	}
-	communication.OnPacket(ctx,
+	packets := []internal_type.Packet{
 		internal_type.LLMResponseDonePacket{ContextID: contextID, Text: responseText},
-		internal_type.ConversationEventPacket{ContextID: contextID, Name: "llm", Time: time.Now(),
-			Data: map[string]string{
-				"type": "completed", "text": responseText,
+		internal_type.ObservabilityEventRecordPacket{
+			ContextID:   contextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleAssistant,
+			Record: observability.NewMessageRecord(contextID, observability.ComponentLLM, observability.LLMCompleted, observability.MessageRoleAssistant, observability.Attributes{
+				"context_id":          contextID,
+				"message_role":        string(observability.MessageRoleAssistant),
 				"response_char_count": fmt.Sprintf("%d", len(responseText)),
 				"finish_reason":       finishReason,
-			},
+				"tool_call_count":     fmt.Sprintf("%d", len(toolCalls)),
+			}),
 		},
-		internal_type.AssistantMessageMetricPacket{ContextID: contextID, Metrics: e.buildCompletionMetrics(metrics)},
-	)
+		internal_type.ObservabilityMetricRecordPacket{
+			ContextID:   contextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleAssistant,
+			Record:      observability.NewMessageMetricRecord(contextID, observability.MessageRoleAssistant, e.buildCompletionMetrics(metrics)),
+		},
+	}
+	var usageDuration time.Duration
+	for _, metric := range metrics {
+		switch metric.GetName() {
+		case observability.MetricTimeTaken, observability.MetricProviderTotalTime:
+			if ns, err := strconv.ParseInt(metric.GetValue(), 10, 64); err == nil && ns > 0 {
+				usageDuration = time.Duration(ns)
+			}
+		}
+	}
+	if usageDuration > 0 {
+		packets = append(packets, internal_type.ObservabilityUsageRecordPacket{
+			ContextID:   contextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleAssistant,
+			Record: observability.RecordUsage{
+				Component: observability.ComponentLLM,
+				Provider:  communication.Assistant().AssistantProviderModel.ModelProviderName,
+				Duration:  usageDuration,
+				Attributes: observability.Attributes{
+					"context_id":          contextID,
+					"message_role":        string(observability.MessageRoleAssistant),
+					"finish_reason":       finishReason,
+					"response_char_count": fmt.Sprintf("%d", len(responseText)),
+					"tool_call_count":     fmt.Sprintf("%d", len(toolCalls)),
+				},
+			},
+		})
+	}
+	communication.OnPacket(ctx, packets...)
 }
 
 // =============================================================================
