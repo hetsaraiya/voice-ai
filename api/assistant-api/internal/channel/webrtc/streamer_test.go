@@ -22,6 +22,7 @@ import (
 	internal_audio_resampler "github.com/rapidaai/api/assistant-api/internal/audio/resampler"
 	channel_base "github.com/rapidaai/api/assistant-api/internal/channel/base"
 	webrtc_internal "github.com/rapidaai/api/assistant-api/internal/channel/webrtc/internal"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/api/assistant-api/internal/observe"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/protos"
@@ -35,6 +36,16 @@ func newTestLogger(t *testing.T) commons.Logger {
 	l, err := commons.NewApplicationLogger(commons.Level("error"), commons.Name("webrtc-test"), commons.EnableFile(false))
 	require.NoError(t, err)
 	return l
+}
+
+func newTestObserver(t *testing.T) observability.Recorder {
+	t.Helper()
+	observer := observability.New(observability.WithGlobalScope(observability.GlobalScope{
+		OrganizationID: 1,
+		ProjectID:      1,
+	}))
+	t.Cleanup(func() { _ = observer.Close(context.Background()) })
+	return observer
 }
 
 // newTestStreamer creates a WebRTC streamer with test-owned dependencies.
@@ -174,25 +185,31 @@ func TestBuildGRPCResponse_Event(t *testing.T) {
 	assert.NotNil(t, resp.GetEvent())
 }
 
-func TestNewWebRTCStreamer_UsesConfiguredICEServers(t *testing.T) {
+func TestNew_UsesConfiguredICEServers(t *testing.T) {
 	t.Setenv("TURN_USERNAME", "turn-user")
 	t.Setenv("TURN_CREDENTIAL", "turn-secret")
-	streamer, err := NewWebRTCStreamer(context.Background(), newTestLogger(t), &failingGRPCStream{sendErr: io.EOF}, &assistant_config.WebRTCConfig{
-		ICEServers: []assistant_config.WebRTCICEServer{
-			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
-			},
-			{
-				URLs: []string{
-					"turn:turn.rapida.ai:3478?transport=udp",
-					"turn:turn.rapida.ai:3478?transport=tcp",
-					"turns:turn.rapida.ai:443?transport=tcp",
+	streamer, err := New(Config{
+		Context:    context.Background(),
+		Logger:     newTestLogger(t),
+		GRPCStream: &failingGRPCStream{sendErr: io.EOF},
+		Observer:   newTestObserver(t),
+		ServerConfig: &assistant_config.WebRTCConfig{
+			ICEServers: []assistant_config.WebRTCICEServer{
+				{
+					URLs: []string{"stun:stun.l.google.com:19302"},
 				},
-				Username:   "${TURN_USERNAME}",
-				Credential: "${TURN_CREDENTIAL}",
+				{
+					URLs: []string{
+						"turn:turn.rapida.ai:3478?transport=udp",
+						"turn:turn.rapida.ai:3478?transport=tcp",
+						"turns:turn.rapida.ai:443?transport=tcp",
+					},
+					Username:   "${TURN_USERNAME}",
+					Credential: "${TURN_CREDENTIAL}",
+				},
 			},
+			ICETransportPolicy: webrtc_internal.ICETransportPolicyRelay,
 		},
-		ICETransportPolicy: webrtc_internal.ICETransportPolicyRelay,
 	})
 	require.NoError(t, err)
 	s := streamer.(*webrtcStreamer)
@@ -210,9 +227,15 @@ func TestNewWebRTCStreamer_UsesConfiguredICEServers(t *testing.T) {
 	assert.Equal(t, webrtc_internal.ICETransportPolicyRelay, s.peerConfig.ICETransportPolicy)
 }
 
-func TestNewWebRTCStreamer_DefaultsToGoogleSTUN(t *testing.T) {
+func TestNew_DefaultsToGoogleSTUN(t *testing.T) {
 	t.Parallel()
-	streamer, err := NewWebRTCStreamer(context.Background(), newTestLogger(t), &failingGRPCStream{sendErr: io.EOF}, &assistant_config.WebRTCConfig{})
+	streamer, err := New(Config{
+		Context:      context.Background(),
+		Logger:       newTestLogger(t),
+		GRPCStream:   &failingGRPCStream{sendErr: io.EOF},
+		Observer:     newTestObserver(t),
+		ServerConfig: &assistant_config.WebRTCConfig{},
+	})
 	require.NoError(t, err)
 	s := streamer.(*webrtcStreamer)
 	t.Cleanup(func() { _ = s.Close() })
@@ -223,10 +246,16 @@ func TestNewWebRTCStreamer_DefaultsToGoogleSTUN(t *testing.T) {
 	assert.Equal(t, webrtc_internal.ICETransportPolicyAll, s.peerConfig.ICETransportPolicy)
 }
 
-func TestNewWebRTCStreamer_InvalidICETransportPolicyFallsBackToAll(t *testing.T) {
+func TestNew_InvalidICETransportPolicyFallsBackToAll(t *testing.T) {
 	t.Parallel()
-	streamer, err := NewWebRTCStreamer(context.Background(), newTestLogger(t), &failingGRPCStream{sendErr: io.EOF}, &assistant_config.WebRTCConfig{
-		ICETransportPolicy: "invalid",
+	streamer, err := New(Config{
+		Context:    context.Background(),
+		Logger:     newTestLogger(t),
+		GRPCStream: &failingGRPCStream{sendErr: io.EOF},
+		Observer:   newTestObserver(t),
+		ServerConfig: &assistant_config.WebRTCConfig{
+			ICETransportPolicy: "invalid",
+		},
 	})
 	require.NoError(t, err)
 	s := streamer.(*webrtcStreamer)
@@ -235,16 +264,22 @@ func TestNewWebRTCStreamer_InvalidICETransportPolicyFallsBackToAll(t *testing.T)
 	assert.Equal(t, webrtc_internal.ICETransportPolicyAll, s.peerConfig.ICETransportPolicy)
 }
 
-func TestNewWebRTCStreamer_IgnoresEmptyICEServerEntries(t *testing.T) {
+func TestNew_IgnoresEmptyICEServerEntries(t *testing.T) {
 	t.Setenv("WEBRTC_TURN_URL", "turn:turn.rapida.ai:3478?transport=tcp")
-	streamer, err := NewWebRTCStreamer(context.Background(), newTestLogger(t), &failingGRPCStream{sendErr: io.EOF}, &assistant_config.WebRTCConfig{
-		ICEServers: []assistant_config.WebRTCICEServer{
-			{URLs: []string{"", "   "}},
-			{URLs: nil},
-			{
-				URLs:       []string{" ${WEBRTC_TURN_URL} "},
-				Username:   "turn-user",
-				Credential: "turn-secret",
+	streamer, err := New(Config{
+		Context:    context.Background(),
+		Logger:     newTestLogger(t),
+		GRPCStream: &failingGRPCStream{sendErr: io.EOF},
+		Observer:   newTestObserver(t),
+		ServerConfig: &assistant_config.WebRTCConfig{
+			ICEServers: []assistant_config.WebRTCICEServer{
+				{URLs: []string{"", "   "}},
+				{URLs: nil},
+				{
+					URLs:       []string{" ${WEBRTC_TURN_URL} "},
+					Username:   "turn-user",
+					Credential: "turn-secret",
+				},
 			},
 		},
 	})

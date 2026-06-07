@@ -100,7 +100,7 @@ func (r *genericRequestor) dispatch(ctx context.Context, p internal_type.Packet)
 							Level:   observability.LevelError,
 							Message: "unknown packet type received in dispatcher",
 							Attributes: observability.Attributes{
-								"component":  observability.ComponentSession.String(),
+								"component":  observability.ConversationCompleted.String(),
 								"operation":  "dispatch",
 								"context_id": p.ContextId(),
 								"packet":     fmt.Sprintf("%T", p),
@@ -122,7 +122,7 @@ func (r *genericRequestor) dispatch(ctx context.Context, p internal_type.Packet)
 						Level:   observability.LevelError,
 						Message: "unknown packet type received in dispatcher",
 						Attributes: observability.Attributes{
-							"component":  observability.ComponentSession.String(),
+							"component":  observability.ComponentConversation.String(),
 							"operation":  "dispatch",
 							"context_id": p.ContextId(),
 							"packet":     fmt.Sprintf("%T", p),

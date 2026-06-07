@@ -95,7 +95,7 @@ func (r *genericRequestor) initializeMaxSessionDuration(ctx context.Context, beh
 				internal_type.ObservabilityEventRecordPacket{
 					ContextID: r.GetID(),
 					Scope:     internal_type.ObservabilityRecordScopeConversation,
-					Record: observability.NewConversationEventRecord(observability.SessionDisconnectRequested, observability.Attributes{
+					Record: observability.NewConversationEventRecord(observability.ConversationCompleted, observability.Attributes{
 						"reason": protos.ConversationDisconnection_DISCONNECTION_TYPE_MAX_DURATION.String(),
 					}),
 				},
@@ -168,7 +168,7 @@ func (r *genericRequestor) onIdleTimeout(ctx context.Context) error {
 					internal_type.ObservabilityEventRecordPacket{
 						ContextID: r.GetID(),
 						Scope:     internal_type.ObservabilityRecordScopeConversation,
-						Record: observability.NewConversationEventRecord(observability.SessionDisconnectRequested, observability.Attributes{
+						Record: observability.NewConversationEventRecord(observability.ConversationCompleted, observability.Attributes{
 							"reason": protos.ConversationDisconnection_DISCONNECTION_TYPE_IDLE_TIMEOUT.String(),
 						}),
 					},

@@ -39,6 +39,10 @@ func New(publisher Publisher) observability.Collector {
 	return &Collector{publisher: publisher}
 }
 
+func (c *Collector) Key() string {
+	return "billing"
+}
+
 func (c *Collector) Collect(ctx context.Context, scope observability.Scope, record observability.Record) error {
 	usage, ok := record.(observability.RecordUsage)
 	if !ok {

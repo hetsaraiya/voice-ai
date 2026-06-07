@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +54,14 @@ func New(ctx context.Context, cfg Config) (observability.Collector, error) {
 		opensearch:  openSearch,
 		indexPrefix: indexPrefix,
 	}, nil
+}
+
+func (c *Collector) Key() string {
+	indexPrefix := strings.TrimSpace(c.indexPrefix)
+	if !validator.NotBlank(indexPrefix) {
+		return "timeline"
+	}
+	return "timeline:" + indexPrefix
 }
 
 func (c *Collector) Collect(ctx context.Context, scope observability.Scope, record observability.Record) error {
@@ -166,17 +175,30 @@ func newDocument(kind string, scope observability.Scope, id string, occurredAt t
 	if occurredAt.IsZero() {
 		occurredAt = time.Now().UTC()
 	}
-	return document{
-		ID:                      id,
-		Kind:                    kind,
-		ProjectID:               scope.GlobalScopeValue().ProjectID,
-		OrganizationID:          scope.GlobalScopeValue().OrganizationID,
-		Scope:                   string(scope.ScopeType()),
-		AssistantID:             scope.AssistantScopeID(),
-		AssistantConversationID: scope.ConversationScopeID(),
-		MessageID:               scope.MessageScopeID(),
-		MessageRole:             string(scope.MessageScopeRole()),
-		ContextID:               scope.ContextID(),
-		OccurredAt:              occurredAt,
+	doc := document{
+		ID:             id,
+		Kind:           kind,
+		ProjectID:      scope.GlobalScopeValue().ProjectID,
+		OrganizationID: scope.GlobalScopeValue().OrganizationID,
+		Scope:          string(scope.ScopeType()),
+		OccurredAt:     occurredAt,
 	}
+	switch typed := scope.(type) {
+	case observability.ProjectScope:
+		doc.ContextID = strconv.FormatUint(typed.GlobalScopeValue().ProjectID, 10)
+	case observability.AssistantScope:
+		doc.AssistantID = typed.AssistantScopeID()
+		doc.ContextID = typed.ContextID()
+	case observability.ConversationScope:
+		doc.AssistantID = typed.AssistantScopeID()
+		doc.AssistantConversationID = typed.ConversationScopeID()
+		doc.ContextID = typed.ContextID()
+	case observability.MessageScope:
+		doc.AssistantID = typed.AssistantScopeID()
+		doc.AssistantConversationID = typed.ConversationScopeID()
+		doc.MessageID = typed.MessageScopeID()
+		doc.MessageRole = string(typed.MessageScopeRole())
+		doc.ContextID = typed.ContextID()
+	}
+	return doc
 }

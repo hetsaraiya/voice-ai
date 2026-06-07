@@ -45,6 +45,10 @@ func New(cfg Config) observability.Collector {
 	}
 }
 
+func (c *Collector) Key() string {
+	return "conversationdb"
+}
+
 func (c *Collector) Collect(ctx context.Context, scope observability.Scope, record observability.Record) error {
 	switch typed := record.(type) {
 	case observability.RecordMetric:
@@ -183,14 +187,14 @@ func validateCollector(collector *Collector) error {
 	return nil
 }
 
-func validateConversationScope(scope observability.Scope) error {
+func validateConversationScope(scope observability.ConversationScope) error {
 	if scope.AssistantScopeID() == 0 || scope.ConversationScopeID() == 0 {
 		return fmt.Errorf("%w: assistant_id=%d conversation_id=%d", ErrScopeRequired, scope.AssistantScopeID(), scope.ConversationScopeID())
 	}
 	return nil
 }
 
-func validateMessageScope(scope observability.Scope) error {
+func validateMessageScope(scope observability.MessageScope) error {
 	if scope.ConversationScopeID() == 0 || !validator.NotBlank(scope.MessageScopeID()) {
 		return fmt.Errorf("%w: conversation_id=%d message_id=%q", ErrMessageRequired, scope.ConversationScopeID(), scope.MessageScopeID())
 	}

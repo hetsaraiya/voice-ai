@@ -52,7 +52,11 @@ func TestCollector_ForwardsUsageRecord(t *testing.T) {
 	if got.ID != "usage-1" || got.Component != observability.ComponentUsage || got.Provider != "deepgram" {
 		t.Fatalf("unexpected usage record: %+v", got)
 	}
-	if got.Scope.ConversationScopeID() != 20 {
+	gotScope, ok := got.Scope.(observability.ConversationScope)
+	if !ok {
+		t.Fatalf("unexpected scope type: %T", got.Scope)
+	}
+	if gotScope.ConversationScopeID() != 20 {
 		t.Fatalf("unexpected scope: %+v", got.Scope)
 	}
 }

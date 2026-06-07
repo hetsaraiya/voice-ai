@@ -17,6 +17,7 @@ import (
 )
 
 type recordingCollector struct {
+	key        string
 	scopes     []Scope
 	logs       []RecordLog
 	events     []RecordEvent
@@ -27,6 +28,10 @@ type recordingCollector struct {
 	collectErr error
 	closeErr   error
 	closed     bool
+}
+
+func (c *recordingCollector) Key() string {
+	return c.key
 }
 
 func (c *recordingCollector) Collect(_ context.Context, scope Scope, record Record) error {
@@ -59,6 +64,10 @@ type blockingCollector struct {
 	once    sync.Once
 }
 
+func (c *blockingCollector) Key() string {
+	return ""
+}
+
 func (c *blockingCollector) Collect(context.Context, Scope, Record) error {
 	c.once.Do(func() { close(c.started) })
 	<-c.release
@@ -76,8 +85,8 @@ func (c *blockingCollector) Close(context.Context) error {
 
 func TestRecorder_RecordMetric_FansOutAndInjectsGlobalScope(t *testing.T) {
 	now := time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC)
-	first := &recordingCollector{}
-	second := &recordingCollector{}
+	first := &recordingCollector{key: "first"}
+	second := &recordingCollector{key: "second"}
 	recorder := New(
 		WithGlobalScope(GlobalScope{OrganizationID: 7, ProjectID: 8}),
 		WithClock(func() time.Time { return now }),
@@ -114,8 +123,51 @@ func TestRecorder_RecordMetric_FansOutAndInjectsGlobalScope(t *testing.T) {
 	}
 }
 
+func TestRecorder_RecordLog_ProjectScope(t *testing.T) {
+	now := time.Date(2026, 6, 7, 9, 0, 0, 0, time.UTC)
+	collector := &recordingCollector{key: "collector"}
+	recorder := New(
+		WithGlobalScope(GlobalScope{OrganizationID: 7, ProjectID: 8}),
+		WithClock(func() time.Time { return now }),
+		WithCollector(collector),
+	)
+
+	err := recorder.Record(context.Background(), ProjectScope{}, RecordLog{
+		ID:      "log-1",
+		Level:   LevelError,
+		Message: "webrtc constructor failed",
+	})
+	if err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	if len(collector.logs) != 1 {
+		t.Fatalf("expected project log, got %d", len(collector.logs))
+	}
+	if collector.scopes[0].ScopeType() != ScopeProject {
+		t.Fatalf("unexpected scope type: %s", collector.scopes[0].ScopeType())
+	}
+	global := collector.scopes[0].GlobalScopeValue()
+	if global.OrganizationID != 7 || global.ProjectID != 8 {
+		t.Fatalf("unexpected global scope: %+v", global)
+	}
+	projectScope, ok := collector.scopes[0].(ProjectScope)
+	if !ok {
+		t.Fatalf("unexpected scope type: %T", collector.scopes[0])
+	}
+	if projectScope.ContextID() != "8" {
+		t.Fatalf("unexpected context id: %s", projectScope.ContextID())
+	}
+	if !collector.logs[0].OccurredAt.Equal(now) {
+		t.Fatalf("unexpected occurred_at: %s", collector.logs[0].OccurredAt)
+	}
+}
+
 func TestRecorder_RecordEvent_UsesExplicitMessageScope(t *testing.T) {
-	collector := &recordingCollector{}
+	collector := &recordingCollector{key: "collector"}
 	recorder := New(WithCollector(collector))
 	scope := MessageScope{
 		ConversationScope: ConversationScope{
@@ -143,14 +195,18 @@ func TestRecorder_RecordEvent_UsesExplicitMessageScope(t *testing.T) {
 		t.Fatalf("expected one event, got %d", len(collector.events))
 	}
 	gotScope := collector.scopes[0]
-	if gotScope.AssistantScopeID() != 10 || gotScope.ConversationScopeID() != 20 || gotScope.ContextID() != "msg-1" || gotScope.MessageScopeRole() != MessageRoleUser {
+	messageScope, ok := gotScope.(MessageScope)
+	if !ok {
+		t.Fatalf("unexpected scope type: %T", gotScope)
+	}
+	if messageScope.AssistantScopeID() != 10 || messageScope.ConversationScopeID() != 20 || messageScope.ContextID() != "msg-1" || messageScope.MessageScopeRole() != MessageRoleUser {
 		t.Fatalf("unexpected message scope: assistant=%d conversation=%d context=%q role=%q",
-			gotScope.AssistantScopeID(), gotScope.ConversationScopeID(), gotScope.ContextID(), gotScope.MessageScopeRole())
+			messageScope.AssistantScopeID(), messageScope.ConversationScopeID(), messageScope.ContextID(), messageScope.MessageScopeRole())
 	}
 }
 
 func TestRecorder_RecordRequiresScope(t *testing.T) {
-	recorder := New(WithCollector(&recordingCollector{}))
+	recorder := New(WithCollector(&recordingCollector{key: "collector"}))
 	defer recorder.Close(context.Background())
 
 	err := recorder.Record(context.Background(), nil, NewMessageEventRecord(
@@ -165,8 +221,8 @@ func TestRecorder_RecordRequiresScope(t *testing.T) {
 }
 
 func TestRecorder_RecordWebhook_FansOut(t *testing.T) {
-	first := &recordingCollector{}
-	second := &recordingCollector{}
+	first := &recordingCollector{key: "first"}
+	second := &recordingCollector{key: "second"}
 	recorder := New(WithCollectors(first, second))
 
 	err := recorder.Record(context.Background(), AssistantScope{AssistantID: 10}, RecordWebhook{
@@ -186,7 +242,7 @@ func TestRecorder_RecordWebhook_FansOut(t *testing.T) {
 }
 
 func TestRecorder_RecordUsage_AllowsMessageScope(t *testing.T) {
-	collector := &recordingCollector{}
+	collector := &recordingCollector{key: "collector"}
 	recorder := New(WithCollector(collector))
 	defer recorder.Close(context.Background())
 
@@ -249,6 +305,7 @@ func TestRecorder_Close_JoinsCollectorErrors(t *testing.T) {
 	collectErr := errors.New("collect failed")
 	closeErr := errors.New("close failed")
 	recorder := New(WithCollector(&recordingCollector{
+		key:        "collector",
 		collectErr: collectErr,
 		closeErr:   closeErr,
 	}))
@@ -267,6 +324,46 @@ func TestRecorder_Close_JoinsCollectorErrors(t *testing.T) {
 	err = recorder.Close(context.Background())
 	if !errors.Is(err, collectErr) || !errors.Is(err, closeErr) {
 		t.Fatalf("expected joined collect+close errors, got %v", err)
+	}
+}
+
+func TestRecorder_AddCollectors_DeduplicatesByKey(t *testing.T) {
+	first := &recordingCollector{key: "telemetry"}
+	duplicate := &recordingCollector{key: "telemetry"}
+	second := &recordingCollector{key: "timeline"}
+	recorder := New(WithCollector(first))
+
+	if err := recorder.AddCollectors(duplicate, second); err != nil {
+		t.Fatalf("AddCollectors returned error: %v", err)
+	}
+	err := recorder.Record(context.Background(), ConversationScope{
+		AssistantScope: AssistantScope{AssistantID: 10},
+		ConversationID: 20,
+	}, RecordEvent{
+		Component: ComponentConversation,
+		Event:     ConversationStarted,
+	})
+	if err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if len(first.events) != 1 || len(second.events) != 1 {
+		t.Fatalf("expected original and new collectors to receive event, got first=%d second=%d", len(first.events), len(second.events))
+	}
+	if len(duplicate.events) != 0 {
+		t.Fatalf("expected duplicate collector to be skipped, got %d events", len(duplicate.events))
+	}
+}
+
+func TestRecorder_AddCollectors_ReturnsClosedError(t *testing.T) {
+	recorder := New()
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := recorder.AddCollectors(&recordingCollector{key: "collector"}); !errors.Is(err, ErrRecorderClosed) {
+		t.Fatalf("expected ErrRecorderClosed, got %v", err)
 	}
 }
 

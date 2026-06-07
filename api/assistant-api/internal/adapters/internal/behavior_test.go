@@ -247,7 +247,7 @@ func assertDisconnectReasonPackets(
 
 	event := capture.event
 	assert.Equal(t, "ctx-behavior", event.ContextID)
-	assert.Equal(t, observability.SessionDisconnectRequested, event.Record.Event)
+	assert.Equal(t, observability.ConversationCompleted, event.Record.Event)
 	assert.Equal(t, reason.String(), event.Record.Attributes["reason"])
 
 	metadata := capture.metadata

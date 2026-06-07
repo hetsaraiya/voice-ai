@@ -22,6 +22,8 @@ import (
 	channel_telephony "github.com/rapidaai/api/assistant-api/internal/channel/telephony"
 	internal_webrtc "github.com/rapidaai/api/assistant-api/internal/channel/webrtc"
 	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
+	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
 	observe "github.com/rapidaai/api/assistant-api/internal/observe"
 	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
 	internal_assistant_service "github.com/rapidaai/api/assistant-api/internal/services/assistant"
@@ -267,7 +269,22 @@ func (cApi *ConversationGrpcApi) WebTalk(stream assistant_api.WebRTC_WebTalkServ
 		cApi.logger.Errorf("unable to resolve the source from the context")
 		return errors.New("illegal source")
 	}
-	streamer, err := internal_webrtc.NewWebRTCStreamer(stream.Context(), cApi.logger, stream, cApi.cfg.WebRTCConfig)
+	observabilityRecorder := observability.New(observability.WithLogger(cApi.logger),
+		observability.WithAuth(auth),
+		observability.WithCollectors(collectors.NewWithEnv(stream.Context(), cApi.logger, cApi.cfg)...))
+	defer func() {
+		if err := observabilityRecorder.Close(context.Background()); err != nil {
+			cApi.logger.Errorf("failed to close webrtc observability recorder: %v", err)
+		}
+	}()
+
+	streamer, err := internal_webrtc.New(internal_webrtc.Config{
+		Context:      stream.Context(),
+		Logger:       cApi.logger,
+		GRPCStream:   stream,
+		ServerConfig: cApi.cfg.WebRTCConfig,
+		Observer:     observabilityRecorder,
+	})
 	if err != nil {
 		cApi.logger.Errorf("failed to create grpc streamer: %v", err)
 		return err

@@ -52,6 +52,24 @@ func New(cfg Config) observability.Collector {
 	}
 }
 
+func (c *Collector) Key() string {
+	if !validator.NonNil(c) || !validator.NotEmpty(c.webhooks) {
+		return "webhook"
+	}
+	ids := make([]string, 0, len(c.webhooks))
+	for _, assistantWebhook := range c.webhooks {
+		if !validator.NonNil(assistantWebhook) {
+			continue
+		}
+		ids = append(ids, strconv.FormatUint(assistantWebhook.Id, 10))
+	}
+	slices.Sort(ids)
+	if len(ids) == 0 {
+		return "webhook"
+	}
+	return "webhook:" + strings.Join(ids, ",")
+}
+
 func (c *Collector) Collect(ctx context.Context, scope observability.Scope, record observability.Record) error {
 	webhookRecord, ok := record.(observability.RecordWebhook)
 	if !ok {
@@ -182,7 +200,16 @@ func webhookPayload(scope observability.Scope, record observability.RecordWebhoo
 		payload := map[string]interface{}{}
 		if scope != nil {
 			payload["scope"] = scope.ScopeType()
-			payload["context_id"] = scope.ContextID()
+			switch typed := scope.(type) {
+			case observability.ProjectScope:
+				payload["context_id"] = typed.ContextID()
+			case observability.AssistantScope:
+				payload["context_id"] = typed.ContextID()
+			case observability.ConversationScope:
+				payload["context_id"] = typed.ContextID()
+			case observability.MessageScope:
+				payload["context_id"] = typed.ContextID()
+			}
 		}
 		return payload
 	}
@@ -192,7 +219,16 @@ func webhookPayload(scope observability.Scope, record observability.RecordWebhoo
 	}
 	if scope != nil {
 		payload["scope"] = scope.ScopeType()
-		payload["context_id"] = scope.ContextID()
+		switch typed := scope.(type) {
+		case observability.ProjectScope:
+			payload["context_id"] = typed.ContextID()
+		case observability.AssistantScope:
+			payload["context_id"] = typed.ContextID()
+		case observability.ConversationScope:
+			payload["context_id"] = typed.ContextID()
+		case observability.MessageScope:
+			payload["context_id"] = typed.ContextID()
+		}
 	}
 	return payload
 }

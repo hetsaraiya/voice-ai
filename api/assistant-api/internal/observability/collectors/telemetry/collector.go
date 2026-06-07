@@ -33,11 +33,16 @@ type Config struct {
 
 type Collector struct {
 	exporter telemetry.Exporter
+	key      string
 }
 
 func New(ctx context.Context, cfg Config) (observability.Collector, error) {
+	key := "telemetry"
+	if providerName := strings.TrimSpace(cfg.Providers.Name); validator.NotBlank(providerName) {
+		key = "telemetry:" + providerName
+	}
 	if validator.NonNil(cfg.Exporters) {
-		return &Collector{exporter: cfg.Exporters}, nil
+		return &Collector{exporter: cfg.Exporters, key: key}, nil
 	}
 	exporter, err := newExporter(ctx, cfg.Logger, cfg.Providers)
 	if err != nil {
@@ -46,7 +51,11 @@ func New(ctx context.Context, cfg Config) (observability.Collector, error) {
 	if !validator.NonNil(exporter) {
 		return observability.NoopCollector{}, nil
 	}
-	return &Collector{exporter: exporter}, nil
+	return &Collector{exporter: exporter, key: key}, nil
+}
+
+func (c *Collector) Key() string {
+	return c.key
 }
 
 func (c *Collector) Collect(ctx context.Context, scope observability.Scope, record observability.Record) error {
@@ -118,16 +127,18 @@ func (c *Collector) Collect(ctx context.Context, scope observability.Scope, reco
 
 func toTelemetryScope(scope observability.Scope) telemetry.Scope {
 	global := scope.GlobalScopeValue()
-	scopeAttributes := map[string]string{
-		"assistantId": strconv.FormatUint(scope.AssistantScopeID(), 10),
-	}
-	switch scope.ScopeType() {
-	case observability.ScopeConversation:
-		scopeAttributes["assistantConversationId"] = strconv.FormatUint(scope.ConversationScopeID(), 10)
-	case observability.ScopeMessage:
-		scopeAttributes["assistantConversationId"] = strconv.FormatUint(scope.ConversationScopeID(), 10)
-		scopeAttributes["messageId"] = scope.ContextID()
-		scopeAttributes["messageRole"] = string(scope.MessageScopeRole())
+	scopeAttributes := map[string]string{}
+	switch typed := scope.(type) {
+	case observability.AssistantScope:
+		scopeAttributes["assistantId"] = strconv.FormatUint(typed.AssistantScopeID(), 10)
+	case observability.ConversationScope:
+		scopeAttributes["assistantId"] = strconv.FormatUint(typed.AssistantScopeID(), 10)
+		scopeAttributes["assistantConversationId"] = strconv.FormatUint(typed.ConversationScopeID(), 10)
+	case observability.MessageScope:
+		scopeAttributes["assistantId"] = strconv.FormatUint(typed.AssistantScopeID(), 10)
+		scopeAttributes["assistantConversationId"] = strconv.FormatUint(typed.ConversationScopeID(), 10)
+		scopeAttributes["messageId"] = typed.ContextID()
+		scopeAttributes["messageRole"] = string(typed.MessageScopeRole())
 	}
 	return telemetry.Scope{
 		ProjectID:       global.ProjectID,

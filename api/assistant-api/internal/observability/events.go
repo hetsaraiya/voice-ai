@@ -17,7 +17,6 @@ const (
 	ComponentCall         ComponentName = "call"
 	ComponentConversation ComponentName = "conversation"
 	ComponentTurn         ComponentName = "turn"
-	ComponentSession      ComponentName = "session"
 	ComponentAudio        ComponentName = "audio"
 	ComponentSTT          ComponentName = "stt"
 	ComponentTTS          ComponentName = "tts"
@@ -75,25 +74,29 @@ const (
 )
 
 const (
-	ConversationBegin                EventName = "conversation.begin"
-	ConversationResume               EventName = "conversation.resume"
-	ConversationStarted              EventName = "conversation.started"
-	ConversationInitializing         EventName = "conversation.initializing"
-	ConversationInitialized          EventName = "conversation.initialized"
-	ConversationEnding               EventName = "conversation.ending"
-	ConversationCompleted            EventName = "conversation.completed"
-	ConversationCleanup              EventName = "conversation.cleanup"
-	ConversationFinalized            EventName = "conversation.finalized"
-	ConversationFailed               EventName = "conversation.failed"
-	ConversationError                EventName = "conversation.error"
-	ConversationAgentStateChanged    EventName = "conversation.agent_state_changed"
-	ConversationUserStateChanged     EventName = "conversation.user_state_changed"
-	ConversationUserInputTranscribed EventName = "conversation.user_input_transcribed"
-	ConversationItemAdded            EventName = "conversation.item_added"
-	ConversationSpeechCreated        EventName = "conversation.speech_created"
-	ConversationFalseInterruption    EventName = "conversation.false_interruption"
-	ConversationUsageUpdated         EventName = "conversation.usage_updated"
-	ConversationClosed               EventName = "conversation.closed"
+	ConversationBegin                 EventName = "conversation.begin"
+	ConversationResume                EventName = "conversation.resume"
+	ConversationStarted               EventName = "conversation.started"
+	ConversationInitializing          EventName = "conversation.initializing"
+	ConversationInitialized           EventName = "conversation.initialized"
+	ConversationAuthenticationStarted EventName = "conversation.authentication_started"
+	ConversationEnding                EventName = "conversation.ending"
+	ConversationCompleted             EventName = "conversation.completed"
+	ConversationCleanup               EventName = "conversation.cleanup"
+	ConversationFinalized             EventName = "conversation.finalized"
+	ConversationFailed                EventName = "conversation.failed"
+	ConversationError                 EventName = "conversation.error"
+	ConversationAgentStateChanged     EventName = "conversation.agent_state_changed"
+	ConversationUserStateChanged      EventName = "conversation.user_state_changed"
+	ConversationUserInputTranscribed  EventName = "conversation.user_input_transcribed"
+	ConversationItemAdded             EventName = "conversation.item_added"
+	ConversationModeSwitchRequested   EventName = "conversation.mode_switch_requested"
+	ConversationModeSwitchCompleted   EventName = "conversation.mode_switch_completed"
+	ConversationModeSwitchFailed      EventName = "conversation.mode_switch_failed"
+	ConversationSpeechCreated         EventName = "conversation.speech_created"
+	ConversationFalseInterruption     EventName = "conversation.false_interruption"
+	ConversationUsageUpdated          EventName = "conversation.usage_updated"
+	ConversationClosed                EventName = "conversation.closed"
 )
 
 const (
@@ -108,28 +111,6 @@ const (
 	TurnUserTurnExceeded         EventName = "turn.user_turn_exceeded"
 	TurnCompleted                EventName = "turn.completed"
 	TurnFailed                   EventName = "turn.failed"
-)
-
-const (
-	SessionConnected             EventName = "session.connected"
-	SessionInitializing          EventName = "session.initializing"
-	SessionInitialized           EventName = "session.initialized"
-	SessionConnectFailed         EventName = "session.connect_failed"
-	SessionDisconnected          EventName = "session.disconnected"
-	SessionDisconnectRequested   EventName = "session.disconnect_requested"
-	SessionCleanup               EventName = "session.cleanup"
-	SessionModeSwitch            EventName = "session.mode_switch"
-	SessionModeSwitchFailed      EventName = "session.mode_switch_failed"
-	SessionAuthenticationStarted EventName = "session.authentication_started"
-	SessionSessionResolved       EventName = "session.session_resolved"
-	SessionSessionResolveFailed  EventName = "session.session_resolve_failed"
-	SessionStreamerCreated       EventName = "session.streamer_created"
-	SessionStreamerFailed        EventName = "session.streamer_failed"
-	SessionTalkerCreated         EventName = "session.talker_created"
-	SessionTalkerFailed          EventName = "session.talker_failed"
-	SessionTalkStarted           EventName = "session.talk_started"
-	SessionHooksBegin            EventName = "session.hooks_begin"
-	SessionHooksEnd              EventName = "session.hooks_end"
 )
 
 const (
@@ -321,27 +302,7 @@ var eventsByComponent = map[ComponentName][]EventName{
 		TurnCompleted,
 		TurnFailed,
 	},
-	ComponentSession: {
-		SessionConnected,
-		SessionInitializing,
-		SessionInitialized,
-		SessionConnectFailed,
-		SessionDisconnected,
-		SessionDisconnectRequested,
-		SessionCleanup,
-		SessionModeSwitch,
-		SessionModeSwitchFailed,
-		SessionAuthenticationStarted,
-		SessionSessionResolved,
-		SessionSessionResolveFailed,
-		SessionStreamerCreated,
-		SessionStreamerFailed,
-		SessionTalkerCreated,
-		SessionTalkerFailed,
-		SessionTalkStarted,
-		SessionHooksBegin,
-		SessionHooksEnd,
-	},
+
 	ComponentAudio: {
 		AudioInputStarted,
 		AudioInputStopped,

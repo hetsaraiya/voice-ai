@@ -20,6 +20,7 @@ import (
 
 type Recorder interface {
 	Record(ctx context.Context, scope Scope, record Record) error
+	AddCollectors(collectors ...Collector) error
 	Close(ctx context.Context) error
 }
 
@@ -97,7 +98,7 @@ type recorder struct {
 	auth        types.SimplePrinciple
 	globalScope GlobalScope
 	clock       func() time.Time
-	fanout      Collector
+	fanout      *Collectors
 	queue       chan observation
 	done        chan struct{}
 	closed      bool
@@ -179,6 +180,16 @@ func (r *recorder) Record(ctx context.Context, scope Scope, record Record) error
 	default:
 		return ErrBufferFull
 	}
+}
+
+func (r *recorder) AddCollectors(collectors ...Collector) error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.closed {
+		return ErrRecorderClosed
+	}
+	r.fanout.AddCollectors(collectors...)
+	return nil
 }
 
 func (r *recorder) normalize(scope Scope, record Record) (observation, error) {

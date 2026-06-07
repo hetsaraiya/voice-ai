@@ -30,6 +30,7 @@ import (
 	channel_base "github.com/rapidaai/api/assistant-api/internal/channel/base"
 	internal_output "github.com/rapidaai/api/assistant-api/internal/channel/output"
 	webrtc_internal "github.com/rapidaai/api/assistant-api/internal/channel/webrtc/internal"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/api/assistant-api/internal/observe"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
@@ -79,30 +80,70 @@ type webrtcStreamer struct {
 
 	audioBufferState webrtc_internal.WebRTCAudioBufferState
 	flushAudioCh     chan struct{}
+
+	observer observability.Recorder
 }
 
-// NewWebRTCStreamer creates a WebRTC media stream with gRPC signaling.
-func NewWebRTCStreamer(
-	ctx context.Context,
-	logger commons.Logger,
-	grpcStream grpc.BidiStreamingServer[protos.WebTalkRequest, protos.WebTalkResponse],
-	serverConfig *assistant_config.WebRTCConfig,
-) (internal_type.Streamer, error) {
-	resampler, err := internal_audio_resampler.GetResampler(logger)
+type Config struct {
+	Context      context.Context
+	Logger       commons.Logger
+	GRPCStream   grpc.BidiStreamingServer[protos.WebTalkRequest, protos.WebTalkResponse]
+	ServerConfig *assistant_config.WebRTCConfig
+	Observer     observability.Recorder
+}
+
+func New(config Config) (internal_type.Streamer, error) {
+	resampler, err := internal_audio_resampler.GetResampler(config.Logger)
 	if err != nil {
+		_ = config.Observer.Record(config.Context, observability.ProjectScope{}, observability.RecordLog{
+			Level:   observability.LevelError,
+			Message: "WebRTC streamer initialization failed",
+			Attributes: observability.Attributes{
+				"component": observability.ComponentWebRTC.String(),
+				"stage":     "resampler",
+				"error":     err.Error(),
+			},
+		})
+		_ = config.Observer.Record(config.Context, observability.ProjectScope{}, observability.RecordEvent{
+			Component: observability.ComponentWebRTC,
+			Event:     observability.WebRTCFailed,
+			Attributes: observability.Attributes{
+				"component": observability.ComponentWebRTC.String(),
+				"stage":     "resampler",
+				"error":     err.Error(),
+			},
+		})
 		return nil, fmt.Errorf("failed to create resampler: %w", err)
 	}
 
 	opusCodec, err := webrtc_internal.NewOpusCodec()
 	if err != nil {
+		_ = config.Observer.Record(config.Context, observability.ProjectScope{}, observability.RecordLog{
+			Level:   observability.LevelError,
+			Message: "WebRTC streamer initialization failed",
+			Attributes: observability.Attributes{
+				"component": observability.ComponentWebRTC.String(),
+				"stage":     "opus_codec",
+				"error":     err.Error(),
+			},
+		})
+		_ = config.Observer.Record(config.Context, observability.ProjectScope{}, observability.RecordEvent{
+			Component: observability.ComponentWebRTC,
+			Event:     observability.WebRTCFailed,
+			Attributes: observability.Attributes{
+				"component": observability.ComponentWebRTC.String(),
+				"stage":     "opus_codec",
+				"error":     err.Error(),
+			},
+		})
 		return nil, fmt.Errorf("failed to create Opus codec: %w", err)
 	}
 
 	peerConfig := webrtc_internal.DefaultConfig()
-	if serverConfig != nil {
-		if len(serverConfig.ICEServers) > 0 {
-			iceServers := make([]webrtc_internal.ICEServer, 0, len(serverConfig.ICEServers))
-			for _, server := range serverConfig.ICEServers {
+	if config.ServerConfig != nil {
+		if len(config.ServerConfig.ICEServers) > 0 {
+			iceServers := make([]webrtc_internal.ICEServer, 0, len(config.ServerConfig.ICEServers))
+			for _, server := range config.ServerConfig.ICEServers {
 				if len(server.URLs) == 0 {
 					continue
 				}
@@ -127,26 +168,52 @@ func NewWebRTCStreamer(
 			}
 		}
 
-		switch strings.ToLower(strings.TrimSpace(serverConfig.ICETransportPolicy)) {
+		switch strings.ToLower(strings.TrimSpace(config.ServerConfig.ICETransportPolicy)) {
 		case "", webrtc_internal.ICETransportPolicyAll:
 			peerConfig.ICETransportPolicy = webrtc_internal.ICETransportPolicyAll
 		case webrtc_internal.ICETransportPolicyRelay:
 			peerConfig.ICETransportPolicy = webrtc_internal.ICETransportPolicyRelay
 		default:
-			logger.Warnw("Invalid WebRTC ICE transport policy, using all", "policy", serverConfig.ICETransportPolicy)
+			config.Logger.Warnw("Invalid WebRTC ICE transport policy, using all", "policy", config.ServerConfig.ICETransportPolicy)
 			peerConfig.ICETransportPolicy = webrtc_internal.ICETransportPolicyAll
 		}
 	}
-
+	ambientMixer, err := internal_ambient.NewLoopMixer(internal_ambient.MixerSpec{
+		Logger:            config.Logger,
+		Resampler:         resampler,
+		TargetAudioConfig: internal_audio.RAPIDA_INTERNAL_AUDIO_CONFIG,
+		FrameBytes:        webrtc_internal.WebRTCOutputPCM16kFrameBytes,
+	})
+	if err != nil {
+		_ = config.Observer.Record(config.Context, observability.ProjectScope{}, observability.RecordLog{
+			Level:   observability.LevelError,
+			Message: "WebRTC streamer initialization failed",
+			Attributes: observability.Attributes{
+				"component": observability.ComponentWebRTC.String(),
+				"stage":     "ambient_mixer",
+				"error":     err.Error(),
+			},
+		})
+		_ = config.Observer.Record(config.Context, observability.ProjectScope{}, observability.RecordEvent{
+			Component: observability.ComponentWebRTC,
+			Event:     observability.WebRTCFailed,
+			Attributes: observability.Attributes{
+				"component": observability.ComponentWebRTC.String(),
+				"stage":     "ambient_mixer",
+				"error":     err.Error(),
+			},
+		})
+		return nil, fmt.Errorf("failed to create ambient mixer: %w", err)
+	}
 	s := &webrtcStreamer{
 		BaseStreamer: channel_base.NewBaseStreamerWithChannelCapacity(
-			logger,
+			config.Logger,
 			webrtc_internal.InputChannelSize,
 			webrtc_internal.OutputChannelSize,
 		),
 		peerConfig:        peerConfig,
-		serverConfig:      serverConfig,
-		grpcStream:        grpcStream,
+		serverConfig:      config.ServerConfig,
+		grpcStream:        config.GRPCStream,
 		sessionID:         uuid.New().String(),
 		resampler:         resampler,
 		opusCodec:         opusCodec,
@@ -157,18 +224,17 @@ func NewWebRTCStreamer(
 		outputHealth:      internal_output.NewHealthStats(),
 		audioBufferState:  newWebRTCAudioBufferState(),
 		flushAudioCh:      make(chan struct{}, 1),
+		observer:          config.Observer,
+		ambientMixer:      ambientMixer,
 	}
-	ambientMixer, err := internal_ambient.NewLoopMixer(internal_ambient.MixerSpec{
-		Logger:            logger,
-		Resampler:         resampler,
-		TargetAudioConfig: internal_audio.RAPIDA_INTERNAL_AUDIO_CONFIG,
-		FrameBytes:        webrtc_internal.WebRTCOutputPCM16kFrameBytes,
+	_ = config.Observer.Record(config.Context, observability.ProjectScope{}, observability.RecordEvent{
+		Component: observability.ComponentWebRTC,
+		Event:     observability.WebRTCConnecting,
+		Attributes: observability.Attributes{
+			"component":  observability.ComponentWebRTC.String(),
+			"session_id": s.sessionID,
+		},
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create ambient mixer: %w", err)
-	}
-	s.ambientMixer = ambientMixer
-
 	go s.runGrpcReader()
 	go s.runPeerEventLoop()
 	go s.runMediaLifecycleLoop()
@@ -177,8 +243,7 @@ func NewWebRTCStreamer(
 	go s.runAudioPacer()
 	go s.runOutputHealthReporter()
 	go s.runHealthWatchdog()
-	go s.watchCallerContext(ctx)
-
+	go s.watchCallerContext(config.Context)
 	return s, nil
 }
 

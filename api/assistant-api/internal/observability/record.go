@@ -19,6 +19,7 @@ import (
 type ScopeType string
 
 const (
+	ScopeProject      ScopeType = "project"
 	ScopeAssistant    ScopeType = "assistant"
 	ScopeConversation ScopeType = "conversation"
 	ScopeMessage      ScopeType = "message"
@@ -61,12 +62,28 @@ type GlobalScope struct {
 type Scope interface {
 	ScopeType() ScopeType
 	GlobalScopeValue() GlobalScope
-	AssistantScopeID() uint64
-	ConversationScopeID() uint64
-	MessageScopeID() string
-	MessageScopeRole() MessageRole
-	ContextID() string
 	WithGlobal(global GlobalScope) Scope
+}
+
+type ProjectScope struct {
+	GlobalScope
+}
+
+func (ProjectScope) ScopeType() ScopeType {
+	return ScopeProject
+}
+
+func (scope ProjectScope) GlobalScopeValue() GlobalScope {
+	return scope.GlobalScope
+}
+
+func (scope ProjectScope) ContextID() string {
+	return strconv.FormatUint(scope.ProjectID, 10)
+}
+
+func (scope ProjectScope) WithGlobal(global GlobalScope) Scope {
+	scope.GlobalScope = global
+	return scope
 }
 
 type AssistantScope struct {
@@ -188,33 +205,38 @@ func ValidateScope(scope Scope) error {
 	if scope == nil {
 		return errors.New("observability: scope is required")
 	}
-	switch scope.ScopeType() {
-	case ScopeMessage:
-		if scope.AssistantScopeID() == 0 {
+	switch typed := scope.(type) {
+	case ProjectScope:
+		if typed.GlobalScopeValue().ProjectID == 0 {
+			return errors.New("observability: project_id is required")
+		}
+		return nil
+	case MessageScope:
+		if typed.AssistantScopeID() == 0 {
 			return errors.New("observability: assistant_id is required")
 		}
-		if scope.ConversationScopeID() == 0 {
+		if typed.ConversationScopeID() == 0 {
 			return errors.New("observability: conversation_id is required")
 		}
-		if !validator.NotBlank(scope.MessageScopeID()) {
+		if !validator.NotBlank(typed.MessageScopeID()) {
 			return errors.New("observability: message_id is required")
 		}
-		switch scope.MessageScopeRole() {
+		switch typed.MessageScopeRole() {
 		case MessageRoleUser, MessageRoleAssistant:
 			return nil
 		default:
-			return fmt.Errorf("observability: invalid message role %q", scope.MessageScopeRole())
+			return fmt.Errorf("observability: invalid message role %q", typed.MessageScopeRole())
 		}
-	case ScopeConversation:
-		if scope.AssistantScopeID() == 0 {
+	case ConversationScope:
+		if typed.AssistantScopeID() == 0 {
 			return errors.New("observability: assistant_id is required")
 		}
-		if scope.ConversationScopeID() == 0 {
+		if typed.ConversationScopeID() == 0 {
 			return errors.New("observability: conversation_id is required")
 		}
 		return nil
-	case ScopeAssistant:
-		if scope.AssistantScopeID() == 0 {
+	case AssistantScope:
+		if typed.AssistantScopeID() == 0 {
 			return errors.New("observability: assistant_id is required")
 		}
 		return nil

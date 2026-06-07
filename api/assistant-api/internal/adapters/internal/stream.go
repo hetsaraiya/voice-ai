@@ -92,8 +92,8 @@ func (t *genericRequestor) Talk(_ context.Context, auth types.SimplePrinciple) e
 						ContextID: t.GetID(),
 						Scope:     internal_type.ObservabilityRecordScopeConversation,
 						Record: observability.RecordEvent{
-							Component: observability.ComponentSession,
-							Event:     observability.SessionDisconnectRequested,
+							Component: observability.ComponentConversation,
+							Event:     observability.ConversationCompleted,
 							Attributes: observability.Attributes{
 								"reason": payload.GetType().String(),
 							},
@@ -164,8 +164,8 @@ func (t *genericRequestor) OnCallCompletion(startTime time.Time) {
 			ContextID: t.GetID(),
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
 			Record: observability.RecordEvent{
-				Component: observability.ComponentSession,
-				Event:     observability.SessionCleanup,
+				Component: observability.ComponentConversation,
+				Event:     observability.ConversationCleanup,
 				Attributes: observability.Attributes{
 					"duration_ms": fmt.Sprintf("%d", duration.Milliseconds()),
 					"messages":    fmt.Sprintf("%d", len(t.GetHistories())),
@@ -211,8 +211,8 @@ func (r *genericRequestor) OnConnect(ctx context.Context, auth types.SimplePrinc
 					ContextID: r.GetID(),
 					Scope:     internal_type.ObservabilityRecordScopeConversation,
 					Record: observability.RecordEvent{
-						Component: observability.ComponentSession,
-						Event:     observability.SessionDisconnectRequested,
+						Component: observability.ComponentConversation,
+						Event:     observability.ConversationCompleted,
 						Attributes: observability.Attributes{
 							"reason": protos.ConversationDisconnection_DISCONNECTION_TYPE_ERROR.String(),
 						},
@@ -240,8 +240,8 @@ func (r *genericRequestor) OnConnect(ctx context.Context, auth types.SimplePrinc
 				ContextID: r.GetID(),
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordEvent{
-					Component: observability.ComponentSession,
-					Event:     observability.SessionInitializing,
+					Component: observability.ComponentConversation,
+					Event:     observability.ConversationInitializing,
 					Attributes: observability.Attributes{
 						"mode": config.GetStreamMode().String(),
 					},

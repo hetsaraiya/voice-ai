@@ -607,7 +607,7 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 			internal_type.ObservabilityEventRecordPacket{
 				ContextID: p.ContextId(),
 				Scope:     internal_type.ObservabilityRecordScopeAssistant,
-				Record: observability.NewConversationEventRecord(observability.SessionConnectFailed, observability.Attributes{
+				Record: observability.NewConversationEventRecord(observability.ConversationFailed, observability.Attributes{
 					"message": p.ErrMessage(),
 				}),
 			},
@@ -692,7 +692,7 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 		h.r.OnPacket(ctx, internal_type.ObservabilityEventRecordPacket{
 			ContextID: p.ContextId(),
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
-			Record: observability.NewConversationEventRecord(observability.SessionModeSwitchFailed, observability.Attributes{
+			Record: observability.NewConversationEventRecord(observability.ConversationModeSwitchFailed, observability.Attributes{
 				"error_type":  string(errPkt.Type),
 				"target_mode": errPkt.StreamMode.String(),
 				"error":       p.ErrMessage(),
@@ -712,7 +712,7 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 			internal_type.ObservabilityEventRecordPacket{
 				ContextID: h.r.GetID(),
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationEventRecord(observability.SessionDisconnectRequested, observability.Attributes{
+				Record: observability.NewConversationEventRecord(observability.ConversationFailed, observability.Attributes{
 					"reason": protos.ConversationDisconnection_DISCONNECTION_TYPE_ERROR.String(),
 				}),
 			},
@@ -863,7 +863,7 @@ func (h requestorDispatchHandler) HandleStartIdleTimeout(ctx context.Context, p 
 					Level:   observability.LevelError,
 					Message: "idle timeout handling failed",
 					Attributes: observability.Attributes{
-						"component":        observability.ComponentSession.String(),
+						"component":        observability.ComponentConversation.String(),
 						"operation":        "idle_timeout",
 						"packet":           "StartIdleTimeoutPacket",
 						"context_id":       p.ContextID,
@@ -1134,7 +1134,7 @@ func (h requestorDispatchHandler) HandleLLMToolResult(ctx context.Context, p int
 			internal_type.ObservabilityEventRecordPacket{
 				ContextID: h.r.GetID(),
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationEventRecord(observability.SessionDisconnectRequested, observability.Attributes{
+				Record: observability.NewConversationEventRecord(observability.ConversationCompleted, observability.Attributes{
 					"reason": protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL.String(),
 				}),
 			},
@@ -1157,7 +1157,7 @@ func (h requestorDispatchHandler) HandleLLMToolResult(ctx context.Context, p int
 				internal_type.ObservabilityEventRecordPacket{
 					ContextID: h.r.GetID(),
 					Scope:     internal_type.ObservabilityRecordScopeConversation,
-					Record: observability.NewConversationEventRecord(observability.SessionDisconnectRequested, observability.Attributes{
+					Record: observability.NewConversationEventRecord(observability.ConversationCompleted, observability.Attributes{
 						"reason": protos.ConversationDisconnection_DISCONNECTION_TYPE_TOOL.String(),
 					}),
 				},
@@ -1545,7 +1545,7 @@ func (h requestorDispatchHandler) HandleInitializeConversation(ctx context.Conte
 		h.r.OnPacket(ctx, internal_type.ObservabilityEventRecordPacket{
 			ContextID: vl.ContextID,
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
-			Record: observability.NewConversationEventRecord(observability.SessionConnected, observability.Attributes{
+			Record: observability.NewConversationEventRecord(observability.ConversationBegin, observability.Attributes{
 				"source":     fmt.Sprintf("%v", h.r.source),
 				"is_new":     "true",
 				"identifier": h.r.identifier(vl.Config),
@@ -1679,7 +1679,7 @@ func (h requestorDispatchHandler) HandleInitializeAuthentication(ctx context.Con
 					Level:   observability.LevelError,
 					Message: "authentication arguments failed",
 					Attributes: observability.Attributes{
-						"component":  observability.ComponentSession.String(),
+						"component":  observability.ComponentConversation.String(),
 						"operation":  "build_authentication_arguments",
 						"packet":     "InitializeSessionAuthenticationPacket",
 						"context_id": p.ContextID,
@@ -1704,7 +1704,7 @@ func (h requestorDispatchHandler) HandleInitializeAuthentication(ctx context.Con
 		internal_type.ObservabilityEventRecordPacket{
 			ContextID: p.ContextID,
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
-			Record:    observability.NewConversationEventRecord(observability.SessionAuthenticationStarted, nil),
+			Record:    observability.NewConversationEventRecord(observability.ConversationAuthenticationStarted, nil),
 		},
 	)
 }
@@ -1717,7 +1717,7 @@ func (h requestorDispatchHandler) HandleExecuteSessionAuthentication(ctx context
 				Level:   observability.LevelError,
 				Message: "authentication execution failed",
 				Attributes: observability.Attributes{
-					"component":  observability.ComponentSession.String(),
+					"component":  observability.ComponentConversation.String(),
 					"operation":  "execute_authentication",
 					"packet":     "ExecuteSessionAuthenticationPacket",
 					"context_id": p.ContextID,
@@ -2000,7 +2000,7 @@ func (h requestorDispatchHandler) HandleInitializeBehavior(ctx context.Context, 
 				Level:   observability.LevelError,
 				Message: "behavior initialization failed",
 				Attributes: observability.Attributes{
-					"component":  observability.ComponentSession.String(),
+					"component":  observability.ComponentConversation.String(),
 					"operation":  "initialize_behavior",
 					"packet":     "InitializeBehaviorPacket",
 					"context_id": p.ContextID,
@@ -2458,7 +2458,7 @@ func (h requestorDispatchHandler) HandleInitializationCompleted(ctx context.Cont
 	h.r.OnPacket(ctx, internal_type.ObservabilityEventRecordPacket{
 		ContextID: p.ContextID,
 		Scope:     internal_type.ObservabilityRecordScopeConversation,
-		Record: observability.NewConversationEventRecord(observability.SessionInitialized, observability.Attributes{
+		Record: observability.NewConversationEventRecord(observability.ConversationInitialized, observability.Attributes{
 			"event": event.Get(),
 			"mode":  h.r.GetMode().String(),
 		}),
@@ -2721,7 +2721,7 @@ func (h requestorDispatchHandler) HandleFinalizeConversation(ctx context.Context
 					Level:   observability.LevelError,
 					Message: "authentication executor close failed",
 					Attributes: observability.Attributes{
-						"component":  observability.ComponentSession.String(),
+						"component":  observability.ComponentConversation.String(),
 						"operation":  "finalize",
 						"packet":     "FinalizeConversationPacket",
 						"context_id": p.ContextID,
@@ -2942,7 +2942,7 @@ func (r *genericRequestor) OnNotifyAssistantConfiguration(ctx context.Context, c
 				Level:   observability.LevelError,
 				Message: "configuration notification failed",
 				Attributes: observability.Attributes{
-					"component":  observability.ComponentSession.String(),
+					"component":  observability.ComponentConversation.String(),
 					"operation":  "notify_configuration",
 					"context_id": r.GetID(),
 					"mode":       r.GetMode().String(),

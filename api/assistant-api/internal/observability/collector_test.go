@@ -14,8 +14,8 @@ import (
 
 func TestCollectors_CollectMetric_FansOutAndJoinsErrors(t *testing.T) {
 	collectorErr := errors.New("collector failed")
-	first := &recordingCollector{}
-	second := &recordingCollector{collectErr: collectorErr}
+	first := &recordingCollector{key: "first"}
+	second := &recordingCollector{key: "second", collectErr: collectorErr}
 	fanout := NewCollectors(first, nil, second)
 
 	err := fanout.Collect(context.Background(), ConversationScope{
@@ -31,8 +31,8 @@ func TestCollectors_CollectMetric_FansOutAndJoinsErrors(t *testing.T) {
 }
 
 func TestCollectors_CloseFansOut(t *testing.T) {
-	first := &recordingCollector{}
-	second := &recordingCollector{}
+	first := &recordingCollector{key: "first"}
+	second := &recordingCollector{key: "second"}
 	fanout := NewCollectors(first, second)
 
 	if err := fanout.Close(context.Background()); err != nil {
