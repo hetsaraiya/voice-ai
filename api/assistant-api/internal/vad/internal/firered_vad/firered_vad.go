@@ -15,6 +15,7 @@ import (
 	"time"
 
 	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
@@ -89,15 +90,31 @@ func NewFireRedVAD(
 	}()
 
 	if onPacket != nil {
-		_ = onPacket(ctx, internal_type.ConversationEventPacket{
-			Name: "vad",
-			Data: map[string]string{
-				"type":     "initialized",
-				"provider": vadName,
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+		_ = onPacket(ctx,
+			internal_type.ObservabilityEventRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordEvent{
+					Component: observability.ComponentVAD,
+					Event:     observability.VADStarted,
+					Attributes: observability.Attributes{
+						"provider": vadName,
+						"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+					},
+				},
 			},
-			Time: time.Now(),
-		})
+			internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelDebug,
+					Message: "vad initialized",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentVAD.String(),
+						"provider":  vadName,
+						"init_ms":   fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+					},
+				},
+			},
+		)
 	}
 
 	return vad, nil
@@ -157,6 +174,39 @@ func (v *FireRedVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRec
 		prob, err := v.detector.Infer(feat[:])
 		if err != nil {
 			v.mu.Unlock()
+			if v.onPacket != nil {
+				_ = v.onPacket(ctx,
+					internal_type.ObservabilityEventRecordPacket{
+						ContextID:   pkt.ContextID,
+						Scope:       internal_type.ObservabilityRecordScopeMessage,
+						MessageRole: observability.MessageRoleUser,
+						Record: observability.RecordEvent{
+							Component: observability.ComponentVAD,
+							Event:     observability.VADError,
+							Attributes: observability.Attributes{
+								"provider":   vadName,
+								"context_id": pkt.ContextID,
+								"error":      "firered_vad inference failed",
+							},
+						},
+					},
+					internal_type.ObservabilityLogRecordPacket{
+						ContextID:   pkt.ContextID,
+						Scope:       internal_type.ObservabilityRecordScopeMessage,
+						MessageRole: observability.MessageRoleUser,
+						Record: observability.RecordLog{
+							Level:   observability.LevelError,
+							Message: "vad inference failed",
+							Attributes: observability.Attributes{
+								"component":  observability.ComponentVAD.String(),
+								"provider":   vadName,
+								"context_id": pkt.ContextID,
+								"error":      err.Error(),
+							},
+						},
+					},
+				)
+			}
 			return fmt.Errorf("firered_vad: inference failed: %w", err)
 		}
 
@@ -216,11 +266,10 @@ func (v *FireRedVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRec
 }
 
 // Close terminates the VAD and releases all resources.
-func (v *FireRedVAD) Close(_ context.Context) error {
+func (v *FireRedVAD) Close(ctx context.Context) error {
 	v.mu.Lock()
-	defer v.mu.Unlock()
-
 	if v.isTerminated {
+		v.mu.Unlock()
 		return nil
 	}
 	v.isTerminated = true
@@ -228,6 +277,33 @@ func (v *FireRedVAD) Close(_ context.Context) error {
 	if v.detector != nil {
 		v.detector.Destroy()
 		v.detector = nil
+	}
+	v.mu.Unlock()
+
+	if v.onPacket != nil {
+		_ = v.onPacket(ctx,
+			internal_type.ObservabilityEventRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordEvent{
+					Component: observability.ComponentVAD,
+					Event:     observability.VADClosed,
+					Attributes: observability.Attributes{
+						"provider": vadName,
+					},
+				},
+			},
+			internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelDebug,
+					Message: "vad closed",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentVAD.String(),
+						"provider":  vadName,
+					},
+				},
+			},
+		)
 	}
 
 	return nil
@@ -272,6 +348,10 @@ func (v *FireRedVAD) notifyInterruption(ctx context.Context, event internal_type
 	if v.onPacket == nil {
 		return
 	}
+	eventName := observability.VADSpeechStarted
+	if event == internal_type.InterruptionEventEnd {
+		eventName = observability.VADSpeechEnded
+	}
 	v.onPacket(ctx,
 		internal_type.InterruptionDetectedPacket{
 			Source:  internal_type.InterruptionSourceVad,
@@ -279,13 +359,17 @@ func (v *FireRedVAD) notifyInterruption(ctx context.Context, event internal_type
 			StartAt: at,
 			EndAt:   at,
 		},
-		internal_type.ConversationEventPacket{
-			Name: "vad",
-			Data: map[string]string{
-				"type":     "detected",
-				"event":    string(event),
-				"start_at": fmt.Sprintf("%f", at),
-				"end_at":   fmt.Sprintf("%f", at),
+		internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentVAD,
+				Event:     eventName,
+				Attributes: observability.Attributes{
+					"provider": vadName,
+					"event":    string(event),
+					"start_at": fmt.Sprintf("%f", at),
+					"end_at":   fmt.Sprintf("%f", at),
+				},
 			},
 		},
 	)

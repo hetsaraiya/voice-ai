@@ -178,9 +178,11 @@ const (
 )
 
 const (
+	VADStarted       EventName = "vad.started"
 	VADSpeechStarted EventName = "vad.speech_started"
 	VADInferenceDone EventName = "vad.inference_done"
 	VADSpeechEnded   EventName = "vad.speech_ended"
+	VADClosed        EventName = "vad.closed"
 	VADError         EventName = "vad.error"
 )
 
@@ -194,6 +196,7 @@ const (
 const (
 	DenoiseStarted   EventName = "denoise.started"
 	DenoiseCompleted EventName = "denoise.completed"
+	DenoiseClosed    EventName = "denoise.closed"
 	DenoiseError     EventName = "denoise.error"
 )
 
@@ -381,9 +384,11 @@ var eventsByComponent = map[ComponentName][]EventName{
 		LLMError,
 	},
 	ComponentVAD: {
+		VADStarted,
 		VADSpeechStarted,
 		VADInferenceDone,
 		VADSpeechEnded,
+		VADClosed,
 		VADError,
 	},
 	ComponentEOS: {
@@ -395,6 +400,7 @@ var eventsByComponent = map[ComponentName][]EventName{
 	ComponentDenoise: {
 		DenoiseStarted,
 		DenoiseCompleted,
+		DenoiseClosed,
 		DenoiseError,
 	},
 	ComponentTool: {

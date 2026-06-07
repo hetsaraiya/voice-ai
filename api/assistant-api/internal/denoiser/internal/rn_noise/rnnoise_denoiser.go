@@ -12,23 +12,16 @@ import (
 
 	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
 	internal_audio_resampler "github.com/rapidaai/api/assistant-api/internal/audio/resampler"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
 
-const (
-	optEventLevel      = "microphone.vad.events"
-	eventLevelOff      = "off"
-	eventLevelStandard = "standard"
-	eventLevelDebug    = "debug"
-)
-
 type rnnoiseDenoiser struct {
 	rnNoise        *RNNoise
 	logger         commons.Logger
-	eventLevel     string
 	denoiserConfig *protos.AudioConfig
 	// default rapida input config
 	inputConfig    *protos.AudioConfig
@@ -56,17 +49,8 @@ func NewRnnoiseDenoiser(
 		return nil, err
 	}
 
-	eventLevel := eventLevelStandard
-	if value, err := options.GetString(optEventLevel); err == nil {
-		switch value {
-		case eventLevelOff, eventLevelStandard, eventLevelDebug:
-			eventLevel = value
-		}
-	}
-
 	d := &rnnoiseDenoiser{
 		audioResampler: resampler,
-		eventLevel:     eventLevel,
 		audioConverter: converter,
 		rnNoise:        rn,
 		denoiserConfig: &protos.AudioConfig{
@@ -78,16 +62,32 @@ func NewRnnoiseDenoiser(
 		logger:      logger,
 		onPacket:    onPacket,
 	}
-	if onPacket != nil && d.eventLevel == eventLevelDebug {
-		_ = onPacket(ctx, internal_type.ConversationEventPacket{
-			Name: "denoise",
-			Data: map[string]string{
-				"type":     "initialized",
-				"provider": "rnnoise",
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+	if onPacket != nil {
+		_ = onPacket(ctx,
+			internal_type.ObservabilityEventRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordEvent{
+					Component: observability.ComponentDenoise,
+					Event:     observability.DenoiseStarted,
+					Attributes: observability.Attributes{
+						"provider": "rnnoise",
+						"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+					},
+				},
 			},
-			Time: time.Now(),
-		})
+			internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelDebug,
+					Message: "denoiser initialized",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentDenoise.String(),
+						"provider":  "rnnoise",
+						"init_ms":   fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+					},
+				},
+			},
+		)
 	}
 	return d, nil
 }
@@ -114,14 +114,33 @@ func (rnd *rnnoiseDenoiser) Execute(ctx context.Context, pkt internal_type.Denoi
 		_ = rnd.onPacket(ctx, internal_type.DenoisedAudioPacket{
 			ContextID: pkt.ContextID,
 			Audio:     input,
-		}, internal_type.ConversationEventPacket{
-			ContextID: pkt.ContextID,
-			Name:      "denoise",
-			Data: map[string]string{
-				"type":  "error",
-				"error": "audio config is not initialized",
+		}, internal_type.ObservabilityEventRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentDenoise,
+				Event:     observability.DenoiseError,
+				Attributes: observability.Attributes{
+					"provider":   "rnnoise",
+					"context_id": pkt.ContextID,
+					"error":      "audio config is not initialized",
+				},
 			},
-			Time: time.Now(),
+		}, internal_type.ObservabilityLogRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "denoise failed",
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentDenoise.String(),
+					"provider":   "rnnoise",
+					"context_id": pkt.ContextID,
+					"error":      "audio config is not initialized",
+				},
+			},
 		})
 		return fmt.Errorf("audio config is not initialized")
 	}
@@ -131,14 +150,33 @@ func (rnd *rnnoiseDenoiser) Execute(ctx context.Context, pkt internal_type.Denoi
 		_ = rnd.onPacket(ctx, internal_type.DenoisedAudioPacket{
 			ContextID: pkt.ContextID,
 			Audio:     input,
-		}, internal_type.ConversationEventPacket{
-			ContextID: pkt.ContextID,
-			Name:      "denoise",
-			Data: map[string]string{
-				"type":  "error",
-				"error": "audio config is not initialized",
+		}, internal_type.ObservabilityEventRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentDenoise,
+				Event:     observability.DenoiseError,
+				Attributes: observability.Attributes{
+					"provider":   "rnnoise",
+					"context_id": pkt.ContextID,
+					"error":      "failed to resample audio",
+				},
 			},
-			Time: time.Now(),
+		}, internal_type.ObservabilityLogRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "denoise failed",
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentDenoise.String(),
+					"provider":   "rnnoise",
+					"context_id": pkt.ContextID,
+					"error":      err.Error(),
+				},
+			},
 		})
 		return fmt.Errorf("failed to resample audio: %w", err)
 	}
@@ -148,14 +186,33 @@ func (rnd *rnnoiseDenoiser) Execute(ctx context.Context, pkt internal_type.Denoi
 		_ = rnd.onPacket(ctx, internal_type.DenoisedAudioPacket{
 			ContextID: pkt.ContextID,
 			Audio:     input,
-		}, internal_type.ConversationEventPacket{
-			ContextID: pkt.ContextID,
-			Name:      "denoise",
-			Data: map[string]string{
-				"type":  "error",
-				"error": "failed to convert audio to float32 samples",
+		}, internal_type.ObservabilityEventRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentDenoise,
+				Event:     observability.DenoiseError,
+				Attributes: observability.Attributes{
+					"provider":   "rnnoise",
+					"context_id": pkt.ContextID,
+					"error":      "failed to convert audio to float32 samples",
+				},
 			},
-			Time: time.Now(),
+		}, internal_type.ObservabilityLogRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "denoise failed",
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentDenoise.String(),
+					"provider":   "rnnoise",
+					"context_id": pkt.ContextID,
+					"error":      err.Error(),
+				},
+			},
 		})
 		return fmt.Errorf("failed to convert audio to float32 samples: %w", err)
 	}
@@ -165,14 +222,33 @@ func (rnd *rnnoiseDenoiser) Execute(ctx context.Context, pkt internal_type.Denoi
 		_ = rnd.onPacket(ctx, internal_type.DenoisedAudioPacket{
 			ContextID: pkt.ContextID,
 			Audio:     input,
-		}, internal_type.ConversationEventPacket{
-			ContextID: pkt.ContextID,
-			Name:      "denoise",
-			Data: map[string]string{
-				"type":  "error",
-				"error": "failed to process audio",
+		}, internal_type.ObservabilityEventRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentDenoise,
+				Event:     observability.DenoiseError,
+				Attributes: observability.Attributes{
+					"provider":   "rnnoise",
+					"context_id": pkt.ContextID,
+					"error":      "failed to process audio",
+				},
 			},
-			Time: time.Now(),
+		}, internal_type.ObservabilityLogRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "denoise failed",
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentDenoise.String(),
+					"provider":   "rnnoise",
+					"context_id": pkt.ContextID,
+					"error":      err.Error(),
+				},
+			},
 		})
 		return fmt.Errorf("failed to process audio: %w", err)
 	}
@@ -182,14 +258,33 @@ func (rnd *rnnoiseDenoiser) Execute(ctx context.Context, pkt internal_type.Denoi
 		_ = rnd.onPacket(ctx, internal_type.DenoisedAudioPacket{
 			ContextID: pkt.ContextID,
 			Audio:     input,
-		}, internal_type.ConversationEventPacket{
-			ContextID: pkt.ContextID,
-			Name:      "denoise",
-			Data: map[string]string{
-				"type":  "error",
-				"error": "failed to convert audio to byte samples",
+		}, internal_type.ObservabilityEventRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentDenoise,
+				Event:     observability.DenoiseError,
+				Attributes: observability.Attributes{
+					"provider":   "rnnoise",
+					"context_id": pkt.ContextID,
+					"error":      "failed to convert audio to byte samples",
+				},
 			},
-			Time: time.Now(),
+		}, internal_type.ObservabilityLogRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "denoise failed",
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentDenoise.String(),
+					"provider":   "rnnoise",
+					"context_id": pkt.ContextID,
+					"error":      err.Error(),
+				},
+			},
 		})
 		return fmt.Errorf("failed to convert audio to byte samples: %w", err)
 	}
@@ -199,14 +294,33 @@ func (rnd *rnnoiseDenoiser) Execute(ctx context.Context, pkt internal_type.Denoi
 		_ = rnd.onPacket(ctx, internal_type.DenoisedAudioPacket{
 			ContextID: pkt.ContextID,
 			Audio:     input,
-		}, internal_type.ConversationEventPacket{
-			ContextID: pkt.ContextID,
-			Name:      "denoise",
-			Data: map[string]string{
-				"type":  "error",
-				"error": "failed to resample denoised audio",
+		}, internal_type.ObservabilityEventRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentDenoise,
+				Event:     observability.DenoiseError,
+				Attributes: observability.Attributes{
+					"provider":   "rnnoise",
+					"context_id": pkt.ContextID,
+					"error":      "failed to resample denoised audio",
+				},
 			},
-			Time: time.Now(),
+		}, internal_type.ObservabilityLogRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "denoise failed",
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentDenoise.String(),
+					"provider":   "rnnoise",
+					"context_id": pkt.ContextID,
+					"error":      err.Error(),
+				},
+			},
 		})
 		return fmt.Errorf("failed to resample denoised audio: %w", err)
 	}
@@ -216,6 +330,21 @@ func (rnd *rnnoiseDenoiser) Execute(ctx context.Context, pkt internal_type.Denoi
 			ContextID:  pkt.ContextID,
 			Audio:      restoredInputRate,
 			Confidence: confidence,
+		}, internal_type.ObservabilityEventRecordPacket{
+			ContextID:   pkt.ContextID,
+			Scope:       internal_type.ObservabilityRecordScopeMessage,
+			MessageRole: observability.MessageRoleUser,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentDenoise,
+				Event:     observability.DenoiseCompleted,
+				Attributes: observability.Attributes{
+					"provider":     "rnnoise",
+					"context_id":   pkt.ContextID,
+					"confidence":   fmt.Sprintf("%.4f", confidence),
+					"input_bytes":  fmt.Sprintf("%d", len(input)),
+					"output_bytes": fmt.Sprintf("%d", len(restoredInputRate)),
+				},
+			},
 		})
 	}
 	return nil
@@ -223,15 +352,30 @@ func (rnd *rnnoiseDenoiser) Execute(ctx context.Context, pkt internal_type.Denoi
 
 // Close releases resources
 func (d *rnnoiseDenoiser) Close(ctx context.Context) error {
-	if d.eventLevel == eventLevelDebug && d.onPacket != nil {
-		_ = d.onPacket(context.Background(), internal_type.ConversationEventPacket{
-			Name: "denoise",
-			Data: map[string]string{
-				"type":     "closed",
-				"provider": "rnnoise",
+	if d.onPacket != nil {
+		_ = d.onPacket(context.Background(),
+			internal_type.ObservabilityEventRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordEvent{
+					Component: observability.ComponentDenoise,
+					Event:     observability.DenoiseClosed,
+					Attributes: observability.Attributes{
+						"provider": "rnnoise",
+					},
+				},
 			},
-			Time: time.Now(),
-		})
+			internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelDebug,
+					Message: "denoiser closed",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentDenoise.String(),
+						"provider":  "rnnoise",
+					},
+				},
+			},
+		)
 	}
 	if d.rnNoise != nil {
 		d.rnNoise.Close()

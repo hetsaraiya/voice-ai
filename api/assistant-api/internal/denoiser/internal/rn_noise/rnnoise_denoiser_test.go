@@ -11,6 +11,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/stretchr/testify/assert"
@@ -40,11 +41,11 @@ func captureDenoisedAudio(pkts []internal_type.Packet) (internal_type.DenoisedAu
 
 func hasDenoiseErrorEvent(pkts []internal_type.Packet) bool {
 	for _, pkt := range pkts {
-		event, ok := pkt.(internal_type.ConversationEventPacket)
-		if !ok || event.Name != "denoise" {
+		event, ok := pkt.(internal_type.ObservabilityEventRecordPacket)
+		if !ok || event.Record.Component != observability.ComponentDenoise {
 			continue
 		}
-		if event.Data["type"] == "error" {
+		if event.Record.Event == observability.DenoiseError {
 			return true
 		}
 	}

@@ -79,18 +79,33 @@ func NewSilenceBasedEndOfSpeech(
 
 	go endOfSpeech.worker()
 	if endOfSpeech.onPacket != nil {
-		_ = endOfSpeech.onPacket(context.Background(), internal_type.ObservabilityEventRecordPacket{
-			Scope: internal_type.ObservabilityRecordScopeConversation,
-			Record: observability.RecordEvent{
-				Component: observability.ComponentEOS,
-				Event:     observability.EOSStarted,
-				Attributes: observability.Attributes{
-					"provider":           endOfSpeech.Name(),
-					"init_ms":            fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-					"silence_timeout_ms": fmt.Sprintf("%d", silenceTimeout.Milliseconds()),
+		_ = endOfSpeech.onPacket(context.Background(),
+			internal_type.ObservabilityEventRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordEvent{
+					Component: observability.ComponentEOS,
+					Event:     observability.EOSStarted,
+					Attributes: observability.Attributes{
+						"provider":           endOfSpeech.Name(),
+						"init_ms":            fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+						"silence_timeout_ms": fmt.Sprintf("%d", silenceTimeout.Milliseconds()),
+					},
 				},
 			},
-		})
+			internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelDebug,
+					Message: "eos initialized",
+					Attributes: observability.Attributes{
+						"component":          observability.ComponentEOS.String(),
+						"provider":           endOfSpeech.Name(),
+						"init_ms":            fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+						"silence_timeout_ms": fmt.Sprintf("%d", silenceTimeout.Milliseconds()),
+					},
+				},
+			},
+		)
 	}
 	return endOfSpeech, nil
 }
@@ -385,16 +400,29 @@ func (endOfSpeech *silenceBasedEndOfSpeech) emitEndOfSpeech(command workerComman
 
 func (endOfSpeech *silenceBasedEndOfSpeech) Close(ctx context.Context) error {
 	if endOfSpeech.onPacket != nil {
-		_ = endOfSpeech.onPacket(ctx, internal_type.ObservabilityEventRecordPacket{
-			Scope: internal_type.ObservabilityRecordScopeConversation,
-			Record: observability.RecordEvent{
-				Component: observability.ComponentEOS,
-				Event:     observability.EOSClosed,
-				Attributes: observability.Attributes{
-					"provider": endOfSpeech.Name(),
+		_ = endOfSpeech.onPacket(ctx,
+			internal_type.ObservabilityEventRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordEvent{
+					Component: observability.ComponentEOS,
+					Event:     observability.EOSClosed,
+					Attributes: observability.Attributes{
+						"provider": endOfSpeech.Name(),
+					},
 				},
 			},
-		})
+			internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelDebug,
+					Message: "eos closed",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentEOS.String(),
+						"provider":  endOfSpeech.Name(),
+					},
+				},
+			},
+		)
 	}
 	close(endOfSpeech.stopCh)
 	return nil

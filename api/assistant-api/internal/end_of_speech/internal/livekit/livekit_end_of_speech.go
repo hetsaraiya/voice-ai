@@ -185,24 +185,42 @@ func NewLivekitEndOfSpeech(
 	}
 
 	go endOfSpeech.worker()
-
 	if onPacket != nil {
-		_ = onPacket(context.Background(), internal_type.ObservabilityEventRecordPacket{
-			Scope: internal_type.ObservabilityRecordScopeConversation,
-			Record: observability.RecordEvent{
-				Component: observability.ComponentEOS,
-				Event:     observability.EOSStarted,
-				Attributes: observability.Attributes{
-					"provider":            eosName,
-					"init_ms":             fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-					"threshold":           fmt.Sprintf("%.4f", endOfSpeech.threshold),
-					"quick_timeout_ms":    fmt.Sprintf("%d", endOfSpeech.quickTimeout.Milliseconds()),
-					"extended_timeout_ms": fmt.Sprintf("%d", endOfSpeech.silenceTimeout.Milliseconds()),
-					"fallback_timeout_ms": fmt.Sprintf("%d", endOfSpeech.fallbackTimeout.Milliseconds()),
-					"max_history":         fmt.Sprintf("%d", endOfSpeech.maxHistory),
+		_ = onPacket(context.Background(),
+			internal_type.ObservabilityEventRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordEvent{
+					Component: observability.ComponentEOS,
+					Event:     observability.EOSStarted,
+					Attributes: observability.Attributes{
+						"provider":            eosName,
+						"init_ms":             fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+						"threshold":           fmt.Sprintf("%.4f", endOfSpeech.threshold),
+						"quick_timeout_ms":    fmt.Sprintf("%d", endOfSpeech.quickTimeout.Milliseconds()),
+						"extended_timeout_ms": fmt.Sprintf("%d", endOfSpeech.silenceTimeout.Milliseconds()),
+						"fallback_timeout_ms": fmt.Sprintf("%d", endOfSpeech.fallbackTimeout.Milliseconds()),
+						"max_history":         fmt.Sprintf("%d", endOfSpeech.maxHistory),
+					},
 				},
 			},
-		})
+			internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelDebug,
+					Message: "eos initialized",
+					Attributes: observability.Attributes{
+						"component":           observability.ComponentEOS.String(),
+						"provider":            eosName,
+						"init_ms":             fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+						"threshold":           fmt.Sprintf("%.4f", endOfSpeech.threshold),
+						"quick_timeout_ms":    fmt.Sprintf("%d", endOfSpeech.quickTimeout.Milliseconds()),
+						"extended_timeout_ms": fmt.Sprintf("%d", endOfSpeech.silenceTimeout.Milliseconds()),
+						"fallback_timeout_ms": fmt.Sprintf("%d", endOfSpeech.fallbackTimeout.Milliseconds()),
+						"max_history":         fmt.Sprintf("%d", endOfSpeech.maxHistory),
+					},
+				},
+			},
+		)
 	}
 
 	return endOfSpeech, nil
@@ -559,16 +577,29 @@ func (endOfSpeech *livekitEndOfSpeech) fire(command workerCommand, timerArmedAt 
 
 func (endOfSpeech *livekitEndOfSpeech) Close(ctx context.Context) error {
 	if endOfSpeech.onPacket != nil {
-		_ = endOfSpeech.onPacket(ctx, internal_type.ObservabilityEventRecordPacket{
-			Scope: internal_type.ObservabilityRecordScopeConversation,
-			Record: observability.RecordEvent{
-				Component: observability.ComponentEOS,
-				Event:     observability.EOSClosed,
-				Attributes: observability.Attributes{
-					"provider": endOfSpeech.Name(),
+		_ = endOfSpeech.onPacket(ctx,
+			internal_type.ObservabilityEventRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordEvent{
+					Component: observability.ComponentEOS,
+					Event:     observability.EOSClosed,
+					Attributes: observability.Attributes{
+						"provider": endOfSpeech.Name(),
+					},
 				},
 			},
-		})
+			internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelDebug,
+					Message: "eos closed",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentEOS.String(),
+						"provider":  endOfSpeech.Name(),
+					},
+				},
+			},
+		)
 	}
 	close(endOfSpeech.stopCh)
 
