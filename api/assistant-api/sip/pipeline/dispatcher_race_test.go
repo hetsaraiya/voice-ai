@@ -15,7 +15,7 @@ import (
 	"time"
 
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
-	"github.com/rapidaai/api/assistant-api/internal/observe"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/types"
@@ -92,7 +92,7 @@ func TestHandleSessionEstablished_SetupErrorEndsSession(t *testing.T) {
 		OnCallSetup: func(ctx context.Context, session *sip_infra.Session, auth types.SimplePrinciple, assistantID uint64, conversationID uint64, cc *callcontext.CallContext) (*CallSetupResult, error) {
 			return nil, fmt.Errorf("setup failed")
 		},
-		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
+		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, observer observability.Recorder, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
 			return nil
 		},
 	})
@@ -143,7 +143,7 @@ func TestHandleSessionEstablished_PanicStillCallsOnCallEnd(t *testing.T) {
 		OnCallSetup: func(ctx context.Context, session *sip_infra.Session, auth types.SimplePrinciple, assistantID uint64, conversationID uint64, cc *callcontext.CallContext) (*CallSetupResult, error) {
 			return &CallSetupResult{AssistantID: assistantID, ConversationID: conversationID}, nil
 		},
-		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
+		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, observer observability.Recorder, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
 			panic("boom")
 		},
 		OnCallEnd: func(callID string) {
@@ -186,7 +186,7 @@ func TestPrepareSessionDefersCallStartUntilExplicitStart(t *testing.T) {
 			setupCount.Add(1)
 			return &CallSetupResult{AssistantID: assistantID, ConversationID: conversationID}, nil
 		},
-		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
+		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, observer observability.Recorder, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
 			startCount.Add(1)
 			started <- struct{}{}
 			return nil
@@ -227,11 +227,11 @@ func TestPrepareSession_PreparesInboundRuntimeBeforeExplicitStart(t *testing.T) 
 		OnCallSetup: func(ctx context.Context, session *sip_infra.Session, auth types.SimplePrinciple, assistantID uint64, conversationID uint64, cc *callcontext.CallContext) (*CallSetupResult, error) {
 			return &CallSetupResult{AssistantID: assistantID, ConversationID: conversationID}, nil
 		},
-		OnPrepareCallRuntime: func(ctx context.Context, stage sip_infra.SessionEstablishedPipeline, setup *CallSetupResult, observer *observe.ConversationObserver) (PreparedCallRuntime, error) {
+		OnPrepareCallRuntime: func(ctx context.Context, stage sip_infra.SessionEstablishedPipeline, setup *CallSetupResult, observer observability.Recorder) (PreparedCallRuntime, error) {
 			prepareRuntimeCount.Add(1)
 			return runtime, nil
 		},
-		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
+		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, observer observability.Recorder, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
 			legacyStartCount.Add(1)
 			return nil
 		},
@@ -267,10 +267,10 @@ func TestDiscardPreparedSessionClosesPreparedRuntime(t *testing.T) {
 		OnCallSetup: func(ctx context.Context, session *sip_infra.Session, auth types.SimplePrinciple, assistantID uint64, conversationID uint64, cc *callcontext.CallContext) (*CallSetupResult, error) {
 			return &CallSetupResult{AssistantID: assistantID, ConversationID: conversationID}, nil
 		},
-		OnPrepareCallRuntime: func(ctx context.Context, stage sip_infra.SessionEstablishedPipeline, setup *CallSetupResult, observer *observe.ConversationObserver) (PreparedCallRuntime, error) {
+		OnPrepareCallRuntime: func(ctx context.Context, stage sip_infra.SessionEstablishedPipeline, setup *CallSetupResult, observer observability.Recorder) (PreparedCallRuntime, error) {
 			return runtime, nil
 		},
-		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
+		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, observer observability.Recorder, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
 			return nil
 		},
 	})
@@ -302,7 +302,7 @@ func TestDiscardPreparedSessionPreventsLateStart(t *testing.T) {
 		OnCallSetup: func(ctx context.Context, session *sip_infra.Session, auth types.SimplePrinciple, assistantID uint64, conversationID uint64, cc *callcontext.CallContext) (*CallSetupResult, error) {
 			return &CallSetupResult{AssistantID: assistantID, ConversationID: conversationID}, nil
 		},
-		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
+		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, observer observability.Recorder, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
 			startCount.Add(1)
 			return nil
 		},
@@ -337,7 +337,7 @@ func TestDispatcherBackpressureAndTeardownStress(t *testing.T) {
 		OnCallSetup: func(ctx context.Context, session *sip_infra.Session, auth types.SimplePrinciple, assistantID uint64, conversationID uint64, cc *callcontext.CallContext) (*CallSetupResult, error) {
 			return &CallSetupResult{AssistantID: assistantID, ConversationID: conversationID}, nil
 		},
-		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
+		OnCallStart: func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, observer observability.Recorder, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
 			startCount.Add(1)
 			session.End()
 			return nil

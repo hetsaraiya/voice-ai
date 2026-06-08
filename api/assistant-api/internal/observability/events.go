@@ -201,22 +201,27 @@ const (
 )
 
 const (
-	SIPInviteReceived    EventName = "sip.invite_received"
-	SIPRouteResolved     EventName = "sip.route_resolved"
-	SIPAuthenticated     EventName = "sip.authenticated"
-	SIPByeReceived       EventName = "sip.bye_received"
-	SIPCancelReceived    EventName = "sip.cancel_received"
-	SIPHold              EventName = "sip.hold"
-	SIPResume            EventName = "sip.resume"
-	SIPReInvite          EventName = "sip.reinvite"
-	SIPTransferRequested EventName = "sip.transfer_requested"
-	SIPTransferring      EventName = "sip.transferring"
-	SIPTransferConnected EventName = "sip.transfer_connected"
-	SIPTransferCompleted EventName = "sip.transfer_completed"
-	SIPTransferFailed    EventName = "sip.transfer_failed"
-	SIPRegisterActive    EventName = "sip.register_active"
-	SIPRegisterFailed    EventName = "sip.register_failed"
-	SIPDTMF              EventName = "sip.dtmf"
+	SIPInviteReceived        EventName = "sip.invite_received"
+	SIPRouteResolved         EventName = "sip.route_resolved"
+	SIPAuthenticated         EventName = "sip.authenticated"
+	SIPByeReceived           EventName = "sip.bye_received"
+	SIPCancelReceived        EventName = "sip.cancel_received"
+	SIPHold                  EventName = "sip.hold"
+	SIPResume                EventName = "sip.resume"
+	SIPReInvite              EventName = "sip.reinvite"
+	SIPTransferRequested     EventName = "sip.transfer_requested"
+	SIPTransferring          EventName = "sip.transferring"
+	SIPTransferConnected     EventName = "sip.transfer_connected"
+	SIPTransferCompleted     EventName = "sip.transfer_completed"
+	SIPTransferFailed        EventName = "sip.transfer_failed"
+	SIPRegisterStarted       EventName = "sip.register_started"
+	SIPRegisterActive        EventName = "sip.register_active"
+	SIPRegisterFailed        EventName = "sip.register_failed"
+	SIPRegisterRenewed       EventName = "sip.register_renewed"
+	SIPRegisterRenewalFailed EventName = "sip.register_renewal_failed"
+	SIPRegisterExpired       EventName = "sip.register_expired"
+	SIPUnregisterFailed      EventName = "sip.unregister_failed"
+	SIPDTMF                  EventName = "sip.dtmf"
 )
 
 const (
@@ -394,8 +399,13 @@ var eventsByComponent = map[ComponentName][]EventName{
 		SIPTransferConnected,
 		SIPTransferCompleted,
 		SIPTransferFailed,
+		SIPRegisterStarted,
 		SIPRegisterActive,
 		SIPRegisterFailed,
+		SIPRegisterRenewed,
+		SIPRegisterRenewalFailed,
+		SIPRegisterExpired,
+		SIPUnregisterFailed,
 		SIPDTMF,
 	},
 	ComponentWebRTC: {

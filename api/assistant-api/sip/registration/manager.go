@@ -12,14 +12,24 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rapidaai/api/assistant-api/config"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
+	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	web_client "github.com/rapidaai/pkg/clients/web"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/connectors"
+	"github.com/rapidaai/pkg/types"
 	"github.com/redis/go-redis/v9"
 )
 
-// Manager is the SIP registration orchestrator. It runs a periodic reconcile
+type Manager interface {
+	Start(ctx context.Context)
+	Reconcile(ctx context.Context)
+	ReleaseAll(ctx context.Context)
+}
+
+// manager is the SIP registration orchestrator. It runs a periodic reconcile
 // loop that drives a typed Pipeline chain:
 //
 //	ClaimOwnershipPipeline -> RegisterPipeline -> MarkActivePipeline
@@ -28,44 +38,61 @@ import (
 // whose value is the server's externalIP@hostname identity. Each instance
 // only owns the DIDs it successfully claims; peers skip those records.
 // Ownership self-heals via TTL.
-type Manager struct {
-	logger     commons.Logger
-	postgres   connectors.PostgresConnector
-	redis      *redis.Client
-	vault      web_client.VaultClient
-	regClient  *sip_infra.RegistrationClient
-	opDefaults func(*sip_infra.Config)
-	instanceID string
+type manager struct {
+	logger          commons.Logger
+	postgres        connectors.PostgresConnector
+	redis           *redis.Client
+	vault           web_client.VaultClient
+	regClient       *sip_infra.RegistrationClient
+	opDefaults      func(*sip_infra.Config)
+	assistantConfig *config.AssistantConfig
+	instanceID      string
 }
 
-// NewManager wires the dependencies and resolves a stable instance identity
+// New wires the dependencies and resolves a stable instance identity
 // (externalIP@hostname) for the Redis ownership keys. Bare externalIP is not
 // enough — two replicas behind a shared LB or with a "0.0.0.0" bind-address
 // fallback can collapse to the same value and mistakenly treat each other's
 // DIDs as self-owned. Combining with hostname always distinguishes pods.
-func NewManager(cfg Config) *Manager {
-	m := &Manager{
-		logger:     cfg.Logger,
-		postgres:   cfg.Postgres,
-		redis:      cfg.Redis.GetConnection(),
-		vault:      cfg.Vault,
-		regClient:  cfg.RegistrationClient,
-		instanceID: cfg.Sip.InstanceID,
-		opDefaults: cfg.ApplyOpDefaults,
+func New(options ...ManagerOption) Manager {
+	var managerOptions ManagerOptions
+	for _, option := range options {
+		if option != nil {
+			option(&managerOptions)
+		}
 	}
-	if cfg.RegistrationClient != nil {
-		cfg.RegistrationClient.SetObserver(m)
+	m := &manager{
+		logger:          managerOptions.Logger,
+		postgres:        managerOptions.Postgres,
+		redis:           managerOptions.Redis.GetConnection(),
+		vault:           managerOptions.Vault,
+		regClient:       managerOptions.RegistrationClient,
+		instanceID:      managerOptions.Sip.InstanceID,
+		opDefaults:      managerOptions.ApplyOpDefaults,
+		assistantConfig: managerOptions.AssistantConfig,
 	}
-	cfg.Logger.Infow("SIP registration manager initialized",
-		"instance_id", cfg.Sip.InstanceID,
+	if managerOptions.RegistrationClient != nil {
+		managerOptions.RegistrationClient.SetObserver(m)
+	}
+	managerOptions.Logger.Infow("SIP registration manager initialized",
+		"instance_id", managerOptions.Sip.InstanceID,
 		"poll_interval", PollInterval,
 		"ownership_ttl", OwnershipTTL,
 		"max_concurrent", MaxConcurrent)
 	return m
 }
 
+func (m *manager) observer(ctx context.Context, auth types.SimplePrinciple) observability.Recorder {
+	return observability.New(
+		observability.WithLogger(m.logger),
+		observability.WithAuth(auth),
+		observability.WithContext(ctx),
+		observability.WithCollectors(collectors.NewWithEnv(ctx, m.logger, m.assistantConfig)...),
+	)
+}
+
 // Start blocks running the periodic reconcile loop until ctx is cancelled.
-func (m *Manager) Start(ctx context.Context) {
+func (m *manager) Start(ctx context.Context) {
 	m.logger.Infow("SIP registration watcher started", "interval", PollInterval)
 	select {
 	case <-ctx.Done():
@@ -90,7 +117,7 @@ func (m *Manager) Start(ctx context.Context) {
 // Reconcile runs one full pipeline tick: load records, drive each through the
 // typed stage chain in bounded parallel, and unregister any locally-active
 // DIDs that no longer appear in the desired set.
-func (m *Manager) Reconcile(ctx context.Context) {
+func (m *manager) Reconcile(ctx context.Context) {
 	tickStart := time.Now()
 
 	records, err := m.loadRecords(ctx)
@@ -160,7 +187,7 @@ func (m *Manager) Reconcile(ctx context.Context) {
 // peers can claim those DIDs immediately on their next reconcile tick instead
 // of waiting OwnershipTTL. Intended for graceful shutdown — call BEFORE
 // RegistrationClient.UnregisterAll, since that drains the active-DID set.
-func (m *Manager) ReleaseAll(ctx context.Context) {
+func (m *manager) ReleaseAll(ctx context.Context) {
 	dids := m.regClient.GetRegisteredDIDs()
 	for _, did := range dids {
 		m.releaseOwner(ctx, did)
@@ -171,7 +198,7 @@ func (m *Manager) ReleaseAll(ctx context.Context) {
 
 // Run drives the typed Pipeline chain for one Record, starting at
 // ClaimOwnershipPipeline. dispatch returns the next Pipeline or nil to stop.
-func (m *Manager) Run(ctx context.Context, rec *Record) {
+func (m *manager) Run(ctx context.Context, rec *Record) {
 	var next Pipeline = ClaimOwnershipPipeline{Record: rec}
 	for next != nil {
 		next = m.dispatch(ctx, next)
@@ -180,7 +207,7 @@ func (m *Manager) Run(ctx context.Context, rec *Record) {
 
 // dispatch routes a typed Pipeline to the matching handler. Mirrors the
 // switch-on-type pattern of sip/pipeline/dispatcher.go.
-func (m *Manager) dispatch(ctx context.Context, p Pipeline) Pipeline {
+func (m *manager) dispatch(ctx context.Context, p Pipeline) Pipeline {
 	switch v := p.(type) {
 	case ClaimOwnershipPipeline:
 		return m.handleClaimOwnership(ctx, v)

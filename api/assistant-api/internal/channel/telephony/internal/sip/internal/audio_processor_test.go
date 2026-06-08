@@ -18,6 +18,7 @@ import (
 	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
 	internal_ambient "github.com/rapidaai/api/assistant-api/internal/audio/ambient"
 	internal_telephony_media "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/media"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/protos"
@@ -562,11 +563,18 @@ func TestForwardUserAudio_Backpressure_DropsAudio(t *testing.T) {
 
 func TestForwardUserAudio_DoesNotRecordWhenBridgeRTPQueueFull(t *testing.T) {
 	rec := &pushRecorder{}
+	records := make(chan observability.Record, 2)
 	rtp := testRTPHandler(t, &sip_infra.CodecPCMU)
 	proc := NewAudioProcessor(AudioProcessorConfig{
 		RTPHandler: rtp,
 		Resampler:  &mockResampler{},
 		PushInput:  rec.push,
+		Record: func(record ...observability.Record) error {
+			for _, item := range record {
+				records <- item
+			}
+			return nil
+		},
 	})
 	bridgeRTP := testRTPHandler(t, &sip_infra.CodecPCMU)
 	for i := 0; i < 100; i++ {
@@ -581,12 +589,15 @@ func TestForwardUserAudio_DoesNotRecordWhenBridgeRTPQueueFull(t *testing.T) {
 		t.Fatalf("dropped bridge RTP frame was queued for recording: %v", recorded)
 	default:
 	}
-	streams := rec.get()
-	require.Len(t, streams, 1)
-	event, ok := streams[0].(*protos.ConversationEvent)
-	require.True(t, ok)
-	assert.Equal(t, "output_send_error", event.GetData()["type"])
-	assert.Equal(t, "bridge_audio_out_full", event.GetData()["reason"])
+	require.Empty(t, rec.get())
+	select {
+	case record := <-records:
+		log, ok := record.(observability.RecordLog)
+		require.True(t, ok)
+		assert.Equal(t, "bridge_audio_out_full", log.Attributes["reason"])
+	case <-time.After(time.Second):
+		t.Fatal("expected observability record")
+	}
 }
 
 // ---------------------------------------------------------------------------

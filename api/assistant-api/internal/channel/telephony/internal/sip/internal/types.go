@@ -12,6 +12,7 @@ import (
 
 	internal_audio "github.com/rapidaai/api/assistant-api/internal/audio"
 	internal_ambient "github.com/rapidaai/api/assistant-api/internal/audio/ambient"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 )
@@ -45,6 +46,7 @@ type AudioProcessorConfig struct {
 	RTPHandler *sip_infra.RTPHandler
 	Resampler  internal_type.AudioResampler
 	PushInput  func(internal_type.Stream)
+	Record     func(...observability.Record) error
 	Ringtone   string
 	Ambient    *internal_ambient.Config
 }

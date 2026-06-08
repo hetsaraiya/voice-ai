@@ -9,6 +9,7 @@ import (
 
 	internal_ambient "github.com/rapidaai/api/assistant-api/internal/audio/ambient"
 	internal_output "github.com/rapidaai/api/assistant-api/internal/channel/output"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/protos"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -348,14 +349,19 @@ func TestMediaSession_OutputPacer_EmitsEventOnOutputSendError(t *testing.T) {
 		outputFrames:  make(chan AssistantOutputFrame, 1),
 		frameDuration: 2 * time.Millisecond,
 	}
-	events := make(chan *protos.ConversationEvent, 1)
+	records := make(chan observability.Record, 2)
 	mediaSession := NewMediaSession(MediaSessionConfig{
 		Context:     context.Background(),
 		MediaEngine: mediaEngine,
 		OutputSink: func(frame AssistantOutputFrame) error {
 			return errors.New("send failed")
 		},
-		EventSink: func(event *protos.ConversationEvent) { events <- event },
+		Record: func(record ...observability.Record) error {
+			for _, item := range record {
+				records <- item
+			}
+			return nil
+		},
 	})
 
 	mediaEngine.outputFrames <- AssistantOutputFrame{
@@ -366,12 +372,16 @@ func TestMediaSession_OutputPacer_EmitsEventOnOutputSendError(t *testing.T) {
 	defer mediaSession.Shutdown()
 
 	select {
-	case event := <-events:
-		if event.GetData()["type"] != "output_send_error" {
-			t.Fatalf("event type=%q want output_send_error", event.GetData()["type"])
+	case record := <-records:
+		log, ok := record.(observability.RecordLog)
+		if !ok {
+			t.Fatalf("record type=%T want RecordLog", record)
+		}
+		if log.Message != "Telephony output send failed" {
+			t.Fatalf("message=%q want Telephony output send failed", log.Message)
 		}
 	case <-time.After(200 * time.Millisecond):
-		t.Fatal("timed out waiting send error event")
+		t.Fatal("timed out waiting send error record")
 	}
 }
 
@@ -380,7 +390,7 @@ func TestMediaSession_OutputPacer_DoesNotRecordBridgeAudioOnOutputSendError(t *t
 		outputFrames:  make(chan AssistantOutputFrame, 1),
 		frameDuration: 2 * time.Millisecond,
 	}
-	events := make(chan *protos.ConversationEvent, 1)
+	records := make(chan observability.Record, 2)
 	streams := make(chan internal_type.Stream, 1)
 	mediaSession := NewMediaSession(MediaSessionConfig{
 		Context:     context.Background(),
@@ -389,7 +399,12 @@ func TestMediaSession_OutputPacer_DoesNotRecordBridgeAudioOnOutputSendError(t *t
 			return errors.New("rtp queue full")
 		},
 		StreamSink: func(stream internal_type.Stream) { streams <- stream },
-		EventSink:  func(event *protos.ConversationEvent) { events <- event },
+		Record: func(record ...observability.Record) error {
+			for _, item := range record {
+				records <- item
+			}
+			return nil
+		},
 	})
 
 	mediaEngine.outputFrames <- AssistantOutputFrame{
@@ -400,12 +415,16 @@ func TestMediaSession_OutputPacer_DoesNotRecordBridgeAudioOnOutputSendError(t *t
 	defer mediaSession.Shutdown()
 
 	select {
-	case event := <-events:
-		if event.GetData()["type"] != "output_send_error" {
-			t.Fatalf("event type=%q want output_send_error", event.GetData()["type"])
+	case record := <-records:
+		log, ok := record.(observability.RecordLog)
+		if !ok {
+			t.Fatalf("record type=%T want RecordLog", record)
+		}
+		if log.Message != "Telephony output send failed" {
+			t.Fatalf("message=%q want Telephony output send failed", log.Message)
 		}
 	case <-time.After(200 * time.Millisecond):
-		t.Fatal("timed out waiting send error event")
+		t.Fatal("timed out waiting send error record")
 	}
 	select {
 	case stream := <-streams:
@@ -417,7 +436,7 @@ func TestMediaSession_OutputPacer_DoesNotRecordBridgeAudioOnOutputSendError(t *t
 func TestMediaSession_HandleInterrupt_ClearsAndSendsProviderClear(t *testing.T) {
 	mediaEngine := &fakeMediaEngine{}
 	var clearCount atomic.Int32
-	events := make(chan *protos.ConversationEvent, 1)
+	records := make(chan observability.Record, 1)
 	mediaSession := NewMediaSession(MediaSessionConfig{
 		Context:     context.Background(),
 		MediaEngine: mediaEngine,
@@ -425,7 +444,12 @@ func TestMediaSession_HandleInterrupt_ClearsAndSendsProviderClear(t *testing.T) 
 			clearCount.Add(1)
 			return nil
 		},
-		EventSink: func(event *protos.ConversationEvent) { events <- event },
+		Record: func(record ...observability.Record) error {
+			for _, item := range record {
+				records <- item
+			}
+			return nil
+		},
 	})
 
 	mediaSession.HandleInterrupt()
@@ -437,11 +461,15 @@ func TestMediaSession_HandleInterrupt_ClearsAndSendsProviderClear(t *testing.T) 
 		t.Fatalf("sendProviderClear=%d want=1", clearCount.Load())
 	}
 	select {
-	case event := <-events:
-		if event.GetData()["type"] != "output_queue_cleared" {
-			t.Fatalf("event type=%q want output_queue_cleared", event.GetData()["type"])
+	case record := <-records:
+		event, ok := record.(observability.RecordEvent)
+		if !ok {
+			t.Fatalf("record type=%T want RecordEvent", record)
+		}
+		if event.Attributes["status"] != "output_queue_cleared" {
+			t.Fatalf("status=%q want output_queue_cleared", event.Attributes["status"])
 		}
 	case <-time.After(200 * time.Millisecond):
-		t.Fatal("timed out waiting clear event")
+		t.Fatal("timed out waiting clear record")
 	}
 }

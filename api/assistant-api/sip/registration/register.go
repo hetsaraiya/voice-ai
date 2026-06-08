@@ -9,11 +9,15 @@ package sip_registration
 import (
 	"context"
 	"errors"
+	"strconv"
 	"time"
 
 	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/pkg/types"
+	type_enums "github.com/rapidaai/pkg/types/enums"
+	"github.com/rapidaai/protos"
 )
 
 // handleRegister implements the "Register" pipeline step. Skips if the DID is
@@ -22,7 +26,7 @@ import (
 // the handler writes the matching status itself and returns nil so
 // MarkActivePipeline does not overwrite it. Transient failures bump the retry
 // counter via handleTransient and also halt the chain.
-func (m *Manager) handleRegister(ctx context.Context, s RegisterPipeline) Pipeline {
+func (m *manager) handleRegister(ctx context.Context, s RegisterPipeline) Pipeline {
 	rec := s.Record
 
 	snapshot := m.regClient.Snapshot(rec.DID)
@@ -58,10 +62,23 @@ func (m *Manager) handleRegister(ctx context.Context, s RegisterPipeline) Pipeli
 		})
 		return nil
 	}
+	rec.ProjectID = assistant.ProjectId
+	rec.OrganizationID = assistant.OrganizationId
 
 	auth := &types.ProjectScope{
 		ProjectId:      &assistant.ProjectId,
 		OrganizationId: &assistant.OrganizationId,
+		Status:         type_enums.RECORD_ACTIVE.String(),
+	}
+	observer := m.observer(ctx, auth)
+	defer observer.Close(context.Background())
+	scope := observability.AssistantScope{AssistantID: rec.AssistantID}
+	attributes := observability.Attributes{
+		"did":           rec.DID,
+		"assistant_id":  strconv.FormatUint(rec.AssistantID, 10),
+		"deployment_id": strconv.FormatUint(rec.DeploymentID, 10),
+		"credential_id": strconv.FormatUint(rec.CredentialID, 10),
+		"owner":         m.instanceID,
 	}
 
 	vaultCred, err := m.vault.GetCredential(ctx, auth, rec.CredentialID)
@@ -70,6 +87,29 @@ func (m *Manager) handleRegister(ctx context.Context, s RegisterPipeline) Pipeli
 		m.logger.Warnw("Failed to fetch vault credential for registration",
 			"assistant_id", rec.AssistantID, "did", rec.DID,
 			"credential_id", rec.CredentialID, "error", err)
+		attributes["failure_class"] = string(RegistrationFailureClassConfig)
+		attributes["failure_reason"] = string(RegistrationFailureReasonVaultCredentialNotFound)
+		attributes["error"] = err.Error()
+		_ = observer.Record(ctx, scope,
+			observability.RecordLog{
+				Level:      observability.LevelError,
+				Message:    "Failed to fetch SIP registration credential",
+				Attributes: attributes,
+			},
+			observability.RecordEvent{
+				Component:  observability.ComponentSIP,
+				Event:      observability.SIPRegisterFailed,
+				Attributes: attributes,
+			},
+			observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricSIPRegistrationStatus,
+					Value:       type_enums.RECORD_FAILED.String(),
+					Description: "SIP registration credential fetch failed",
+				}},
+				Attributes: attributes,
+			},
+		)
 		m.writeRegistrationStatus(ctx, rec.DeploymentID, RegistrationStatusUpdate{
 			Status:        StatusConfigError,
 			Error:         "vault credential not found",
@@ -85,6 +125,29 @@ func (m *Manager) handleRegister(ctx context.Context, s RegisterPipeline) Pipeli
 		rec.Outcome = OutcomeConfigError
 		m.logger.Warnw("Failed to parse SIP config for registration",
 			"assistant_id", rec.AssistantID, "did", rec.DID, "error", err)
+		attributes["failure_class"] = string(RegistrationFailureClassConfig)
+		attributes["failure_reason"] = string(RegistrationFailureReasonInvalidSIPConfig)
+		attributes["error"] = err.Error()
+		_ = observer.Record(ctx, scope,
+			observability.RecordLog{
+				Level:      observability.LevelError,
+				Message:    "Failed to parse SIP registration config",
+				Attributes: attributes,
+			},
+			observability.RecordEvent{
+				Component:  observability.ComponentSIP,
+				Event:      observability.SIPRegisterFailed,
+				Attributes: attributes,
+			},
+			observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricSIPRegistrationStatus,
+					Value:       type_enums.RECORD_FAILED.String(),
+					Description: "SIP registration config parse failed",
+				}},
+				Attributes: attributes,
+			},
+		)
 		m.writeRegistrationStatus(ctx, rec.DeploymentID, RegistrationStatusUpdate{
 			Status:        StatusConfigError,
 			Error:         "invalid SIP config: " + err.Error(),
@@ -97,6 +160,11 @@ func (m *Manager) handleRegister(ctx context.Context, s RegisterPipeline) Pipeli
 	if m.opDefaults != nil {
 		m.opDefaults(sipConfig)
 	}
+	attributes["server"] = sipConfig.Server
+	attributes["domain"] = sipConfig.Domain
+	attributes["transport"] = string(sipConfig.Transport)
+	attributes["port"] = strconv.Itoa(sipConfig.Port)
+	attributes["username"] = sipConfig.Username
 
 	m.logger.Debugw("Registering SIP DID with provider",
 		"did", rec.DID,
@@ -109,6 +177,21 @@ func (m *Manager) handleRegister(ctx context.Context, s RegisterPipeline) Pipeli
 		"port", sipConfig.Port,
 		"username", sipConfig.Username,
 		"owner", m.instanceID)
+	_ = observer.Record(ctx, scope,
+		observability.RecordEvent{
+			Component:  observability.ComponentSIP,
+			Event:      observability.SIPRegisterStarted,
+			Attributes: attributes,
+		},
+		observability.RecordMetric{
+			Metrics: []*protos.Metric{{
+				Name:        observability.MetricSIPRegistrationStatus,
+				Value:       type_enums.RECORD_IN_PROGRESS.String(),
+				Description: "SIP registration started",
+			}},
+			Attributes: attributes,
+		},
+	)
 
 	regErr := m.regClient.Register(ctx, &sip_infra.Registration{
 		DID:          rec.DID,
@@ -123,25 +206,109 @@ func (m *Manager) handleRegister(ctx context.Context, s RegisterPipeline) Pipeli
 			"assistant_id", rec.AssistantID,
 			"server", sipConfig.Server,
 			"owner", m.instanceID)
+		_ = observer.Record(ctx, scope,
+			observability.RecordEvent{
+				Component:  observability.ComponentSIP,
+				Event:      observability.SIPRegisterActive,
+				Attributes: attributes,
+			},
+			observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricSIPRegistrationStatus,
+					Value:       type_enums.RECORD_COMPLETE.String(),
+					Description: "SIP registration active",
+				}},
+				Attributes: attributes,
+			},
+		)
 		return MarkActivePipeline{Record: rec}
 	}
 
 	statusUpdate := m.registrationStatusUpdateFromError(regErr)
+	attributes["failure_class"] = string(statusUpdate.FailureClass)
+	attributes["failure_reason"] = string(statusUpdate.FailureReason)
+	attributes["error"] = regErr.Error()
+	if statusUpdate.ResponseCode > 0 {
+		attributes["response_code"] = strconv.Itoa(statusUpdate.ResponseCode)
+	}
+	if statusUpdate.ResponseText != "" {
+		attributes["response_text"] = statusUpdate.ResponseText
+	}
 	switch statusUpdate.FailureClass {
 	case RegistrationFailureClassRejected:
 		rec.Outcome = OutcomeRejected
 		m.logger.Errorw("SIP registration permanently rejected — will not retry",
 			"did", rec.DID, "assistant_id", rec.AssistantID, "error", regErr)
+		_ = observer.Record(ctx, scope,
+			observability.RecordLog{
+				Level:      observability.LevelError,
+				Message:    "SIP registration permanently rejected",
+				Attributes: attributes,
+			},
+			observability.RecordEvent{
+				Component:  observability.ComponentSIP,
+				Event:      observability.SIPRegisterFailed,
+				Attributes: attributes,
+			},
+			observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricSIPRegistrationStatus,
+					Value:       type_enums.RECORD_FAILED.String(),
+					Description: "SIP registration permanently rejected",
+				}},
+				Attributes: attributes,
+			},
+		)
 		m.writeRegistrationStatus(ctx, rec.DeploymentID, statusUpdate)
 	case RegistrationFailureClassAuth:
 		rec.Outcome = OutcomeAuthFailed
 		m.logger.Errorw("SIP registration auth failed — marking deployment as failed",
 			"did", rec.DID, "assistant_id", rec.AssistantID, "error", regErr)
+		_ = observer.Record(ctx, scope,
+			observability.RecordLog{
+				Level:      observability.LevelError,
+				Message:    "SIP registration authentication failed",
+				Attributes: attributes,
+			},
+			observability.RecordEvent{
+				Component:  observability.ComponentSIP,
+				Event:      observability.SIPRegisterFailed,
+				Attributes: attributes,
+			},
+			observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricSIPRegistrationStatus,
+					Value:       type_enums.RECORD_FAILED.String(),
+					Description: "SIP registration authentication failed",
+				}},
+				Attributes: attributes,
+			},
+		)
 		m.writeRegistrationStatus(ctx, rec.DeploymentID, statusUpdate)
 	case RegistrationFailureClassConfig:
 		rec.Outcome = OutcomeConfigError
 		m.logger.Errorw("SIP registration config failed — will not retry",
 			"did", rec.DID, "assistant_id", rec.AssistantID, "error", regErr)
+		_ = observer.Record(ctx, scope,
+			observability.RecordLog{
+				Level:      observability.LevelError,
+				Message:    "SIP registration config failed",
+				Attributes: attributes,
+			},
+			observability.RecordEvent{
+				Component:  observability.ComponentSIP,
+				Event:      observability.SIPRegisterFailed,
+				Attributes: attributes,
+			},
+			observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricSIPRegistrationStatus,
+					Value:       type_enums.RECORD_FAILED.String(),
+					Description: "SIP registration config failed",
+				}},
+				Attributes: attributes,
+			},
+		)
 		m.writeRegistrationStatus(ctx, rec.DeploymentID, statusUpdate)
 	default:
 		rec.Outcome = OutcomeTransient
@@ -150,7 +317,7 @@ func (m *Manager) handleRegister(ctx context.Context, s RegisterPipeline) Pipeli
 	return nil
 }
 
-func (m *Manager) registrationStatusUpdateFromError(err error) RegistrationStatusUpdate {
+func (m *manager) registrationStatusUpdateFromError(err error) RegistrationStatusUpdate {
 	now := time.Now().UTC()
 	statusUpdate := RegistrationStatusUpdate{
 		Error:         err.Error(),

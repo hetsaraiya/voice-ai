@@ -274,6 +274,7 @@ func (r *recorder) normalize(scope Scope, record Record) (observation, error) {
 		if typed.OccurredAt.IsZero() {
 			typed.OccurredAt = now
 		}
+		typed.Attributes = typed.Attributes.Clone()
 		return observation{scope: scope, record: typed}, nil
 	case RecordMetadata:
 		if len(typed.Metadata) == 0 {

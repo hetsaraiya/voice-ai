@@ -11,56 +11,63 @@ import (
 	"fmt"
 	"time"
 
-	obs "github.com/rapidaai/api/assistant-api/internal/observe"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
+	"github.com/rapidaai/protos"
 )
 
 // runSession handles telephony media setup and keeps the Talk lifecycle synchronous.
 func (d *Dispatcher) runSession(ctx context.Context, v SessionConnectedPipeline) *PipelineResult {
 	startTime := time.Now()
-	d.logger.Infow("Pipeline: SessionConnected", "call_id", v.ID)
-
 	contextID := v.ContextID
 	if contextID == "" {
 		contextID = v.ID
 	}
-
 	auth := v.CallContext.ToAuth()
-
-	var projectID, organizationID uint64
-	if currentProjectID := auth.GetCurrentProjectId(); currentProjectID != nil {
-		projectID = *currentProjectID
-	}
-	if currentOrganizationID := auth.GetCurrentOrganizationId(); currentOrganizationID != nil {
-		organizationID = *currentOrganizationID
-	}
-	observer := obs.NewConversationObserver(&obs.ConversationObserverConfig{
-		Logger:         d.logger,
-		Auth:           auth,
-		AssistantID:    v.CallContext.AssistantID,
+	scope := observability.ConversationScope{
+		AssistantScope: observability.AssistantScope{AssistantID: v.CallContext.AssistantID},
 		ConversationID: v.CallContext.ConversationID,
-		ProjectID:      projectID,
-		OrganizationID: organizationID,
+	}
+	_ = v.Observer.Record(ctx, scope, observability.RecordMetadata{
+		Metadata: observability.ClientMetadata(
+			v.CallContext.CallerNumber, v.CallContext.FromNumber, v.CallContext.Direction, v.CallContext.Provider,
+			v.CallContext.ChannelUUID, contextID, "", "", // codec/sampleRate set by streamer
+		),
 	})
-	observer.EmitMetadata(ctx, obs.ClientMetadata(
-		v.CallContext.CallerNumber, v.CallContext.FromNumber, v.CallContext.Direction, v.CallContext.Provider,
-		v.CallContext.ChannelUUID, contextID, "", "", // codec/sampleRate set by streamer
-	))
-	observer.EmitEvent(ctx, obs.ComponentTelephony, map[string]string{
-		obs.DataContextID: contextID,
-		obs.DataType:      obs.EventCallStarted,
-		obs.DataProvider:  v.CallContext.Provider,
-		obs.DataDirection: v.CallContext.Direction,
+	_ = v.Observer.Record(ctx, scope, observability.RecordEvent{
+		Component: observability.ComponentCall,
+		Event:     observability.CallStarted,
+		Attributes: observability.Attributes{
+			"context_id": contextID,
+			"provider":   v.CallContext.Provider,
+			"direction":  v.CallContext.Direction,
+		},
 	})
-
+	_ = v.Observer.Record(ctx, scope, observability.RecordLog{
+		Level:   observability.LevelDebug,
+		Message: "Pipeline session connected",
+		Attributes: observability.Attributes{
+			"context_id": contextID,
+			"provider":   v.CallContext.Provider,
+			"direction":  v.CallContext.Direction,
+		},
+	})
 	reason := "talk_completed"
-	status := "COMPLETED"
-
+	status := "COMPLETE"
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				reason = fmt.Sprintf("panic: %v", r)
 				status = "FAILED"
-				d.logger.Errorw("Pipeline: Talk panicked", "call_id", v.ID, "panic", r)
+				_ = v.Observer.Record(ctx, scope, observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "Pipeline talk panicked",
+					Attributes: observability.Attributes{
+						"context_id": contextID,
+						"provider":   v.CallContext.Provider,
+						"direction":  v.CallContext.Direction,
+						"panic":      fmt.Sprintf("%v", r),
+					},
+				})
 			}
 		}()
 
@@ -68,32 +75,48 @@ func (d *Dispatcher) runSession(ctx context.Context, v SessionConnectedPipeline)
 		if err != nil {
 			reason = fmt.Sprintf("talk_error: %v", err)
 			status = "FAILED"
+			_ = v.Observer.Record(ctx, scope, observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "Pipeline talk failed",
+				Attributes: observability.Attributes{
+					"context_id": contextID,
+					"provider":   v.CallContext.Provider,
+					"direction":  v.CallContext.Direction,
+					"error":      err.Error(),
+				},
+			})
 		}
 	}()
 
-	observer.EmitEvent(ctx, obs.ComponentTelephony, map[string]string{
-		obs.DataType:      obs.EventCallEnded,
-		obs.DataProvider:  v.CallContext.Provider,
-		obs.DataDirection: v.CallContext.Direction,
-		obs.DataReason:    reason,
+	durationMs := time.Since(startTime).Milliseconds()
+	_ = v.Observer.Record(ctx, scope, observability.RecordEvent{
+		Component: observability.ComponentCall,
+		Event:     observability.CallEnded,
+		Attributes: observability.Attributes{
+			"context_id":  contextID,
+			"provider":    v.CallContext.Provider,
+			"direction":   v.CallContext.Direction,
+			"reason":      reason,
+			"status":      status,
+			"duration_ms": fmt.Sprintf("%d", durationMs),
+		},
+	}, observability.RecordMetric{
+		Metrics: []*protos.Metric{
+			{
+				Name:        observability.MetricCallStatus,
+				Value:       status,
+				Description: reason,
+			},
+			{
+				Name:        observability.MetricCallDurationMs,
+				Value:       fmt.Sprintf("%d", durationMs),
+				Description: "Call duration in milliseconds",
+			},
+		},
 	})
-	observer.EmitMetric(ctx, obs.CallStatusMetric(status, reason))
-	observer.Shutdown(ctx)
-
-	d.logger.Debugf("session completed: contextId=%s", contextID)
-
-	d.logger.Infow("Pipeline: CallEnded",
-		"call_id", v.ID,
-		"duration", fmt.Sprintf("%dms", time.Since(startTime).Milliseconds()),
-		"reason", reason,
-		"status", status)
 
 	if status == "FAILED" {
 		return &PipelineResult{Error: fmt.Errorf("%s", reason)}
 	}
 	return &PipelineResult{}
-}
-
-func (d *Dispatcher) handleModeSwitch(ctx context.Context, v ModeSwitchPipeline) {
-	d.logger.Infow("Pipeline: ModeSwitch", "call_id", v.ID, "from", v.From, "to", v.To)
 }

@@ -27,8 +27,6 @@ func TestConversationMetricNames_MirrorCurrentImplementation(t *testing.T) {
 		{MetricSetupDurationMs, "call.setup_duration_ms"},
 		{MetricRingDurationMs, "call.ring_duration_ms"},
 		{MetricCallStatus, "call.status"},
-		{MetricCallEndReason, "call.end_reason"},
-		{MetricCallFailed, "call.failed"},
 		{MetricSIPRegisterFailure, "sip.register_failure"},
 		{MetricTransferDurationMs, "transfer.bridge_duration_ms"},
 		{MetricRTPPacketsSent, "rtp.packets_sent"},

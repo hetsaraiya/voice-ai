@@ -83,6 +83,7 @@ func (c *Collector) Collect(ctx context.Context, scope observability.Scope, _ ob
 		return c.bulk(ctx, c.index(doc.OccurredAt), doc)
 	case observability.RecordMetric:
 		doc := newDocument("metric", scope, typed.ID, typed.OccurredAt)
+		doc.Attributes = typed.Attributes.Clone()
 		return c.bulk(ctx, c.index(doc.OccurredAt), doc)
 	case observability.RecordMetadata:
 		doc := newDocument("metadata", scope, typed.ID, typed.OccurredAt)

@@ -26,7 +26,6 @@ import (
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/protos"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Streamer implements AudioSocket media streaming over TCP.
@@ -140,15 +139,7 @@ func New(opts ...FuncOption) (internal_type.Streamer, error) {
 		MediaEngine: audioProcessor,
 		StreamSink:  as.Input,
 		OutputSink:  as.sendOutputFrame,
-		EventSink: func(event *protos.ConversationEvent) {
-			if event != nil {
-				if event.Data == nil {
-					event.Data = map[string]string{}
-				}
-				event.Data["provider"] = "asterisk_as"
-			}
-			as.Input(event)
-		},
+		Record:      as.Record,
 	})
 	as.mediaSession.Start()
 	go as.runFrameReader()
@@ -160,6 +151,17 @@ func (as *Streamer) sendOutputFrame(frame internal_telephony_media.AssistantOutp
 		return nil
 	}
 	if err := as.writeFrame(FrameTypeAudio, frame.ProviderAudio); err != nil {
+		_ = as.Record(observability.RecordLog{
+			Level:   observability.LevelError,
+			Message: "Failed to send Asterisk AudioSocket audio frame",
+			Attributes: observability.Attributes{
+				"component":         observability.ComponentCall.String(),
+				"provider":          "asterisk_as",
+				"conversation_uuid": as.ChannelUUID,
+				"payload_bytes":     fmt.Sprintf("%d", len(frame.ProviderAudio)),
+				"error":             err.Error(),
+			},
+		})
 		// Connection dead — stop media session output sender.
 		if as.mediaSession != nil {
 			as.mediaSession.Shutdown()
@@ -184,13 +186,26 @@ func (as *Streamer) Context() context.Context {
 }
 
 func (as *Streamer) runFrameReader() {
-	as.Input(&protos.ConversationEvent{
-		Name: "channel",
-		Data: map[string]string{
-			"type":     "connected",
-			"provider": "asterisk_as",
+	_ = as.Record(observability.RecordEvent{
+		Component: observability.ComponentCall,
+		Event:     observability.CallSessionConnected,
+		Attributes: observability.Attributes{
+			"component":         observability.ComponentCall.String(),
+			"provider":          "asterisk_as",
+			"conversation_uuid": as.ChannelUUID,
 		},
-		Time: timestamppb.Now(),
+	}, observability.RecordMetadata{
+		Metadata: []*protos.Metadata{
+			{Key: observability.MetadataClientChannel, Value: "asterisk_as"},
+			{Key: observability.MetadataClientProviderCallID, Value: as.ChannelUUID},
+			{Key: observability.MetadataCallStatus, Value: "connected"},
+		},
+	}, observability.RecordMetric{
+		Metrics: []*protos.Metric{{
+			Name:        observability.MetricCallStatus,
+			Value:       "INPROGRESS",
+			Description: "Asterisk AudioSocket connected",
+		}},
 	})
 	if as.initialUUID != "" {
 		as.Input(as.CreateConnectionRequest())
@@ -207,6 +222,36 @@ func (as *Streamer) runFrameReader() {
 			if err == io.EOF {
 				disconnectType = protos.ConversationDisconnection_DISCONNECTION_TYPE_USER
 			}
+			_ = as.Record(observability.RecordLog{
+				Level:   observability.LevelDebug,
+				Message: "Asterisk AudioSocket reader closed",
+				Attributes: observability.Attributes{
+					"component":         observability.ComponentCall.String(),
+					"provider":          "asterisk_as",
+					"conversation_uuid": as.ChannelUUID,
+					"error":             err.Error(),
+				},
+			}, observability.RecordEvent{
+				Component: observability.ComponentCall,
+				Event:     observability.CallEnded,
+				Attributes: observability.Attributes{
+					"component":         observability.ComponentCall.String(),
+					"provider":          "asterisk_as",
+					"conversation_uuid": as.ChannelUUID,
+					"reason":            "reader_closed",
+				},
+			}, observability.RecordMetadata{
+				Metadata: []*protos.Metadata{
+					{Key: observability.MetadataCallStatus, Value: "reader_closed"},
+					{Key: observability.MetadataDisconnectReason, Value: "reader_closed"},
+				},
+			}, observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricCallStatus,
+					Value:       "COMPLETE",
+					Description: "Asterisk AudioSocket reader closed",
+				}},
+			})
 			if msg := as.Disconnect(disconnectType); msg != nil {
 				as.Input(msg)
 			}
@@ -227,18 +272,70 @@ func (as *Streamer) runFrameReader() {
 				Audio:      frame.Payload,
 				ReceivedAt: time.Now(),
 			}); err != nil {
-				as.Logger.Debug("Failed to process input audio", "error", err.Error())
+				_ = as.Record(observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "Failed to process Asterisk AudioSocket input audio",
+					Attributes: observability.Attributes{
+						"component":         observability.ComponentCall.String(),
+						"provider":          "asterisk_as",
+						"conversation_uuid": as.ChannelUUID,
+						"payload_bytes":     fmt.Sprintf("%d", len(frame.Payload)),
+						"error":             err.Error(),
+					},
+				}, observability.RecordMetric{
+					Metrics: []*protos.Metric{{
+						Name:        observability.MetricCallStatus,
+						Value:       "FAILED",
+						Description: "Asterisk AudioSocket input audio processing failed",
+					}},
+				})
 				continue
 			}
 		case FrameTypeSilence:
 			// no-op
 		case FrameTypeHangup:
+			_ = as.Record(observability.RecordEvent{
+				Component: observability.ComponentCall,
+				Event:     observability.CallHangup,
+				Attributes: observability.Attributes{
+					"component":         observability.ComponentCall.String(),
+					"provider":          "asterisk_as",
+					"conversation_uuid": as.ChannelUUID,
+					"reason":            "provider_hangup",
+				},
+			}, observability.RecordMetadata{
+				Metadata: []*protos.Metadata{
+					{Key: observability.MetadataCallStatus, Value: "provider_hangup"},
+					{Key: observability.MetadataDisconnectReason, Value: "provider_hangup"},
+				},
+			}, observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricCallStatus,
+					Value:       "COMPLETE",
+					Description: "Asterisk AudioSocket hangup received",
+				}},
+			})
 			if msg := as.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_USER); msg != nil {
 				as.Input(msg)
 			}
 			as.Cancel()
 			return
 		case FrameTypeError:
+			_ = as.Record(observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "Asterisk AudioSocket error frame received",
+				Attributes: observability.Attributes{
+					"component":         observability.ComponentCall.String(),
+					"provider":          "asterisk_as",
+					"conversation_uuid": as.ChannelUUID,
+				},
+			}, observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricCallStatus,
+					Value:       "FAILED",
+					Description: "Asterisk AudioSocket error frame received",
+				}},
+			})
 			if msg := as.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_UNSPECIFIED); msg != nil {
 				as.Input(msg)
 			}
@@ -276,11 +373,55 @@ func (as *Streamer) Send(response internal_type.Stream) error {
 		// CriticalCh — just signal hangup over AudioSocket and clean up.
 		_ = as.Disconnect(data.GetType())
 		_ = as.writeFrame(FrameTypeHangup, nil)
+		_ = as.Record(observability.RecordEvent{
+			Component: observability.ComponentCall,
+			Event:     observability.CallHangup,
+			Attributes: observability.Attributes{
+				"component":          observability.ComponentCall.String(),
+				"provider":           "asterisk_as",
+				"conversation_uuid":  as.ChannelUUID,
+				"disconnection_type": data.GetType().String(),
+				"reason":             "server_side_disconnect",
+			},
+		}, observability.RecordMetadata{
+			Metadata: []*protos.Metadata{
+				{Key: observability.MetadataCallStatus, Value: "completed"},
+				{Key: observability.MetadataDisconnectReason, Value: "server_side_disconnect"},
+			},
+		}, observability.RecordMetric{
+			Metrics: []*protos.Metric{{
+				Name:        observability.MetricCallStatus,
+				Value:       "COMPLETE",
+				Description: "Asterisk AudioSocket call ended by server-side disconnect",
+			}},
+		})
 		as.Cancel()
 	case *protos.ConversationToolCall:
 		switch data.GetAction() {
 		case protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION:
 			_ = as.writeFrame(FrameTypeHangup, nil)
+			_ = as.Record(observability.RecordEvent{
+				Component: observability.ComponentCall,
+				Event:     observability.CallHangup,
+				Attributes: observability.Attributes{
+					"component":         observability.ComponentCall.String(),
+					"provider":          "asterisk_as",
+					"conversation_uuid": as.ChannelUUID,
+					"tool_action":       data.GetAction().String(),
+					"reason":            "tool_end_conversation",
+				},
+			}, observability.RecordMetadata{
+				Metadata: []*protos.Metadata{
+					{Key: observability.MetadataCallStatus, Value: "completed"},
+					{Key: observability.MetadataDisconnectReason, Value: "tool_end_conversation"},
+				},
+			}, observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricCallStatus,
+					Value:       "COMPLETE",
+					Description: "Asterisk AudioSocket call ended by tool action",
+				}},
+			})
 			as.Input(&protos.ConversationToolCallResult{
 				Id:     data.GetId(),
 				ToolId: data.GetToolId(),
@@ -296,7 +437,28 @@ func (as *Streamer) Send(response internal_type.Stream) error {
 			// transfer for an AudioSocket-attached channel, route the call
 			// through the Asterisk WS/ARI streamer instead, which can issue
 			// `channels/{id}/redirect` (blind transfer; end_call only).
-			as.Logger.Warnw("Call transfer not supported for AudioSocket")
+			_ = as.Record(observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "Asterisk AudioSocket transfer is not supported",
+				Attributes: observability.Attributes{
+					"component":         observability.ComponentCall.String(),
+					"provider":          "asterisk_as",
+					"conversation_uuid": as.ChannelUUID,
+					"tool_action":       data.GetAction().String(),
+					"transfer_to":       data.GetArgs()["transfer_to"],
+				},
+			}, observability.RecordMetadata{
+				Metadata: []*protos.Metadata{
+					{Key: observability.MetadataCallStatus, Value: "transfer_failed"},
+					{Key: observability.MetadataFailureReason, Value: "transfer not supported for AudioSocket"},
+				},
+			}, observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricCallStatus,
+					Value:       "FAILED",
+					Description: "Asterisk AudioSocket transfer is not supported",
+				}},
+			})
 			as.Input(&protos.ConversationToolCallResult{
 				Id:     data.GetId(),
 				ToolId: data.GetToolId(), Name: data.GetName(), Action: data.GetAction(),
@@ -304,7 +466,16 @@ func (as *Streamer) Send(response internal_type.Stream) error {
 			})
 		}
 	default:
-		as.Logger.Warnw("AudioSocket Send: unknown message type, skipping", "type", fmt.Sprintf("%T", response))
+		_ = as.Record(observability.RecordLog{
+			Level:   observability.LevelDebug,
+			Message: "Asterisk AudioSocket Send unknown message type",
+			Attributes: observability.Attributes{
+				"component":         observability.ComponentCall.String(),
+				"provider":          "asterisk_as",
+				"conversation_uuid": as.ChannelUUID,
+				"type":              fmt.Sprintf("%T", response),
+			},
+		})
 	}
 
 	return nil

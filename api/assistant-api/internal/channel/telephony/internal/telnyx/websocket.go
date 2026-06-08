@@ -108,6 +108,7 @@ func New(opts ...FuncOption) (internal_type.Streamer, error) {
 		},
 		StreamSink: tws.Input,
 		OutputSink: tws.sendOutputFrame,
+		Record:     tws.Record,
 	})
 
 	go tws.runWebSocketReader()
@@ -154,7 +155,7 @@ func (tws *telnyxWebsocketStreamer) runWebSocketReader() {
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "websocket_closed",
+					Value:       "COMPLETE",
 					Description: "Telnyx websocket reader closed",
 				}},
 			})
@@ -196,8 +197,8 @@ func (tws *telnyxWebsocketStreamer) runWebSocketReader() {
 				},
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
-					Name:        observability.MetricCallFailed,
-					Value:       "1",
+					Name:        observability.MetricCallStatus,
+					Value:       "FAILED",
 					Description: "Failed to unmarshal Telnyx media event",
 				}},
 			})
@@ -224,7 +225,7 @@ func (tws *telnyxWebsocketStreamer) runWebSocketReader() {
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "connected",
+					Value:       "INPROGRESS",
 					Description: "Telnyx websocket connected",
 				}},
 			})
@@ -258,7 +259,7 @@ func (tws *telnyxWebsocketStreamer) runWebSocketReader() {
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "media_started",
+					Value:       "INPROGRESS",
 					Description: "Telnyx media stream started",
 				}},
 			})
@@ -277,8 +278,8 @@ func (tws *telnyxWebsocketStreamer) runWebSocketReader() {
 					},
 				}, observability.RecordMetric{
 					Metrics: []*protos.Metric{{
-						Name:        observability.MetricCallFailed,
-						Value:       "1",
+						Name:        observability.MetricCallStatus,
+						Value:       "FAILED",
 						Description: "Telnyx media frame processing failed",
 					}},
 				})
@@ -318,7 +319,7 @@ func (tws *telnyxWebsocketStreamer) runWebSocketReader() {
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "provider_stop",
+					Value:       "COMPLETE",
 					Description: "Telnyx media stream stopped by provider",
 				}},
 			})
@@ -388,8 +389,8 @@ func (tws *telnyxWebsocketStreamer) Send(response internal_type.Stream) error {
 					},
 				}, observability.RecordMetric{
 					Metrics: []*protos.Metric{{
-						Name:        observability.MetricCallFailed,
-						Value:       "1",
+						Name:        observability.MetricCallStatus,
+						Value:       "FAILED",
 						Description: "Failed to end Telnyx call on server-side disconnect",
 					}},
 				})
@@ -414,7 +415,7 @@ func (tws *telnyxWebsocketStreamer) Send(response internal_type.Stream) error {
 				}, observability.RecordMetric{
 					Metrics: []*protos.Metric{{
 						Name:        observability.MetricCallStatus,
-						Value:       "completed",
+						Value:       "COMPLETE",
 						Description: "Telnyx call ended by server-side disconnect",
 					}},
 				})
@@ -442,8 +443,8 @@ func (tws *telnyxWebsocketStreamer) Send(response internal_type.Stream) error {
 						},
 					}, observability.RecordMetric{
 						Metrics: []*protos.Metric{{
-							Name:        observability.MetricCallFailed,
-							Value:       "1",
+							Name:        observability.MetricCallStatus,
+							Value:       "FAILED",
 							Description: "Failed to end Telnyx call",
 						}},
 					})
@@ -469,7 +470,7 @@ func (tws *telnyxWebsocketStreamer) Send(response internal_type.Stream) error {
 					}, observability.RecordMetric{
 						Metrics: []*protos.Metric{{
 							Name:        observability.MetricCallStatus,
-							Value:       "completed",
+							Value:       "COMPLETE",
 							Description: "Telnyx call ended by tool action",
 						}},
 					})
@@ -502,8 +503,8 @@ func (tws *telnyxWebsocketStreamer) Send(response internal_type.Stream) error {
 				},
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
-					Name:        observability.MetricCallFailed,
-					Value:       "1",
+					Name:        observability.MetricCallStatus,
+					Value:       "FAILED",
 					Description: "Telnyx call transfer is not supported",
 				}},
 			})
@@ -559,8 +560,8 @@ func (tws *telnyxWebsocketStreamer) handleMediaEvent(mediaEvent internal_telnyx.
 			},
 		}, observability.RecordMetric{
 			Metrics: []*protos.Metric{{
-				Name:        observability.MetricCallFailed,
-				Value:       "1",
+				Name:        observability.MetricCallStatus,
+				Value:       "FAILED",
 				Description: "Failed to decode Telnyx media payload",
 			}},
 		})
@@ -614,8 +615,8 @@ func (tws *telnyxWebsocketStreamer) sendTelnyxMessage(eventType internal_telnyx.
 			},
 		}, observability.RecordMetric{
 			Metrics: []*protos.Metric{{
-				Name:        observability.MetricCallFailed,
-				Value:       "1",
+				Name:        observability.MetricCallStatus,
+				Value:       "FAILED",
 				Description: "Failed to marshal Telnyx message",
 			}},
 		})

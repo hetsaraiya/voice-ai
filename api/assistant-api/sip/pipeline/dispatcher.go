@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
-	observe "github.com/rapidaai/api/assistant-api/internal/observe"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/types"
@@ -90,16 +90,16 @@ type CallSetupResult struct {
 	CallContext *callcontext.CallContext
 }
 
-type OnCallStartFunc func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error
+type OnCallStartFunc func(ctx context.Context, session *sip_infra.Session, setup *CallSetupResult, observer observability.Recorder, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error
 type OnCallEndFunc func(callID string)
-type OnCreateObserverFunc func(ctx context.Context, setup *CallSetupResult, auth types.SimplePrinciple) *observe.ConversationObserver
+type OnCreateObserverFunc func(ctx context.Context, setup *CallSetupResult, auth types.SimplePrinciple) observability.Recorder
 
 type PreparedCallRuntime interface {
 	Start(ctx context.Context) error
 	Close(ctx context.Context)
 }
 
-type OnPrepareCallRuntimeFunc func(ctx context.Context, stage sip_infra.SessionEstablishedPipeline, setup *CallSetupResult, observer *observe.ConversationObserver) (PreparedCallRuntime, error)
+type OnPrepareCallRuntimeFunc func(ctx context.Context, stage sip_infra.SessionEstablishedPipeline, setup *CallSetupResult, observer observability.Recorder) (PreparedCallRuntime, error)
 
 type DispatcherConfig struct {
 	Logger               commons.Logger

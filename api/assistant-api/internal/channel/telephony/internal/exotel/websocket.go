@@ -98,6 +98,7 @@ func New(opts ...FuncOption) (internal_type.Streamer, error) {
 		},
 		StreamSink: exotel.Input,
 		OutputSink: exotel.sendOutputFrame,
+		Record:     exotel.Record,
 	})
 	go exotel.runWebSocketReader()
 	return exotel, nil
@@ -140,7 +141,7 @@ func (exotel *exotelWebsocketStreamer) runWebSocketReader() {
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "websocket_closed",
+					Value:       "COMPLETE",
 					Description: "Exotel websocket reader closed",
 				}},
 			})
@@ -164,8 +165,8 @@ func (exotel *exotelWebsocketStreamer) runWebSocketReader() {
 				},
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
-					Name:        observability.MetricCallFailed,
-					Value:       "1",
+					Name:        observability.MetricCallStatus,
+					Value:       "FAILED",
 					Description: "Failed to unmarshal Exotel media event",
 				}},
 			})
@@ -192,7 +193,7 @@ func (exotel *exotelWebsocketStreamer) runWebSocketReader() {
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "connected",
+					Value:       "INPROGRESS",
 					Description: "Exotel websocket connected",
 				}},
 			})
@@ -223,7 +224,7 @@ func (exotel *exotelWebsocketStreamer) runWebSocketReader() {
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "media_started",
+					Value:       "INPROGRESS",
 					Description: "Exotel media stream started",
 				}},
 			})
@@ -241,8 +242,8 @@ func (exotel *exotelWebsocketStreamer) runWebSocketReader() {
 					},
 				}, observability.RecordMetric{
 					Metrics: []*protos.Metric{{
-						Name:        observability.MetricCallFailed,
-						Value:       "1",
+						Name:        observability.MetricCallStatus,
+						Value:       "FAILED",
 						Description: "Exotel media frame processing failed",
 					}},
 				})
@@ -280,7 +281,7 @@ func (exotel *exotelWebsocketStreamer) runWebSocketReader() {
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "provider_stop",
+					Value:       "COMPLETE",
 					Description: "Exotel media stream stopped by provider",
 				}},
 			})
@@ -353,7 +354,7 @@ func (exotel *exotelWebsocketStreamer) Send(response internal_type.Stream) error
 		}, observability.RecordMetric{
 			Metrics: []*protos.Metric{{
 				Name:        observability.MetricCallStatus,
-				Value:       "completed",
+				Value:       "COMPLETE",
 				Description: "Exotel call ended by server-side disconnect",
 			}},
 		})
@@ -381,7 +382,7 @@ func (exotel *exotelWebsocketStreamer) Send(response internal_type.Stream) error
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "completed",
+					Value:       "COMPLETE",
 					Description: "Exotel call ended by tool action",
 				}},
 			})
@@ -417,8 +418,8 @@ func (exotel *exotelWebsocketStreamer) Send(response internal_type.Stream) error
 				},
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
-					Name:        observability.MetricCallFailed,
-					Value:       "1",
+					Name:        observability.MetricCallStatus,
+					Value:       "FAILED",
 					Description: "Exotel call transfer is not supported",
 				}},
 			})
@@ -479,8 +480,8 @@ func (exotel *exotelWebsocketStreamer) handleMediaEvent(mediaEvent internal_exot
 			},
 		}, observability.RecordMetric{
 			Metrics: []*protos.Metric{{
-				Name:        observability.MetricCallFailed,
-				Value:       "1",
+				Name:        observability.MetricCallStatus,
+				Value:       "FAILED",
 				Description: "Failed to decode Exotel media payload",
 			}},
 		})
@@ -523,8 +524,8 @@ func (exotel *exotelWebsocketStreamer) sendExotelMessage(eventType internal_exot
 			},
 		}, observability.RecordMetric{
 			Metrics: []*protos.Metric{{
-				Name:        observability.MetricCallFailed,
-				Value:       "1",
+				Name:        observability.MetricCallStatus,
+				Value:       "FAILED",
 				Description: "Failed to marshal Exotel message",
 			}},
 		})

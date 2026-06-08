@@ -12,8 +12,12 @@ import (
 	"time"
 
 	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	gorm_models "github.com/rapidaai/pkg/models/gorm"
+	"github.com/rapidaai/pkg/types"
+	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/validator"
+	"github.com/rapidaai/protos"
 	"gorm.io/gorm/clause"
 )
 
@@ -22,7 +26,7 @@ import (
 // counter. Skips DB writes if the DID was already locally active (renewal
 // loop carries the binding) — avoids one upsert tuple per tick per DID at
 // scale. Always terminal; returns nil.
-func (m *Manager) handleMarkActive(ctx context.Context, p MarkActivePipeline) Pipeline {
+func (m *manager) handleMarkActive(ctx context.Context, p MarkActivePipeline) Pipeline {
 	rec := p.Record
 	if rec.Outcome == OutcomeAlreadyActive {
 		return nil
@@ -39,7 +43,7 @@ func (m *Manager) handleMarkActive(ctx context.Context, p MarkActivePipeline) Pi
 	return nil
 }
 
-func (m *Manager) writeRegistrationStatus(ctx context.Context, deploymentID uint64, update RegistrationStatusUpdate) {
+func (m *manager) writeRegistrationStatus(ctx context.Context, deploymentID uint64, update RegistrationStatusUpdate) {
 	if validator.NotBlank(string(update.Status)) {
 		m.upsertOption(ctx, deploymentID, OptKeySIPStatus, string(update.Status))
 	}
@@ -81,7 +85,7 @@ func (m *Manager) writeRegistrationStatus(ctx context.Context, deploymentID uint
 
 // upsertOption mirrors the upsert pattern used by CreatePhoneDeployment so
 // existing rows are updated in place rather than duplicated.
-func (m *Manager) upsertOption(ctx context.Context, deploymentID uint64, key, value string) {
+func (m *manager) upsertOption(ctx context.Context, deploymentID uint64, key, value string) {
 	db := m.postgres.DB(ctx)
 	opt := &internal_assistant_entity.AssistantDeploymentTelephonyOption{
 		AssistantDeploymentTelephonyId: deploymentID,
@@ -109,7 +113,7 @@ func formatRegistrationTime(t time.Time) string {
 // handleTransient bumps the retry counter for transport / 5xx style errors.
 // After MaxTransientRetries the deployment is marked unreachable so subsequent
 // reconciles short-circuit it via the terminal-status filter in loadRecords.
-func (m *Manager) handleTransient(ctx context.Context, rec *Record, err error) {
+func (m *manager) handleTransient(ctx context.Context, rec *Record, err error) {
 	db := m.postgres.DB(ctx)
 	var opt internal_assistant_entity.AssistantDeploymentTelephonyOption
 	retry := 0
@@ -128,11 +132,99 @@ func (m *Manager) handleTransient(ctx context.Context, rec *Record, err error) {
 		m.logger.Errorw("SIP registration unreachable after max retries — will not retry",
 			"did", rec.DID, "assistant_id", rec.AssistantID, "retries", retry, "error", err)
 		statusUpdate.Status = StatusUnreachable
+		auth := &types.ProjectScope{
+			ProjectId:      &rec.ProjectID,
+			OrganizationId: &rec.OrganizationID,
+			Status:         type_enums.RECORD_ACTIVE.String(),
+		}
+		observer := m.observer(ctx, auth)
+		defer observer.Close(context.Background())
+		attributes := observability.Attributes{
+			"did":            rec.DID,
+			"assistant_id":   strconv.FormatUint(rec.AssistantID, 10),
+			"deployment_id":  strconv.FormatUint(rec.DeploymentID, 10),
+			"credential_id":  strconv.FormatUint(rec.CredentialID, 10),
+			"owner":          m.instanceID,
+			"failure_class":  string(statusUpdate.FailureClass),
+			"failure_reason": string(statusUpdate.FailureReason),
+			"retry_count":    strconv.Itoa(retry),
+			"error":          err.Error(),
+		}
+		if statusUpdate.ResponseCode > 0 {
+			attributes["response_code"] = strconv.Itoa(statusUpdate.ResponseCode)
+		}
+		if statusUpdate.ResponseText != "" {
+			attributes["response_text"] = statusUpdate.ResponseText
+		}
+		_ = observer.Record(ctx, observability.AssistantScope{AssistantID: rec.AssistantID},
+			observability.RecordLog{
+				Level:      observability.LevelError,
+				Message:    "SIP registration unreachable after max retries",
+				Attributes: attributes,
+			},
+			observability.RecordEvent{
+				Component:  observability.ComponentSIP,
+				Event:      observability.SIPRegisterFailed,
+				Attributes: attributes,
+			},
+			observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricSIPRegistrationStatus,
+					Value:       type_enums.RECORD_FAILED.String(),
+					Description: "SIP registration unreachable after max retries",
+				}},
+				Attributes: attributes,
+			},
+		)
 		m.writeRegistrationStatus(ctx, rec.DeploymentID, statusUpdate)
 		return
 	}
 
 	m.logger.Warnw("SIP registration failed (will retry)",
 		"did", rec.DID, "assistant_id", rec.AssistantID, "retry", retry, "error", err)
+	auth := &types.ProjectScope{
+		ProjectId:      &rec.ProjectID,
+		OrganizationId: &rec.OrganizationID,
+		Status:         type_enums.RECORD_ACTIVE.String(),
+	}
+	observer := m.observer(ctx, auth)
+	defer observer.Close(context.Background())
+	attributes := observability.Attributes{
+		"did":            rec.DID,
+		"assistant_id":   strconv.FormatUint(rec.AssistantID, 10),
+		"deployment_id":  strconv.FormatUint(rec.DeploymentID, 10),
+		"credential_id":  strconv.FormatUint(rec.CredentialID, 10),
+		"owner":          m.instanceID,
+		"failure_class":  string(statusUpdate.FailureClass),
+		"failure_reason": string(statusUpdate.FailureReason),
+		"retry_count":    strconv.Itoa(retry),
+		"error":          err.Error(),
+	}
+	if statusUpdate.ResponseCode > 0 {
+		attributes["response_code"] = strconv.Itoa(statusUpdate.ResponseCode)
+	}
+	if statusUpdate.ResponseText != "" {
+		attributes["response_text"] = statusUpdate.ResponseText
+	}
+	_ = observer.Record(ctx, observability.AssistantScope{AssistantID: rec.AssistantID},
+		observability.RecordLog{
+			Level:      observability.LevelError,
+			Message:    "SIP registration failed and will retry",
+			Attributes: attributes,
+		},
+		observability.RecordEvent{
+			Component:  observability.ComponentSIP,
+			Event:      observability.SIPRegisterFailed,
+			Attributes: attributes,
+		},
+		observability.RecordMetric{
+			Metrics: []*protos.Metric{{
+				Name:        observability.MetricSIPRegistrationStatus,
+				Value:       type_enums.RECORD_FAILED.String(),
+				Description: "SIP registration failed and will retry",
+			}},
+			Attributes: attributes,
+		},
+	)
 	m.writeRegistrationStatus(ctx, rec.DeploymentID, statusUpdate)
 }

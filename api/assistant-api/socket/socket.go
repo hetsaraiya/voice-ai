@@ -162,6 +162,7 @@ func (m *audioSocketEngine) handleConnection(ctx context.Context, conn net.Conn)
 		ContextID:   contextID,
 		CallContext: callContext,
 		Talker:      talker,
+		Observer:    observer,
 	})
 
 	if result.Error != nil {

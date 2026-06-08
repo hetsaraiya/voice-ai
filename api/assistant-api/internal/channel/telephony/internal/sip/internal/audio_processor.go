@@ -19,7 +19,7 @@ import (
 	internal_channel_input "github.com/rapidaai/api/assistant-api/internal/channel/input"
 	internal_telephony_output "github.com/rapidaai/api/assistant-api/internal/channel/output"
 	internal_telephony_media "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/media"
-	"github.com/rapidaai/api/assistant-api/internal/observe"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/protos"
@@ -45,6 +45,7 @@ type AudioProcessor struct {
 	resampler  internal_type.AudioResampler
 	rtpHandler *sip_infra.RTPHandler
 	pushInput  func(internal_type.Stream)
+	record     func(...observability.Record) error
 
 	inputBuffer  internal_channel_input.InputBuffer
 	outputBuffer internal_telephony_output.FrameBuffer
@@ -76,6 +77,7 @@ func NewAudioProcessor(cfg AudioProcessorConfig) *AudioProcessor {
 		resampler:        cfg.Resampler,
 		rtpHandler:       cfg.RTPHandler,
 		pushInput:        cfg.PushInput,
+		record:           cfg.Record,
 		inputBuffer:      internal_channel_input.NewBytesInputBuffer(InputBufferThreshold * 2),
 		outputBuffer:     internal_telephony_output.NewBytesFrameBuffer(BridgeOutputFrameSize * 8),
 		bridgeUserCh:     make(chan bridgeRecordingFrame, AudioChannelSize),
@@ -361,16 +363,22 @@ func (p *AudioProcessor) ForwardUserAudio(audioData []byte) bool {
 	}
 	if err := state.outputTarget.EnqueueAudio(audioData); err != nil {
 		dropped := p.droppedBridgeFrames.Add(1)
-		if p.pushInput != nil && errors.Is(err, sip_infra.ErrRTPOutputQueueFull) && (dropped == 1 || dropped%100 == 0) {
-			p.pushInput(&protos.ConversationEvent{
-				Name: observe.ComponentTelephony,
-				Data: map[string]string{
-					"type":                 "output_send_error",
+		if p.record != nil && errors.Is(err, sip_infra.ErrRTPOutputQueueFull) && (dropped == 1 || dropped%100 == 0) {
+			_ = p.record(observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "SIP bridge audio output queue full",
+				Attributes: observability.Attributes{
+					"component":            observability.ComponentCall.String(),
 					"provider":             Provider,
 					"reason":               "bridge_audio_out_full",
 					"dropped_frames_total": fmt.Sprintf("%d", dropped),
 				},
-				Time: timestamppb.Now(),
+			}, observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricCallStatus,
+					Value:       "FAILED",
+					Description: "SIP bridge audio output queue full",
+				}},
 			})
 		}
 		return true

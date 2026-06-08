@@ -14,6 +14,7 @@ import (
 
 	internal_ambient "github.com/rapidaai/api/assistant-api/internal/audio/ambient"
 	internal_telephony_media "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/media"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/pkg/commons"
@@ -28,6 +29,7 @@ type MediaPortConfig struct {
 	RTPHandler *sip_infra.RTPHandler
 	Resampler  internal_type.AudioResampler
 	StreamSink func(internal_type.Stream)
+	Record     func(...observability.Record) error
 }
 
 type MediaPort struct {
@@ -38,6 +40,7 @@ type MediaPort struct {
 	audioProcessor *AudioProcessor
 	mediaSession   *internal_telephony_media.MediaSession
 	streamSink     func(internal_type.Stream)
+	record         func(...observability.Record) error
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -74,6 +77,7 @@ func NewMediaPort(config MediaPortConfig) (*MediaPort, error) {
 		session:    config.Session,
 		rtpHandler: rtpHandler,
 		streamSink: config.StreamSink,
+		record:     config.Record,
 		ctx:        ctx,
 		cancel:     cancel,
 	}
@@ -81,6 +85,7 @@ func NewMediaPort(config MediaPortConfig) (*MediaPort, error) {
 		RTPHandler: rtpHandler,
 		Resampler:  config.Resampler,
 		PushInput:  config.StreamSink,
+		Record:     config.Record,
 		Ringtone:   DefaultRingtone,
 		Ambient:    resolveAmbientConfig(config.Session),
 	})
@@ -92,18 +97,7 @@ func NewMediaPort(config MediaPortConfig) (*MediaPort, error) {
 		OutputSink: func(frame internal_telephony_media.AssistantOutputFrame) error {
 			return mediaPort.deliverAssistantFrame(frame)
 		},
-		EventSink: func(event *protos.ConversationEvent) {
-			if event == nil {
-				return
-			}
-			if event.Data == nil {
-				event.Data = map[string]string{}
-			}
-			event.Data["provider"] = Provider
-			if mediaPort.streamSink != nil {
-				mediaPort.streamSink(event)
-			}
-		},
+		Record: config.Record,
 	})
 	return mediaPort, nil
 }
@@ -298,8 +292,23 @@ func (port *MediaPort) forwardIncomingAudio() {
 			if port.transferActive.Load() {
 				continue
 			}
-			if err := port.handleProviderAudioFrame(audioData, time.Now()); err != nil && port.logger != nil {
-				port.logger.Debugw("SIP provider audio processing failed", "error", err.Error())
+			if err := port.handleProviderAudioFrame(audioData, time.Now()); err != nil && port.record != nil {
+				_ = port.record(observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "SIP provider audio processing failed",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentCall.String(),
+						"provider":  Provider,
+						"call_id":   port.session.GetCallID(),
+						"error":     err.Error(),
+					},
+				}, observability.RecordMetric{
+					Metrics: []*protos.Metric{{
+						Name:        observability.MetricCallStatus,
+						Value:       "FAILED",
+						Description: "SIP provider audio processing failed",
+					}},
+				})
 			}
 		}
 	}
@@ -347,12 +356,48 @@ func (port *MediaPort) deliverAssistantFrame(outputFrame internal_telephony_medi
 	}
 	providerAudio, err := port.audioProcessor.encodeAssistantOutputFrame(outputFrame.ProviderAudio)
 	if err != nil {
+		if port.record != nil {
+			_ = port.record(observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "SIP assistant audio encoding failed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentCall.String(),
+					"provider":  Provider,
+					"call_id":   port.session.GetCallID(),
+					"error":     err.Error(),
+				},
+			}, observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricCallStatus,
+					Value:       "FAILED",
+					Description: "SIP assistant audio encoding failed",
+				}},
+			})
+		}
 		return err
 	}
 	if len(providerAudio) == 0 {
 		return nil
 	}
 	if err := port.rtpHandler.EnqueueAudio(providerAudio); err != nil {
+		if port.record != nil {
+			_ = port.record(observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "SIP assistant audio output failed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentCall.String(),
+					"provider":  Provider,
+					"call_id":   port.session.GetCallID(),
+					"error":     err.Error(),
+				},
+			}, observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricCallStatus,
+					Value:       "FAILED",
+					Description: "SIP assistant audio output failed",
+				}},
+			})
+		}
 		if errors.Is(err, sip_infra.ErrRTPOutputQueueFull) {
 			return port.audioProcessor.rtpOutputQueueFullError()
 		}
@@ -375,8 +420,17 @@ func (port *MediaPort) recordDeliveredAssistantAudio(assistantPCM16k []byte) {
 	if port.session == nil || port.session.GetInfo().Direction != sip_infra.CallDirectionInbound {
 		return
 	}
-	if port.session.MarkInboundFirstAssistantAudioSent() && port.logger != nil {
-		port.logger.Infow("SIP first assistant audio sent", "call_id", port.session.GetCallID())
+	if port.session.MarkInboundFirstAssistantAudioSent() && port.record != nil {
+		_ = port.record(observability.RecordEvent{
+			Component: observability.ComponentCall,
+			Event:     observability.CallStatus,
+			Attributes: observability.Attributes{
+				"component": observability.ComponentCall.String(),
+				"provider":  Provider,
+				"call_id":   port.session.GetCallID(),
+				"status":    "first_assistant_audio_sent",
+			},
+		})
 	}
 }
 

@@ -296,6 +296,7 @@ func (RecordEvent) isRecord() {}
 type RecordMetric struct {
 	ID         string
 	Metrics    []*protos.Metric
+	Attributes Attributes
 	OccurredAt time.Time
 }
 

@@ -145,6 +145,7 @@ type SessionConnectedPipeline struct {
 	ContextID   string
 	CallContext *callcontext.CallContext
 	Talker      internal_type.Talking
+	Observer    observability.Recorder
 }
 
 func (p SessionConnectedPipeline) CallID() string { return p.ID }
@@ -152,7 +153,8 @@ func (p SessionConnectedPipeline) Validate() bool {
 	return validator.NotBlank(p.ID) &&
 		validator.NotBlank(p.ContextID) &&
 		validator.NonNil(p.CallContext) &&
-		validator.NonNil(p.Talker)
+		validator.NonNil(p.Talker) &&
+		validator.NonNil(p.Observer)
 }
 
 type SessionInitializedPipeline struct {
@@ -173,19 +175,6 @@ type CallActivePipeline struct {
 func (p CallActivePipeline) CallID() string { return p.ID }
 func (p CallActivePipeline) Validate() bool {
 	return validator.NotBlank(p.ID)
-}
-
-type ModeSwitchPipeline struct {
-	ID   string
-	From string
-	To   string
-}
-
-func (p ModeSwitchPipeline) CallID() string { return p.ID }
-func (p ModeSwitchPipeline) Validate() bool {
-	return validator.NotBlank(p.ID) &&
-		validator.NotBlank(p.From) &&
-		validator.NotBlank(p.To)
 }
 
 type DisconnectRequestedPipeline struct {

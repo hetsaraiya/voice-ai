@@ -14,9 +14,9 @@ import (
 
 	internal_ambient "github.com/rapidaai/api/assistant-api/internal/audio/ambient"
 	internal_output "github.com/rapidaai/api/assistant-api/internal/channel/output"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	"github.com/rapidaai/protos"
 )
 
 // MediaEngine defines shared telephony media semantics independent of transport.
@@ -40,7 +40,7 @@ type MediaSessionConfig struct {
 	SendProviderClear func() error
 	StreamSink        StreamSink
 	OutputSink        OutputSink
-	EventSink         func(*protos.ConversationEvent)
+	Record            func(...observability.Record) error
 }
 
 // MediaSession owns telephony media lifecycle for a channel transport.
@@ -54,7 +54,7 @@ type MediaSession struct {
 	sinkMu     sync.RWMutex
 	streamSink StreamSink
 	outputSink OutputSink
-	eventSink  func(*protos.ConversationEvent)
+	record     func(...observability.Record) error
 
 	outputFrameMu         sync.Mutex
 	currentOutputFrame    AssistantOutputFrame

@@ -97,6 +97,7 @@ func New(opts ...FuncOption) (internal_type.Streamer, error) {
 		SendProviderClear: vng.sendProviderClear,
 		StreamSink:        vng.Input,
 		OutputSink:        vng.sendOutputFrame,
+		Record:            vng.Record,
 	})
 	go vng.runWebSocketReader()
 	return vng, nil
@@ -137,7 +138,7 @@ func (vng *vonageWebsocketStreamer) runWebSocketReader() {
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "websocket_closed",
+					Value:       "COMPLETE",
 					Description: "Vonage websocket reader closed",
 				}},
 			})
@@ -162,8 +163,8 @@ func (vng *vonageWebsocketStreamer) runWebSocketReader() {
 					},
 				}, observability.RecordMetric{
 					Metrics: []*protos.Metric{{
-						Name:        observability.MetricCallFailed,
-						Value:       "1",
+						Name:        observability.MetricCallStatus,
+						Value:       "FAILED",
 						Description: "Failed to unmarshal Vonage text event",
 					}},
 				})
@@ -195,7 +196,7 @@ func (vng *vonageWebsocketStreamer) runWebSocketReader() {
 				}, observability.RecordMetric{
 					Metrics: []*protos.Metric{{
 						Name:        observability.MetricCallStatus,
-						Value:       "connected",
+						Value:       "INPROGRESS",
 						Description: "Vonage websocket connected",
 					}},
 				})
@@ -218,7 +219,7 @@ func (vng *vonageWebsocketStreamer) runWebSocketReader() {
 				}, observability.RecordMetric{
 					Metrics: []*protos.Metric{{
 						Name:        observability.MetricCallStatus,
-						Value:       "provider_stop",
+						Value:       "COMPLETE",
 						Description: "Vonage websocket stopped by provider",
 					}},
 				})
@@ -253,8 +254,8 @@ func (vng *vonageWebsocketStreamer) runWebSocketReader() {
 					},
 				}, observability.RecordMetric{
 					Metrics: []*protos.Metric{{
-						Name:        observability.MetricCallFailed,
-						Value:       "1",
+						Name:        observability.MetricCallStatus,
+						Value:       "FAILED",
 						Description: "Vonage media frame processing failed",
 					}},
 				})
@@ -318,8 +319,8 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 					},
 				}, observability.RecordMetric{
 					Metrics: []*protos.Metric{{
-						Name:        observability.MetricCallFailed,
-						Value:       "1",
+						Name:        observability.MetricCallStatus,
+						Value:       "FAILED",
 						Description: "Failed to create Vonage client for server-side disconnect",
 					}},
 				})
@@ -338,8 +339,8 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 						},
 					}, observability.RecordMetric{
 						Metrics: []*protos.Metric{{
-							Name:        observability.MetricCallFailed,
-							Value:       "1",
+							Name:        observability.MetricCallStatus,
+							Value:       "FAILED",
 							Description: "Failed to end Vonage call on server-side disconnect",
 						}},
 					})
@@ -362,7 +363,7 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 					}, observability.RecordMetric{
 						Metrics: []*protos.Metric{{
 							Name:        observability.MetricCallStatus,
-							Value:       "completed",
+							Value:       "COMPLETE",
 							Description: "Vonage call ended by server-side disconnect",
 						}},
 					})
@@ -390,8 +391,8 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 						},
 					}, observability.RecordMetric{
 						Metrics: []*protos.Metric{{
-							Name:        observability.MetricCallFailed,
-							Value:       "1",
+							Name:        observability.MetricCallStatus,
+							Value:       "FAILED",
 							Description: "Failed to create Vonage client for end conversation",
 						}},
 					})
@@ -409,8 +410,8 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 						},
 					}, observability.RecordMetric{
 						Metrics: []*protos.Metric{{
-							Name:        observability.MetricCallFailed,
-							Value:       "1",
+							Name:        observability.MetricCallStatus,
+							Value:       "FAILED",
 							Description: "Failed to end Vonage call",
 						}},
 					})
@@ -434,7 +435,7 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 					}, observability.RecordMetric{
 						Metrics: []*protos.Metric{{
 							Name:        observability.MetricCallStatus,
-							Value:       "completed",
+							Value:       "COMPLETE",
 							Description: "Vonage call ended by tool action",
 						}},
 					})
@@ -472,8 +473,8 @@ func (vng *vonageWebsocketStreamer) Send(response internal_type.Stream) error {
 				},
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
-					Name:        observability.MetricCallFailed,
-					Value:       "1",
+					Name:        observability.MetricCallStatus,
+					Value:       "FAILED",
 					Description: "Vonage call transfer is not supported",
 				}},
 			})
@@ -553,8 +554,8 @@ func (vng *vonageWebsocketStreamer) sendOutputFrame(frame internal_telephony_med
 			},
 		}, observability.RecordMetric{
 			Metrics: []*protos.Metric{{
-				Name:        observability.MetricCallFailed,
-				Value:       "1",
+				Name:        observability.MetricCallStatus,
+				Value:       "FAILED",
 				Description: "Failed to send audio frame to Vonage",
 			}},
 		})
@@ -577,8 +578,8 @@ func (vng *vonageWebsocketStreamer) sendProviderClear() error {
 			},
 		}, observability.RecordMetric{
 			Metrics: []*protos.Metric{{
-				Name:        observability.MetricCallFailed,
-				Value:       "1",
+				Name:        observability.MetricCallStatus,
+				Value:       "FAILED",
 				Description: "Failed to marshal Vonage clear message",
 			}},
 		})

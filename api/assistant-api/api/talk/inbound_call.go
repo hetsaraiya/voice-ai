@@ -110,6 +110,7 @@ func (cApi *ConversationApi) CallTalkerByContext(c *gin.Context) {
 		ContextID:   contextID,
 		CallContext: callContext,
 		Talker:      talker,
+		Observer:    observer,
 	})
 	if result != nil && result.Error != nil {
 		cApi.logger.Errorf("talk failed for context %s: %v", contextID, result.Error)

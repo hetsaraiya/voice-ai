@@ -156,8 +156,6 @@ func (d *Dispatcher) enqueue(ctx context.Context, s Pipeline) {
 	switch s.(type) {
 	case DisconnectRequestedPipeline, CallCompletedPipeline, CallFailedPipeline:
 		d.signalCh <- e
-	case ModeSwitchPipeline:
-		d.mediaCh <- e
 	case EventEmittedPipeline, MetricEmittedPipeline:
 		d.controlCh <- e
 	default:
@@ -199,8 +197,6 @@ func (d *Dispatcher) dispatch(e callEnvelope) {
 		d.handleCallCompleted(ctx, v)
 	case CallFailedPipeline:
 		d.handleCallFailed(ctx, v)
-	case ModeSwitchPipeline:
-		d.handleModeSwitch(ctx, v)
 	case EventEmittedPipeline:
 		d.handleEventEmitted(ctx, v)
 	case MetricEmittedPipeline:

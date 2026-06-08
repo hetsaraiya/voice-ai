@@ -24,52 +24,41 @@ const (
 
 // Current call, telephony, SIP, transfer, RTP, and WebRTC metric names.
 const (
-	MetricCallDurationMs  = "call.duration_ms"
-	MetricSetupDurationMs = "call.setup_duration_ms"
-	MetricRingDurationMs  = "call.ring_duration_ms"
-
-	MetricCallStatus    = "call.status"
-	MetricCallEndReason = "call.end_reason"
-	MetricCallFailed    = "call.failed"
-
-	MetricSIPRegisterFailure = "sip.register_failure"
-
-	MetricTransferDurationMs = "transfer.bridge_duration_ms"
-
-	MetricRTPPacketsSent     = "rtp.packets_sent"
-	MetricRTPPacketsReceived = "rtp.packets_received"
-	MetricRTPBytesSent       = "rtp.bytes_sent"
-	MetricRTPBytesReceived   = "rtp.bytes_received"
-
+	MetricCallDurationMs         = "call.duration_ms"
+	MetricSetupDurationMs        = "call.setup_duration_ms"
+	MetricRingDurationMs         = "call.ring_duration_ms"
+	MetricCallStatus             = "call.status"
+	MetricSIPRegisterFailure     = "sip.register_failure"
+	MetricSIPRegistrationStatus  = "sip.registration.status"
+	MetricTransferDurationMs     = "transfer.bridge_duration_ms"
+	MetricRTPPacketsSent         = "rtp.packets_sent"
+	MetricRTPPacketsReceived     = "rtp.packets_received"
+	MetricRTPBytesSent           = "rtp.bytes_sent"
+	MetricRTPBytesReceived       = "rtp.bytes_received"
 	MetricICELatencyMs           = "webrtc.ice_latency_ms"
 	MetricWebRTCOutputQueueDrops = "webrtc.output_queue_dropped_frames"
-
-	MetricTelephonyStatus   = "telephony.status"
-	MetricTelephonyDuration = "telephony_duration"
-	MetricTelephonyPrice    = "telephony.price"
+	MetricTelephonyStatus        = "telephony.status"
+	MetricTelephonyDuration      = "telephony_duration"
+	MetricTelephonyPrice         = "telephony.price"
 )
 
 // Current turn and provider metric names.
 const (
-	MetricUserTurn           = "user_turn"
-	MetricAssistantTurn      = "assistant_turn"
-	MetricSTTLatencyMs       = "stt_latency_ms"
-	MetricTTSLatencyMs       = "tts_latency_ms"
-	MetricEOSLatencyMs       = "eos_latency_ms"
-	MetricEOSTextToTriggerMs = "eos_text_to_trigger_ms"
-	MetricEOSWordCount       = "eos_word_count"
-	MetricEOSCharCount       = "eos_char_count"
-	MetricEOSConfidence      = "eos_confidence"
-	MetricKnowledgeLatencyMs = "knowledge_latency_ms"
-	MetricLLMError           = "llm_error"
-	MetricSTTError           = "stt_error"
-	MetricTTSError           = "tts_error"
-	MetricDiscardedTTSChunk  = "discarded_tts_chunk"
-	MetricDiscardedTTS       = "discarded_tts"
-)
-
-// Current LLM metric names from type_enums.
-const (
+	MetricUserTurn             = "user_turn"
+	MetricAssistantTurn        = "assistant_turn"
+	MetricSTTLatencyMs         = "stt_latency_ms"
+	MetricTTSLatencyMs         = "tts_latency_ms"
+	MetricEOSLatencyMs         = "eos_latency_ms"
+	MetricEOSTextToTriggerMs   = "eos_text_to_trigger_ms"
+	MetricEOSWordCount         = "eos_word_count"
+	MetricEOSCharCount         = "eos_char_count"
+	MetricEOSConfidence        = "eos_confidence"
+	MetricKnowledgeLatencyMs   = "knowledge_latency_ms"
+	MetricLLMError             = "llm_error"
+	MetricSTTError             = "stt_error"
+	MetricTTSError             = "tts_error"
+	MetricDiscardedTTSChunk    = "discarded_tts_chunk"
+	MetricDiscardedTTS         = "discarded_tts"
 	MetricTimeTaken            = "time_taken"
 	MetricStatus               = "status"
 	MetricInputToken           = "input_token"

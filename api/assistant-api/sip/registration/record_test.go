@@ -25,7 +25,7 @@ func (t *testPostgresConnector) Query(ctx context.Context, qry string, dest inte
 }
 func (t *testPostgresConnector) DB(ctx context.Context) *gorm.DB { return t.db.WithContext(ctx) }
 
-func newTestManager(t *testing.T) (*Manager, *gorm.DB, context.Context) {
+func newTestManager(t *testing.T) (*manager, *gorm.DB, context.Context) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -69,7 +69,7 @@ func newTestManager(t *testing.T) (*Manager, *gorm.DB, context.Context) {
 		t.Fatalf("failed to create logger: %v", err)
 	}
 
-	return &Manager{
+	return &manager{
 		logger:   logger,
 		postgres: &testPostgresConnector{db: db},
 	}, db, ctx

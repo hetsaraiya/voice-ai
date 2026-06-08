@@ -13,7 +13,7 @@ import (
 
 	internal_ambient "github.com/rapidaai/api/assistant-api/internal/audio/ambient"
 	internal_output "github.com/rapidaai/api/assistant-api/internal/channel/output"
-	"github.com/rapidaai/api/assistant-api/internal/observe"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/protos"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -31,7 +31,7 @@ func NewMediaSession(config MediaSessionConfig) *MediaSession {
 		sendProviderClear: config.SendProviderClear,
 		streamSink:        config.StreamSink,
 		outputSink:        config.OutputSink,
-		eventSink:         config.EventSink,
+		record:            config.Record,
 		ctx:               ctx,
 		cancel:            cancel,
 	}
@@ -104,14 +104,28 @@ func (mediaSession *MediaSession) HandleInterrupt() {
 	mediaSession.hasCurrentOutputFrame = false
 	mediaSession.outputFrameMu.Unlock()
 	if mediaSession.sendProviderClear != nil {
-		if err := mediaSession.sendProviderClear(); err != nil && mediaSession.logger != nil {
-			mediaSession.logger.Warn("Failed to send telephony clear command", "error", err.Error())
+		if err := mediaSession.sendProviderClear(); err != nil && mediaSession.record != nil {
+			_ = mediaSession.record(observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "Failed to send telephony clear command",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentCall.String(),
+					"error":     err.Error(),
+				},
+			})
 		}
 	}
-	mediaSession.emitEvent(map[string]string{
-		"type":   "output_queue_cleared",
-		"reason": "interruption",
-	})
+	if mediaSession.record != nil {
+		_ = mediaSession.record(observability.RecordEvent{
+			Component: observability.ComponentCall,
+			Event:     observability.CallStatus,
+			Attributes: observability.Attributes{
+				"component": observability.ComponentCall.String(),
+				"status":    "output_queue_cleared",
+				"reason":    "interruption",
+			},
+		})
+	}
 }
 
 func (mediaSession *MediaSession) Shutdown() {
@@ -128,20 +142,6 @@ func (mediaSession *MediaSession) Shutdown() {
 
 func (mediaSession *MediaSession) hasMediaEngine() bool {
 	return mediaSession.mediaEngine != nil
-}
-
-func (mediaSession *MediaSession) emitEvent(data map[string]string) {
-	mediaSession.sinkMu.RLock()
-	eventSink := mediaSession.eventSink
-	mediaSession.sinkMu.RUnlock()
-	if eventSink == nil {
-		return
-	}
-	eventSink(&protos.ConversationEvent{
-		Name: observe.ComponentTelephony,
-		Data: data,
-		Time: timestamppb.Now(),
-	})
 }
 
 func (mediaSession *MediaSession) runOutputHealthReporter(mediaEngine MediaEngine) {
@@ -161,27 +161,47 @@ func (mediaSession *MediaSession) runOutputHealthReporter(mediaEngine MediaEngin
 			continue
 		}
 
-		mediaSession.emitEvent(map[string]string{
-			"type":         "output_pacer_health",
-			"ticks":        fmt.Sprintf("%d", healthSnapshot.Ticks),
-			"late_ticks":   fmt.Sprintf("%d", healthSnapshot.LateTicks),
-			"active_ticks": fmt.Sprintf("%d", healthSnapshot.ActiveTicks),
-			"idle_ticks":   fmt.Sprintf("%d", healthSnapshot.IdleTicks),
-			"send_errors":  fmt.Sprintf("%d", healthSnapshot.SendErrors),
-			"idle_ratio":   fmt.Sprintf("%.4f", healthSnapshot.IdleRatio),
-		})
+		if mediaSession.record != nil {
+			_ = mediaSession.record(observability.RecordLog{
+				Level:   observability.LevelDebug,
+				Message: "Telephony output pacer health",
+				Attributes: observability.Attributes{
+					"component":     observability.ComponentCall.String(),
+					"ticks":         fmt.Sprintf("%d", healthSnapshot.Ticks),
+					"late_ticks":    fmt.Sprintf("%d", healthSnapshot.LateTicks),
+					"active_ticks":  fmt.Sprintf("%d", healthSnapshot.ActiveTicks),
+					"idle_ticks":    fmt.Sprintf("%d", healthSnapshot.IdleTicks),
+					"send_errors":   fmt.Sprintf("%d", healthSnapshot.SendErrors),
+					"idle_ratio":    fmt.Sprintf("%.4f", healthSnapshot.IdleRatio),
+					"health_status": "output_pacer_health",
+				},
+			})
+		}
 
 		if healthSnapshot.SendErrors > previousSnapshot.SendErrors {
-			mediaSession.emitEvent(map[string]string{
-				"type":              "output_send_error",
-				"send_errors_delta": fmt.Sprintf("%d", healthSnapshot.SendErrors-previousSnapshot.SendErrors),
-				"total_send_errors": fmt.Sprintf("%d", healthSnapshot.SendErrors),
-				"ticks":             fmt.Sprintf("%d", healthSnapshot.Ticks),
-				"late_ticks":        fmt.Sprintf("%d", healthSnapshot.LateTicks),
-				"active_ticks":      fmt.Sprintf("%d", healthSnapshot.ActiveTicks),
-				"idle_ticks":        fmt.Sprintf("%d", healthSnapshot.IdleTicks),
-				"idle_ratio":        fmt.Sprintf("%.4f", healthSnapshot.IdleRatio),
-			})
+			if mediaSession.record != nil {
+				_ = mediaSession.record(observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "Telephony output send error",
+					Attributes: observability.Attributes{
+						"component":          observability.ComponentCall.String(),
+						"send_errors_delta":  fmt.Sprintf("%d", healthSnapshot.SendErrors-previousSnapshot.SendErrors),
+						"total_send_errors":  fmt.Sprintf("%d", healthSnapshot.SendErrors),
+						"ticks":              fmt.Sprintf("%d", healthSnapshot.Ticks),
+						"late_ticks":         fmt.Sprintf("%d", healthSnapshot.LateTicks),
+						"active_ticks":       fmt.Sprintf("%d", healthSnapshot.ActiveTicks),
+						"idle_ticks":         fmt.Sprintf("%d", healthSnapshot.IdleTicks),
+						"idle_ratio":         fmt.Sprintf("%.4f", healthSnapshot.IdleRatio),
+						"output_error_state": "output_send_error",
+					},
+				}, observability.RecordMetric{
+					Metrics: []*protos.Metric{{
+						Name:        observability.MetricCallStatus,
+						Value:       "FAILED",
+						Description: "Telephony output send error",
+					}},
+				})
+			}
 		}
 		previousSnapshot = healthSnapshot
 	}
@@ -248,10 +268,22 @@ func (mediaSession *MediaSession) ConsumeFrame(providerAudio []byte) error {
 		return nil
 	}
 	if err := outputSink(outputFrame); err != nil {
-		mediaSession.emitEvent(map[string]string{
-			"type":  "output_send_error",
-			"error": err.Error(),
-		})
+		if mediaSession.record != nil {
+			_ = mediaSession.record(observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "Telephony output send failed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentCall.String(),
+					"error":     err.Error(),
+				},
+			}, observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricCallStatus,
+					Value:       "FAILED",
+					Description: "Telephony output send failed",
+				}},
+			})
+		}
 		return err
 	}
 	if outputFrame.Idle || len(outputFrame.BridgeAudio) == 0 {

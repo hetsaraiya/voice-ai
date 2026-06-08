@@ -14,7 +14,7 @@ import (
 )
 
 func TestRegistrationStatusUpdateFromError_PreservesTypedClassification(t *testing.T) {
-	m := &Manager{instanceID: "test-instance"}
+	m := &manager{instanceID: "test-instance"}
 	err := fmt.Errorf("%w: %w", sip_infra.ErrRegistrationFailed, &sip_infra.RegistrationError{
 		Class:      RegistrationFailureClassRejected,
 		Reason:     RegistrationFailureReasonRegistrarRejected,
@@ -42,7 +42,7 @@ func TestRegistrationStatusUpdateFromError_PreservesTypedClassification(t *testi
 }
 
 func TestRegistrationStatusUpdateFromError_ClassifiesLegacyAuthError(t *testing.T) {
-	m := &Manager{instanceID: "test-instance"}
+	m := &manager{instanceID: "test-instance"}
 
 	update := m.registrationStatusUpdateFromError(sip_infra.ErrAuthFailed)
 	if update.Status != StatusFailed {

@@ -22,8 +22,6 @@ import (
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
 	observability_collector_conversationdb "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationdb"
-	observe "github.com/rapidaai/api/assistant-api/internal/observe"
-	observe_exporters "github.com/rapidaai/api/assistant-api/internal/observe/exporters"
 	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
 	internal_assistant_service "github.com/rapidaai/api/assistant-api/internal/services/assistant"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
@@ -69,7 +67,7 @@ type SIPEngine struct {
 
 	// Distributed registration manager — runs the GetRecord -> ClaimOwner ->
 	// Register -> UpdateStatus pipeline, sharded across instances by externalIP.
-	regManager *sip_registration.Manager
+	regManager sip_registration.Manager
 
 	// Pipeline dispatcher — routes SIP call lifecycle through extensible stages.
 	dispatcher *sip_pipeline.Dispatcher
@@ -150,16 +148,16 @@ func (m *SIPEngine) Connect(ctx context.Context) error {
 	server.SetOnCancel(m.onCancel)
 	server.SetOnError(m.onError)
 	m.registrationClient = sip_infra.NewRegistrationClient(server.Client(), server.GetListenConfig(), m.logger)
-	m.regManager = sip_registration.NewManager(sip_registration.Config{
-		Logger:             m.logger,
-		Postgres:           m.postgres,
-		Redis:              m.redis,
-		Vault:              m.vaultClient,
-		RegistrationClient: m.registrationClient,
-		// ExternalIP:         server.GetListenConfig().GetExternalIP(),
-		Sip:             m.cfg.SIPConfig,
-		ApplyOpDefaults: m.applySIPOperationalDefaults,
-	})
+	m.regManager = sip_registration.New(
+		sip_registration.WithLogger(m.logger),
+		sip_registration.WithPostgres(m.postgres),
+		sip_registration.WithRedis(m.redis),
+		sip_registration.WithVault(m.vaultClient),
+		sip_registration.WithRegistrationClient(m.registrationClient),
+		sip_registration.WithAssistantConfig(m.cfg),
+		sip_registration.WithSIPConfig(m.cfg.SIPConfig),
+		sip_registration.WithApplyOpDefaults(m.applySIPOperationalDefaults),
+	)
 
 	m.dispatcher = sip_pipeline.NewDispatcher(&sip_pipeline.DispatcherConfig{
 		Logger:               m.logger,
@@ -785,7 +783,6 @@ type sipPreparedCallRuntime struct {
 	talker      internal_type.Talking
 	direction   string
 	talkDone    chan error
-	observer    observability.Recorder
 }
 
 func (runtime *sipPreparedCallRuntime) Start(_ context.Context) error {
@@ -821,13 +818,10 @@ func (runtime *sipPreparedCallRuntime) Close(_ context.Context) {
 		runtime.cancelTalk()
 	}
 	_ = runtime.streamer.Close()
-	if runtime.observer != nil {
-		_ = runtime.observer.Close(context.Background())
-	}
 }
 
-func (m *SIPEngine) prepareInboundCallRuntime(ctx context.Context, stage sip_infra.SessionEstablishedPipeline, setup *sip_pipeline.CallSetupResult, _ *observe.ConversationObserver) (sip_pipeline.PreparedCallRuntime, error) {
-	runtime, err := m.prepareSIPCallRuntime(ctx, stage.Session, setup, stage.VaultCredential, stage.Config, string(stage.Direction))
+func (m *SIPEngine) prepareInboundCallRuntime(ctx context.Context, stage sip_infra.SessionEstablishedPipeline, setup *sip_pipeline.CallSetupResult, observer observability.Recorder) (sip_pipeline.PreparedCallRuntime, error) {
+	runtime, err := m.prepareSIPCallRuntime(ctx, stage.Session, setup, observer, stage.VaultCredential, stage.Config, string(stage.Direction))
 	if err != nil {
 		return nil, err
 	}
@@ -839,7 +833,7 @@ func (m *SIPEngine) prepareInboundCallRuntime(ctx context.Context, stage sip_inf
 }
 
 // pipelineCallStart starts a prepared SIP runtime and blocks until Talk returns.
-func (m *SIPEngine) pipelineCallStart(ctx context.Context, session *sip_infra.Session, setup *sip_pipeline.CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
+func (m *SIPEngine) pipelineCallStart(ctx context.Context, session *sip_infra.Session, setup *sip_pipeline.CallSetupResult, observer observability.Recorder, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) error {
 	isOutbound := session.GetInfo().Direction == sip_infra.CallDirectionOutbound
 	if isOutbound {
 		defer func() {
@@ -852,14 +846,14 @@ func (m *SIPEngine) pipelineCallStart(ctx context.Context, session *sip_infra.Se
 			}
 		}()
 	}
-	runtime, err := m.prepareSIPCallRuntime(ctx, session, setup, vaultCred, sipConfig, direction)
+	runtime, err := m.prepareSIPCallRuntime(ctx, session, setup, observer, vaultCred, sipConfig, direction)
 	if err != nil {
 		return err
 	}
 	return runtime.Start(ctx)
 }
 
-func (m *SIPEngine) prepareSIPCallRuntime(ctx context.Context, session *sip_infra.Session, setup *sip_pipeline.CallSetupResult, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) (*sipPreparedCallRuntime, error) {
+func (m *SIPEngine) prepareSIPCallRuntime(ctx context.Context, session *sip_infra.Session, setup *sip_pipeline.CallSetupResult, observer observability.Recorder, vaultCred interface{}, sipConfig *sip_infra.Config, direction string) (*sipPreparedCallRuntime, error) {
 	callID := session.GetCallID()
 	if session.IsEnded() {
 		m.logger.Warnw("Session already ended before call runtime preparation", "call_id", callID)
@@ -891,19 +885,6 @@ func (m *SIPEngine) prepareSIPCallRuntime(ctx context.Context, session *sip_infr
 	} else {
 		vaultCredential = session.GetVaultCredential()
 	}
-	otelCollectors := make([]observability.Collector, 0)
-	otelCollectors = append(otelCollectors, observability_collector_conversationdb.New(observability_collector_conversationdb.Config{
-		Logger:              m.logger,
-		ConversationService: m.assistantConversationService,
-	}))
-	otelCollectors = append(otelCollectors, collectors.NewWithEnv(talkContext, m.logger, m.cfg)...)
-	observer := observability.New(
-		observability.WithLogger(m.logger),
-		observability.WithAuth(resolvedCallContext.ToAuth()),
-		observability.WithContext(talkContext),
-		observability.WithCollectors(otelCollectors...),
-	)
-
 	streamer, err := internal_telephony.New(
 		internal_telephony.WithSIPContext(talkContext),
 		internal_telephony.WithSIPLogger(m.logger),
@@ -915,14 +896,12 @@ func (m *SIPEngine) prepareSIPCallRuntime(ctx context.Context, session *sip_infr
 	)
 	if err != nil {
 		cancelTalk()
-		_ = observer.Close(context.Background())
 		m.logger.Error("Failed to create SIP streamer", "error", err, "call_id", callID)
 		return nil, fmt.Errorf("streamer_failed: %w", err)
 	}
 	if session.IsEnded() {
 		cancelTalk()
 		_ = streamer.Close()
-		_ = observer.Close(context.Background())
 		return nil, fmt.Errorf("session_ended_after_streamer")
 	}
 
@@ -934,7 +913,6 @@ func (m *SIPEngine) prepareSIPCallRuntime(ctx context.Context, session *sip_infr
 	if err != nil {
 		cancelTalk()
 		_ = streamer.Close()
-		_ = observer.Close(context.Background())
 		m.logger.Error("Failed to create SIP talker", "error", err, "call_id", callID)
 		return nil, fmt.Errorf("talker_failed: %w", err)
 	}
@@ -948,7 +926,6 @@ func (m *SIPEngine) prepareSIPCallRuntime(ctx context.Context, session *sip_infr
 		streamer:    streamer,
 		talker:      talker,
 		direction:   direction,
-		observer:    observer,
 	}, nil
 }
 
@@ -1066,7 +1043,7 @@ func (m *SIPEngine) configureSIPTransfer(session *sip_infra.Session, sipConfig *
 			}
 			transferStreamer.SendTransferEvent(&protos.ConversationEvent{
 				Id:   conversationID,
-				Name: observe.ComponentTelephony,
+				Name: observability.ComponentSIP.String(),
 				Data: payload,
 				Time: timestamppb.Now(),
 			})
@@ -1080,12 +1057,12 @@ func (m *SIPEngine) configureSIPTransfer(session *sip_infra.Session, sipConfig *
 			PostTransferAction: postTransferAction,
 			OnAttempt: func(target string, attempt int, total int) {
 				emitTransferEvent("transfer_attempt", map[string]string{
-					observe.DataType:     observe.EventTransferring,
-					observe.DataProvider: "sip",
-					observe.DataTarget:   target,
-					"attempt_id":         strconv.Itoa(attempt),
-					"reason":             "dial_attempt",
-					"total":              strconv.Itoa(total),
+					"type":       observability.SIPTransferring.String(),
+					"provider":   "sip",
+					"target":     target,
+					"attempt_id": strconv.Itoa(attempt),
+					"reason":     "dial_attempt",
+					"total":      strconv.Itoa(total),
 				})
 			},
 			OnConnected: func(outboundRTP *sip_infra.RTPHandler) {
@@ -1196,36 +1173,21 @@ func (m *SIPEngine) endSession(session *sip_infra.Session, reason sip_infra.Life
 	}
 }
 
-func (m *SIPEngine) createObserver(ctx context.Context, setup *sip_pipeline.CallSetupResult, auth types.SimplePrinciple) *observe.ConversationObserver {
-	meta := observe.SessionMeta{
-		AssistantID:             setup.AssistantID,
-		AssistantConversationID: setup.ConversationID,
-		ProjectID:               setup.ProjectID,
-		OrganizationID:          setup.OrganizationID,
-	}
-	var eventExporters []observe.EventExporter
-	var metricExporters []observe.MetricExporter
-	if m.cfg.TelemetryConfig != nil {
-		if envType := m.cfg.TelemetryConfig.Type(); envType != "" {
-			evtExp, metExp, err := observe_exporters.GetExporter(
-				ctx, m.logger, &m.cfg.AppConfig, m.opensearch, string(envType), m.cfg.TelemetryConfig.ToMap(),
-			)
-			if err != nil {
-				m.logger.Warnf("SIP observer: default exporter creation failed: %v", err)
-			} else if evtExp != nil && metExp != nil {
-				eventExporters = append(eventExporters, evtExp)
-				metricExporters = append(metricExporters, metExp)
-			}
-		}
-	}
-	return observe.NewConversationObserver(&observe.ConversationObserverConfig{
-		Logger:         m.logger,
-		Auth:           auth,
-		AssistantID:    setup.AssistantID,
-		ConversationID: setup.ConversationID,
-		ProjectID:      setup.ProjectID,
-		OrganizationID: setup.OrganizationID,
-		Events:         observe.NewEventCollector(m.logger, meta, eventExporters...),
-		Metrics:        observe.NewMetricCollector(m.logger, meta, metricExporters...),
-	})
+func (m *SIPEngine) createObserver(ctx context.Context, setup *sip_pipeline.CallSetupResult, auth types.SimplePrinciple) observability.Recorder {
+	otelCollectors := make([]observability.Collector, 0)
+	otelCollectors = append(otelCollectors, observability_collector_conversationdb.New(observability_collector_conversationdb.Config{
+		Logger:              m.logger,
+		ConversationService: m.assistantConversationService,
+	}))
+	otelCollectors = append(otelCollectors, collectors.NewWithEnv(ctx, m.logger, m.cfg)...)
+	return observability.New(
+		observability.WithLogger(m.logger),
+		observability.WithAuth(auth),
+		observability.WithGlobalScope(observability.GlobalScope{
+			ProjectID:      setup.ProjectID,
+			OrganizationID: setup.OrganizationID,
+		}),
+		observability.WithContext(ctx),
+		observability.WithCollectors(otelCollectors...),
+	)
 }

@@ -106,6 +106,10 @@ func (c *Collector) Collect(ctx context.Context, scope observability.Scope, obse
 		if occurredAt.IsZero() {
 			occurredAt = time.Now()
 		}
+		attributes := make(map[string]string, len(typed.Attributes))
+		for key, value := range typed.Attributes {
+			attributes[key] = value
+		}
 		var errs []error
 		for _, metric := range typed.Metrics {
 			if metric == nil {
@@ -117,6 +121,7 @@ func (c *Collector) Collect(ctx context.Context, scope observability.Scope, obse
 				Name:        metric.GetName(),
 				Value:       metric.GetValue(),
 				Description: metric.GetDescription(),
+				Attributes:  attributes,
 				OccurredAt:  occurredAt,
 			}); err != nil {
 				errs = append(errs, err)

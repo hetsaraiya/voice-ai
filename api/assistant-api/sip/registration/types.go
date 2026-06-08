@@ -117,12 +117,14 @@ type RegistrationStatusUpdate struct {
 // Reconcile can emit a single structured tick-summary log instead of N
 // per-record lines.
 type Record struct {
-	DID          string
-	AssistantID  uint64
-	DeploymentID uint64
-	CredentialID uint64
-	Status       string
-	Outcome      string
+	DID            string
+	AssistantID    uint64
+	ProjectID      uint64
+	OrganizationID uint64
+	DeploymentID   uint64
+	CredentialID   uint64
+	Status         string
+	Outcome        string
 }
 
 // Outcome values written by handlers.
@@ -137,15 +139,66 @@ const (
 	OutcomeClaimError    = "claim_error"
 )
 
-// Config wires the manager's external dependencies. ApplyOpDefaults overlays
+// ManagerOptions wires the manager's external dependencies. ApplyOpDefaults overlays
 // platform SIP defaults onto the per-DID vault config and is supplied by the
 // SIP engine.
-type Config struct {
+type ManagerOptions struct {
 	Logger             commons.Logger
 	Postgres           connectors.PostgresConnector
 	Redis              connectors.RedisConnector
 	Vault              web_client.VaultClient
 	RegistrationClient *sip_infra.RegistrationClient
+	AssistantConfig    *config.AssistantConfig
 	Sip                *config.SIPConfig
 	ApplyOpDefaults    func(*sip_infra.Config)
+}
+
+type ManagerOption func(*ManagerOptions)
+
+func WithLogger(logger commons.Logger) ManagerOption {
+	return func(options *ManagerOptions) {
+		options.Logger = logger
+	}
+}
+
+func WithPostgres(postgres connectors.PostgresConnector) ManagerOption {
+	return func(options *ManagerOptions) {
+		options.Postgres = postgres
+	}
+}
+
+func WithRedis(redis connectors.RedisConnector) ManagerOption {
+	return func(options *ManagerOptions) {
+		options.Redis = redis
+	}
+}
+
+func WithVault(vault web_client.VaultClient) ManagerOption {
+	return func(options *ManagerOptions) {
+		options.Vault = vault
+	}
+}
+
+func WithRegistrationClient(registrationClient *sip_infra.RegistrationClient) ManagerOption {
+	return func(options *ManagerOptions) {
+		options.RegistrationClient = registrationClient
+	}
+}
+
+func WithAssistantConfig(assistantConfig *config.AssistantConfig) ManagerOption {
+	return func(options *ManagerOptions) {
+		options.AssistantConfig = assistantConfig
+	}
+}
+
+func WithSIPConfig(sipConfig *config.SIPConfig) ManagerOption {
+	return func(options *ManagerOptions) {
+		options.Sip = sipConfig
+	}
+}
+
+func WithApplyOpDefaults(applyOpDefaults func(*sip_infra.Config)) ManagerOption {
+	return func(options *ManagerOptions) {
+		options.ApplyOpDefaults = applyOpDefaults
+	}
 }

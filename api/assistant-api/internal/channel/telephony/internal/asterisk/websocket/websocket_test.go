@@ -266,9 +266,8 @@ func TestSend_TextAssistantMessage_NoError(t *testing.T) {
 func TestSend_UnhandledType_NoError(t *testing.T) {
 	aws := newTestStreamer(t)
 
-	// An unrecognised message type (e.g. ConversationEvent) falls through the
-	// switch and should return nil without error.
-	msg := &protos.ConversationEvent{Name: "test"}
+	// An unrecognised message type falls through the switch and returns nil.
+	msg := &protos.ConversationUserMessage{}
 
 	err := aws.Send(msg)
 	assert.NoError(t, err)

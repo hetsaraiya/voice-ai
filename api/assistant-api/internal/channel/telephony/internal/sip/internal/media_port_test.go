@@ -12,6 +12,7 @@ import (
 	"time"
 
 	internal_telephony_media "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/media"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/protos"
@@ -57,15 +58,24 @@ func (mediaPortTestResampler) Resample(_ []byte, _, to *protos.AudioConfig) ([]b
 	return make([]byte, BridgeOutputFrameSize), nil
 }
 
-func newMediaPortForTest(t *testing.T, streamSink func(internal_type.Stream)) (*MediaPort, chan []byte, chan []byte) {
+func newMediaPortForTest(
+	t *testing.T,
+	streamSink func(internal_type.Stream),
+	recorders ...func(...observability.Record) error,
+) (*MediaPort, chan []byte, chan []byte) {
 	t.Helper()
 	rtpHandler, audioIn, audioOut := newMediaPortTestRTP(t)
+	var record func(...observability.Record) error
+	if len(recorders) > 0 {
+		record = recorders[0]
+	}
 	mediaPort, err := NewMediaPort(MediaPortConfig{
 		Context:    context.Background(),
 		Session:    newMediaPortTestSession(t),
 		RTPHandler: rtpHandler,
 		Resampler:  mediaPortTestResampler{},
 		StreamSink: streamSink,
+		Record:     record,
 	})
 	require.NoError(t, err)
 	return mediaPort, audioIn, audioOut
@@ -189,8 +199,14 @@ func TestMediaPort_StartInputDoesNotStartAssistantOutput(t *testing.T) {
 
 func TestMediaPort_DroppedAssistantAudioIsNotRecorded(t *testing.T) {
 	streams := make(chan internal_type.Stream, 4)
+	records := make(chan observability.Record, 4)
 	mediaPort, _, audioOut := newMediaPortForTest(t, func(stream internal_type.Stream) {
 		streams <- stream
+	}, func(record ...observability.Record) error {
+		for _, item := range record {
+			records <- item
+		}
+		return nil
 	})
 
 	for i := 0; i < cap(audioOut); i++ {
@@ -208,8 +224,8 @@ func TestMediaPort_DroppedAssistantAudioIsNotRecorded(t *testing.T) {
 				if _, ok := stream.(*protos.ConversationBridgeOperatorAudio); ok {
 					t.Fatalf("dropped RTP frame was recorded as delivered assistant audio")
 				}
-				event, ok := stream.(*protos.ConversationEvent)
-				if ok && event.GetData()["type"] == "output_send_error" {
+			case record := <-records:
+				if _, ok := record.(observability.RecordLog); ok {
 					return true
 				}
 			default:

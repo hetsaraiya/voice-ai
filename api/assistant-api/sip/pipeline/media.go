@@ -13,14 +13,15 @@ import (
 	"time"
 
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
-	obs "github.com/rapidaai/api/assistant-api/internal/observe"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
+	"github.com/rapidaai/protos"
 )
 
 type preparedSession struct {
 	stage    sip_infra.SessionEstablishedPipeline
 	setup    *CallSetupResult
-	observer *obs.ConversationObserver
+	observer observability.Recorder
 	runtime  PreparedCallRuntime
 }
 
@@ -135,7 +136,7 @@ func (d *Dispatcher) prepareSession(ctx context.Context, v sip_infra.SessionEsta
 		return nil, newSessionPreparationError(sip_infra.LifecycleReasonPipelineSetupFailed, err)
 	}
 
-	var observer *obs.ConversationObserver
+	var observer observability.Recorder
 	if d.onCreateObserver != nil {
 		observer = d.onCreateObserver(ctx, setup, v.Auth)
 	}
@@ -150,11 +151,30 @@ func (d *Dispatcher) prepareSession(ctx context.Context, v sip_infra.SessionEsta
 		// Identity keys flow through ConversationInitialization.Metadata.
 		// provider_call_id is emitted here as well because the SIP Call-ID
 		// is only known at this stage and isn't required for prompts.
-		observer.EmitMetadata(ctx, obs.ClientMetadata(
-			"", "", "", "",
-			v.ID, "",
-			codec, sampleRate,
-		))
+		scope := observability.ConversationScope{
+			AssistantScope: observability.AssistantScope{AssistantID: setup.AssistantID},
+			ConversationID: setup.ConversationID,
+		}
+		_ = observer.Record(ctx, scope, observability.RecordMetadata{
+			Metadata: observability.ClientMetadata("", "", string(v.Direction), "sip", v.ID, "", codec, sampleRate),
+		})
+		_ = observer.Record(ctx, scope, observability.RecordEvent{
+			Component: observability.ComponentCall,
+			Event:     observability.CallSessionConnected,
+			Attributes: observability.Attributes{
+				"provider":   "sip",
+				"direction":  string(v.Direction),
+				"call_id":    v.ID,
+				"context_id": v.ID,
+			},
+		})
+		_ = observer.Record(ctx, scope, observability.RecordMetric{
+			Metrics: []*protos.Metric{{
+				Name:        observability.MetricCallStatus,
+				Value:       "INPROGRESS",
+				Description: "SIP session connected",
+			}},
+		})
 	}
 	var runtime PreparedCallRuntime
 	if v.Direction == sip_infra.CallDirectionInbound && d.onPrepareCallRuntime != nil {
@@ -162,7 +182,7 @@ func (d *Dispatcher) prepareSession(ctx context.Context, v sip_infra.SessionEsta
 		runtime, err = d.onPrepareCallRuntime(ctx, v, setup, observer)
 		if err != nil {
 			if observer != nil {
-				observer.Shutdown(ctx)
+				_ = observer.Close(ctx)
 			}
 			d.logger.Error("Pipeline: runtime preparation failed", "call_id", v.ID, "error", err)
 			return nil, newSessionPreparationError(sip_infra.LifecycleReasonPipelineSetupFailed, err)
@@ -178,12 +198,27 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 	go func() {
 		startTime := time.Now()
 		reason := "talk_completed"
-		status := "COMPLETED"
+		status := "COMPLETE"
+		scope := observability.ConversationScope{
+			AssistantScope: observability.AssistantScope{AssistantID: setup.AssistantID},
+			ConversationID: setup.ConversationID,
+		}
 		if observer != nil {
-			observer.EmitEvent(ctx, obs.ComponentTelephony, map[string]string{
-				obs.DataType:      obs.EventCallStarted,
-				obs.DataProvider:  "sip",
-				obs.DataDirection: string(v.Direction),
+			_ = observer.Record(ctx, scope, observability.RecordEvent{
+				Component: observability.ComponentCall,
+				Event:     observability.CallStarted,
+				Attributes: observability.Attributes{
+					"provider":  "sip",
+					"direction": string(v.Direction),
+					"call_id":   v.ID,
+				},
+			})
+			_ = observer.Record(ctx, scope, observability.RecordMetric{
+				Metrics: []*protos.Metric{{
+					Name:        observability.MetricCallStatus,
+					Value:       "INPROGRESS",
+					Description: "SIP call started",
+				}},
 			})
 		}
 		defer func() {
@@ -191,17 +226,50 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 				reason = fmt.Sprintf("panic: %v", r)
 				status = "FAILED"
 				d.logger.Error("Pipeline: onCallStart panicked", "call_id", v.ID, "panic", r)
+				if observer != nil {
+					_ = observer.Record(ctx, scope, observability.RecordLog{
+						Level:   observability.LevelError,
+						Message: "SIP pipeline call start panicked",
+						Attributes: observability.Attributes{
+							"provider":  "sip",
+							"direction": string(v.Direction),
+							"call_id":   v.ID,
+							"panic":     fmt.Sprintf("%v", r),
+						},
+					})
+				}
 			}
 
 			if observer != nil {
-				observer.EmitEvent(ctx, obs.ComponentTelephony, map[string]string{
-					obs.DataType:      obs.EventCallEnded,
-					obs.DataProvider:  "sip",
-					obs.DataDirection: string(v.Direction),
-					obs.DataReason:    reason,
+				durationMs := time.Since(startTime).Milliseconds()
+				event := observability.CallEnded
+				if status == "FAILED" {
+					event = observability.CallFailed
+				}
+				_ = observer.Record(ctx, scope, observability.RecordEvent{
+					Component: observability.ComponentCall,
+					Event:     event,
+					Attributes: observability.Attributes{
+						"provider":    "sip",
+						"direction":   string(v.Direction),
+						"call_id":     v.ID,
+						"reason":      reason,
+						"status":      status,
+						"duration_ms": fmt.Sprintf("%d", durationMs),
+					},
 				})
-				observer.EmitMetric(ctx, obs.CallStatusMetric(status, reason))
-				observer.Shutdown(ctx)
+				_ = observer.Record(ctx, scope, observability.RecordMetric{
+					Metrics: []*protos.Metric{{
+						Name:        observability.MetricCallStatus,
+						Value:       status,
+						Description: reason,
+					}, {
+						Name:        observability.MetricCallDurationMs,
+						Value:       fmt.Sprintf("%d", durationMs),
+						Description: "SIP call duration in milliseconds",
+					}},
+				})
+				_ = observer.Close(ctx)
 			}
 			if d.onCallEnd != nil {
 				d.onCallEnd(v.ID)
@@ -218,7 +286,7 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 				reason = err.Error()
 				status = "FAILED"
 			}
-		} else if err := d.onCallStart(ctx, v.Session, setup, v.VaultCredential, v.Config, string(v.Direction)); err != nil {
+		} else if err := d.onCallStart(ctx, v.Session, setup, observer, v.VaultCredential, v.Config, string(v.Direction)); err != nil {
 			reason = err.Error()
 			status = "FAILED"
 		}
@@ -236,12 +304,16 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 					reason = "transfer_" + transferStatus
 					d.logger.Infow("Pipeline: bridge transfer",
 						"call_id", v.ID, "target", target, "status", transferStatus)
-					observer.EmitEvent(ctx, obs.ComponentTelephony, map[string]string{
-						obs.DataType:      obs.EventTransferRequested,
-						obs.DataProvider:  "sip",
-						obs.DataDirection: string(v.Direction),
-						obs.DataTo:        target,
-						obs.DataReason:    transferStatus,
+					_ = observer.Record(ctx, scope, observability.RecordEvent{
+						Component: observability.ComponentSIP,
+						Event:     observability.SIPTransferRequested,
+						Attributes: observability.Attributes{
+							"provider":  "sip",
+							"direction": string(v.Direction),
+							"call_id":   v.ID,
+							"target":    target,
+							"reason":    transferStatus,
+						},
 					})
 				}
 			}
@@ -257,7 +329,7 @@ func (p *preparedSession) Close(ctx context.Context) {
 		p.runtime.Close(ctx)
 	}
 	if p.observer != nil {
-		p.observer.Shutdown(ctx)
+		_ = p.observer.Close(ctx)
 	}
 }
 
