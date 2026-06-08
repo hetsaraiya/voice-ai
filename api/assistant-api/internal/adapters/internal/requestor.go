@@ -88,7 +88,6 @@ type genericRequestor struct {
 	// interaction/session lifecycle owners.
 	messageLifecycle adapter_lifecycle.MessageLifecycle
 	sessionLifecycle adapter_lifecycle.SessionLifecycle
-	lowStart         sync.Once
 	inputStart       sync.Once
 
 	// listening
@@ -141,6 +140,7 @@ func NewGenericRequestor(
 	logger commons.Logger, source utils.RapidaSource,
 	postgres connectors.PostgresConnector, opensearch connectors.OpenSearchConnector,
 	redis connectors.RedisConnector, storage storages.Storage, streamer internal_type.Streamer,
+	observer observability.Recorder,
 ) *genericRequestor {
 	sessionCtx, cancelSession := context.WithCancel(context.Background())
 	gr := &genericRequestor{
@@ -167,7 +167,7 @@ func NewGenericRequestor(
 		deploymentClient:  endpoint_client.NewDeploymentServiceClientGRPC(&config.AppConfig, logger, redis),
 		vaultClient:       web_client.NewVaultClientGRPC(&config.AppConfig, logger, redis),
 
-		// Observability is initialized after session creation.
+		observabilityRecorder: observer,
 
 		messageLifecycle: adapter_lifecycle.NewMessageLifecycle(),
 		sessionLifecycle: adapter_lifecycle.NewSessionLifecycle(),
@@ -191,6 +191,7 @@ func NewGenericRequestor(
 	go gr.runCriticalDispatcher(sessionCtx)
 	go gr.runOutputDispatcher(sessionCtx)
 	go gr.runDataDispatcher(sessionCtx)
+	go gr.runLowDispatcher(sessionCtx)
 	return gr
 }
 

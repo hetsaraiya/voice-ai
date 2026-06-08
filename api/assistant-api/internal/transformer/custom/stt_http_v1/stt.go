@@ -339,11 +339,36 @@ func (transformer *speechToText) transcribe(contextID string, pcmAudio []byte, s
 		return
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		transformer.onPacket(internal_type.SpeechToTextErrorPacket{
-			ContextID: contextID,
-			Error:     fmt.Errorf("custom-stt http_v1: status %d: %s", response.StatusCode, string(responseBody)),
-			Type:      classifyHTTPStatus(response.StatusCode),
-		})
+		sttErr := fmt.Errorf("custom-stt http_v1: status %d: %s", response.StatusCode, string(responseBody))
+		errorType := classifyHTTPStatus(response.StatusCode)
+		transformer.onPacket(
+			internal_type.ObservabilityLogRecordPacket{
+				ContextID:   contextID,
+				Scope:       internal_type.ObservabilityRecordScopeMessage,
+				MessageRole: observability.MessageRoleUser,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: fmt.Sprintf("stt: %s", sttErr.Error()),
+					Attributes: observability.Attributes{
+						"component":      observability.ComponentSTT.String(),
+						"provider":       transformer.Name(),
+						"operation":      "http_transcribe",
+						"context_id":     contextID,
+						"message_role":   string(observability.MessageRoleUser),
+						"http_status":    fmt.Sprintf("%d", response.StatusCode),
+						"recoverable":    fmt.Sprintf("%t", errorType == internal_type.STTRateLimit || errorType == internal_type.STTNetworkTimeout),
+						"stt_error_type": fmt.Sprintf("%d", errorType),
+						"error":          fmt.Sprintf("stt: %s", sttErr.Error()),
+						"error_type":     fmt.Sprintf("%T", sttErr),
+					},
+				},
+			},
+			internal_type.SpeechToTextErrorPacket{
+				ContextID: contextID,
+				Error:     sttErr,
+				Type:      errorType,
+			},
+		)
 		return
 	}
 

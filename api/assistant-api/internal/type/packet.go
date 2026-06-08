@@ -468,13 +468,6 @@ type InitializeTelemetryPacket struct {
 func (p InitializeTelemetryPacket) ContextId() string { return p.ContextID }
 func (p InitializeTelemetryPacket) IsAsync() bool     { return true }
 
-// InitializeOutboundDispatcherPacket starts control, egress, and background dispatchers.
-type InitializeOutboundDispatcherPacket struct {
-	ContextID string
-}
-
-func (p InitializeOutboundDispatcherPacket) ContextId() string { return p.ContextID }
-
 // InitializeInboundDispatcherPacket starts the ingress dispatcher.
 type InitializeInboundDispatcherPacket struct {
 	ContextID string

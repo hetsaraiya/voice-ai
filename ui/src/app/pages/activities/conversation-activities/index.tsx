@@ -2,7 +2,7 @@ import { FC, useEffect, useState } from 'react';
 import { useCredential } from '@/hooks/use-credential';
 import { useRapidaStore } from '@/hooks/use-rapida-store';
 import toast from 'react-hot-toast/headless';
-import { AssistantConversationMessage, Criteria } from '@rapidaai/react';
+import { AssistantConversationMessage } from '@rapidaai/react';
 import {
   formatNanoToReadableMilli,
   toDate,
@@ -19,7 +19,6 @@ import { useConversationLogPageStore } from '@/hooks/use-conversation-log-page-s
 import { Helmet } from '@/app/components/helmet';
 import { PageHeaderBlock } from '@/app/components/blocks/page-header-block';
 import { PageTitleWithCount } from '@/app/components/blocks/page-title-with-count';
-import { ConversationTelemetryDialog } from '@/app/components/base/modal/conversation-telemetry-modal';
 import { CONFIG } from '@/configs';
 import { CarbonStatusIndicator } from '@/app/components/carbon/status-indicator';
 import SourceIndicator from '@/app/components/indicators/source';
@@ -65,26 +64,6 @@ export const ListingPage: FC<{}> = () => {
   const [currentActivity, setCurrentActivity] =
     useState<AssistantConversationMessage | null>(null);
   const [showLogModal, setShowLogModal] = useState(false);
-  const [criterias, setCriterias] = useState<Criteria[]>([]);
-  const [telemetryAssistantId, setTelemetryAssistantId] = useState('');
-  const [isTelemetryDialogOpen, setTelemetryDialogOpen] = useState(false);
-
-  const handleTraceClick = (trace: AssistantConversationMessage) => {
-    const stripPrefix = (id?: string): string =>
-      id?.replace(/^(user-|assistant-)/, '') || '';
-
-    const convCtr = new Criteria();
-    convCtr.setKey('conversationId');
-    convCtr.setLogic('match');
-    convCtr.setValue(trace.getAssistantconversationid());
-    const msgCtr = new Criteria();
-    msgCtr.setKey('contextId');
-    msgCtr.setLogic('match');
-    msgCtr.setValue(stripPrefix(trace.getMessageid()));
-    setCriterias([convCtr, msgCtr]);
-    setTelemetryAssistantId(trace.getAssistantid());
-    setTelemetryDialogOpen(true);
-  };
 
   const [searchValue, setSearchValue] = useState('');
 
@@ -228,15 +207,6 @@ export const ListingPage: FC<{}> = () => {
 
   return (
     <>
-      {isTelemetryDialogOpen && (
-        <ConversationTelemetryDialog
-          modalOpen={isTelemetryDialogOpen}
-          setModalOpen={setTelemetryDialogOpen}
-          assistantId={telemetryAssistantId}
-          criterias={criterias}
-        />
-      )}
-
       {currentActivity && (
         <ConversationLogDialog
           modalOpen={showLogModal}
@@ -405,7 +375,11 @@ export const ListingPage: FC<{}> = () => {
                               size="md"
                               renderIcon={DataCheck}
                               iconDescription="View telemetry"
-                              onClick={() => handleTraceClick(row)}
+                              onClick={() =>
+                                navigation.goToMessageTelemetry(
+                                  row.getMessageid(),
+                                )
+                              }
                             />
                           )}
                           <IconOnlyButton

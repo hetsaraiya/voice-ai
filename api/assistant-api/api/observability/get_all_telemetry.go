@@ -20,6 +20,144 @@ import (
 	"github.com/rapidaai/protos"
 )
 
+func telemetryTermFilter(field string, value interface{}) map[string]interface{} {
+	return map[string]interface{}{"term": map[string]interface{}{field: value}}
+}
+
+func telemetryExactStringFilter(field string, value string) map[string]interface{} {
+	return map[string]interface{}{
+		"bool": map[string]interface{}{
+			"should": []interface{}{
+				telemetryTermFilter(field+".keyword", value),
+				telemetryTermFilter(field, value),
+			},
+			"minimum_should_match": 1,
+		},
+	}
+}
+
+func telemetryAnyExactStringFilter(fields []string, value string) map[string]interface{} {
+	should := make([]interface{}, 0, len(fields))
+	for _, field := range fields {
+		should = append(should, telemetryExactStringFilter(field, value))
+	}
+	return map[string]interface{}{
+		"bool": map[string]interface{}{
+			"should":               should,
+			"minimum_should_match": 1,
+		},
+	}
+}
+
+func telemetryTraceIDFilter(value string) map[string]interface{} {
+	return telemetryAnyExactStringFilter([]string{
+		"context.traceId",
+		"context.traceID",
+		"context.trace_id",
+	}, value)
+}
+
+func telemetrySearchFilter(value string) map[string]interface{} {
+	return map[string]interface{}{
+		"bool": map[string]interface{}{
+			"should": []interface{}{
+				map[string]interface{}{
+					"multi_match": map[string]interface{}{
+						"query": value,
+						"fields": []string{
+							"message",
+							"event",
+							"event.keyword",
+							"name",
+							"name.keyword",
+							"description",
+							"level",
+							"id",
+							"id.keyword",
+						},
+					},
+				},
+				telemetryTraceIDFilter(value),
+			},
+			"minimum_should_match": 1,
+		},
+	}
+}
+
+type telemetryQueryParts struct {
+	filter    []interface{}
+	indices   []string
+	must      []interface{}
+	timeRange map[string]interface{}
+}
+
+func newTelemetryQueryParts(organizationID uint64, projectID uint64) telemetryQueryParts {
+	return telemetryQueryParts{
+		indices: []string{"rapida-logs-*", "rapida-events-*", "rapida-metrics-*"},
+		filter: []interface{}{
+			telemetryTermFilter("organizationId", organizationID),
+			telemetryTermFilter("projectId", projectID),
+		},
+		must:      []interface{}{},
+		timeRange: map[string]interface{}{},
+	}
+}
+
+func (parts *telemetryQueryParts) applyCriteria(criteriaList []*protos.Criteria) {
+	for _, criteria := range criteriaList {
+		if criteria == nil {
+			continue
+		}
+
+		key := strings.TrimSpace(criteria.GetKey())
+		value := strings.TrimSpace(criteria.GetValue())
+		if key == "" || value == "" {
+			continue
+		}
+
+		switch key {
+		case "kind":
+			switch strings.ToLower(value) {
+			case "log":
+				parts.indices = []string{"rapida-logs-*"}
+				parts.filter = append(parts.filter, telemetryExactStringFilter("kind", "log"))
+			case "event":
+				parts.indices = []string{"rapida-events-*"}
+				parts.filter = append(parts.filter, telemetryExactStringFilter("kind", "event"))
+			case "metric":
+				parts.indices = []string{"rapida-metrics-*"}
+				parts.filter = append(parts.filter, telemetryExactStringFilter("kind", "metric"))
+			}
+		case "id", "scope", "event", "component", "name", "level":
+			parts.filter = append(parts.filter, telemetryExactStringFilter(key, value))
+		case "assistantId", "assistant_id":
+			parts.filter = append(parts.filter, telemetryExactStringFilter("scopeAttributes.assistantId", value))
+		case "assistantConversationId", "assistant_conversation_id", "conversationId", "conversation_id":
+			parts.filter = append(parts.filter, telemetryExactStringFilter("scopeAttributes.assistantConversationId", value))
+		case "messageId", "message_id":
+			parts.filter = append(parts.filter, telemetryExactStringFilter("scopeAttributes.messageId", value))
+		case "messageRole", "message_role":
+			parts.filter = append(parts.filter, telemetryExactStringFilter("scopeAttributes.messageRole", value))
+		case "traceId", "traceID", "trace_id":
+			parts.filter = append(parts.filter, telemetryTraceIDFilter(value))
+		case "occurredAtFrom", "from", "start":
+			parts.timeRange["gte"] = value
+		case "occurredAtTo", "to", "end":
+			parts.timeRange["lte"] = value
+		case "search", "q":
+			parts.must = append(parts.must, telemetrySearchFilter(value))
+		default:
+			if strings.HasPrefix(key, "attributes.") || strings.HasPrefix(key, "scopeAttributes.") || strings.HasPrefix(key, "context.") {
+				parts.filter = append(parts.filter, telemetryExactStringFilter(key, value))
+			}
+		}
+	}
+
+	if len(parts.timeRange) > 0 {
+		parts.filter = append(parts.filter, map[string]interface{}{"range": map[string]interface{}{"occurredAt": parts.timeRange}})
+	}
+}
+
 func (api *observabilityGrpcApi) GetAllTelemetry(
 	ctx context.Context,
 	request *protos.GetAllTelemetryRequest,
@@ -44,66 +182,11 @@ func (api *observabilityGrpcApi) GetAllTelemetry(
 	}
 	from := (page - 1) * size
 
-	indices := []string{"rapida-logs-*", "rapida-events-*", "rapida-metrics-*"}
-	filter := []interface{}{
-		map[string]interface{}{"term": map[string]interface{}{"organizationId": *iAuth.GetCurrentOrganizationId()}},
-		map[string]interface{}{"term": map[string]interface{}{"projectId": *iAuth.GetCurrentProjectId()}},
-	}
-	must := []interface{}{}
-	timeRange := map[string]interface{}{}
-
-	for _, criteria := range request.GetCriterias() {
-		key := strings.TrimSpace(criteria.GetKey())
-		value := strings.TrimSpace(criteria.GetValue())
-		if key == "" || value == "" {
-			continue
-		}
-
-		switch key {
-		case "kind":
-			switch strings.ToLower(value) {
-			case "log":
-				indices = []string{"rapida-logs-*"}
-				filter = append(filter, map[string]interface{}{"term": map[string]interface{}{"kind": "log"}})
-			case "event":
-				indices = []string{"rapida-events-*"}
-				filter = append(filter, map[string]interface{}{"term": map[string]interface{}{"kind": "event"}})
-			case "metric":
-				indices = []string{"rapida-metrics-*"}
-				filter = append(filter, map[string]interface{}{"term": map[string]interface{}{"kind": "metric"}})
-			}
-		case "id", "scope", "event", "name", "level":
-			filter = append(filter, map[string]interface{}{"term": map[string]interface{}{key: value}})
-		case "assistantId":
-			filter = append(filter, map[string]interface{}{"term": map[string]interface{}{"scopeAttributes.assistantId": value}})
-		case "assistantConversationId", "conversationId":
-			filter = append(filter, map[string]interface{}{"term": map[string]interface{}{"scopeAttributes.assistantConversationId": value}})
-		case "messageId":
-			filter = append(filter, map[string]interface{}{"term": map[string]interface{}{"scopeAttributes.messageId": value}})
-		case "messageRole":
-			filter = append(filter, map[string]interface{}{"term": map[string]interface{}{"scopeAttributes.messageRole": value}})
-		case "traceId":
-			filter = append(filter, map[string]interface{}{"term": map[string]interface{}{"context.traceId": value}})
-		case "occurredAtFrom", "from", "start":
-			timeRange["gte"] = value
-		case "occurredAtTo", "to", "end":
-			timeRange["lte"] = value
-		case "search", "q":
-			must = append(must, map[string]interface{}{
-				"multi_match": map[string]interface{}{
-					"query":  value,
-					"fields": []string{"message", "event", "name", "description", "level"},
-				},
-			})
-		default:
-			if strings.HasPrefix(key, "attributes.") || strings.HasPrefix(key, "scopeAttributes.") || strings.HasPrefix(key, "context.") {
-				filter = append(filter, map[string]interface{}{"term": map[string]interface{}{key: value}})
-			}
-		}
-	}
-	if len(timeRange) > 0 {
-		filter = append(filter, map[string]interface{}{"range": map[string]interface{}{"occurredAt": timeRange}})
-	}
+	queryParts := newTelemetryQueryParts(
+		*iAuth.GetCurrentOrganizationId(),
+		*iAuth.GetCurrentProjectId(),
+	)
+	queryParts.applyCriteria(request.GetCriterias())
 
 	orderColumn := "occurredAt"
 	orderDirection := "desc"
@@ -117,9 +200,9 @@ func (api *observabilityGrpcApi) GetAllTelemetry(
 		}
 	}
 
-	boolQuery := map[string]interface{}{"filter": filter}
-	if len(must) > 0 {
-		boolQuery["must"] = must
+	boolQuery := map[string]interface{}{"filter": queryParts.filter}
+	if len(queryParts.must) > 0 {
+		boolQuery["must"] = queryParts.must
 	}
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
@@ -133,7 +216,7 @@ func (api *observabilityGrpcApi) GetAllTelemetry(
 	}
 
 	body, _ := json.Marshal(query)
-	hits := api.opensearch.Search(ctx, indices, string(body))
+	hits := api.opensearch.Search(ctx, queryParts.indices, string(body))
 	if hits.Error() != nil {
 		api.logger.Errorf("unable to query telemetry: %v", hits.Error())
 		return exceptions.BadRequestError[protos.GetAllTelemetryResponse]("Unable to get telemetry.")

@@ -2004,15 +2004,13 @@ func TestSend_Interruption(t *testing.T) {
 
 	require.NoError(t, s.observer.Close(context.Background()))
 	require.Len(t, collector.logs, 1)
-	assert.Equal(t, observability.LevelDebug, collector.logs[0].Level)
+	assert.Equal(t, observability.LevelInfo, collector.logs[0].Level)
+	assert.Contains(t, collector.logs[0].Message, "user interruption")
 	assert.Equal(t, webrtc_internal.EventOutputQueueCleared, collector.logs[0].Attributes[webrtc_internal.DataType])
 	assert.Equal(t, webrtc_internal.OutputQueueClearReasonInterruption, collector.logs[0].Attributes[webrtc_internal.DataReason])
 	assert.Equal(t, "2", collector.logs[0].Attributes[webrtc_internal.DataClearedFrames])
 	assert.Equal(t, fmt.Sprintf("%d", webrtc_internal.OutputAudioQueueEmptySize), collector.logs[0].Attributes[webrtc_internal.DataRemainingQueueFrames])
-	require.Len(t, collector.metrics, 1)
-	require.Len(t, collector.metrics[0].Metrics, 1)
-	assert.Equal(t, "webrtc_output_cleared_frames", collector.metrics[0].Metrics[0].GetName())
-	assert.Equal(t, "2", collector.metrics[0].Metrics[0].GetValue())
+	assert.Empty(t, collector.metrics)
 }
 
 func TestSend_EndConversation(t *testing.T) {
@@ -2270,14 +2268,14 @@ func TestEnqueueOutputAudio_BoundedDropOldest_EmitsOverflowEvent(t *testing.T) {
 
 	require.NoError(t, s.observer.Close(context.Background()))
 	require.Len(t, collector.logs, 1)
-	assert.Equal(t, observability.LevelDebug, collector.logs[0].Level)
+	assert.Equal(t, observability.LevelInfo, collector.logs[0].Level)
+	assert.Contains(t, collector.logs[0].Message, "queue overflow")
 	assert.Equal(t, webrtc_internal.EventOutputQueueOverflow, collector.logs[0].Attributes[webrtc_internal.DataType])
 	assert.Equal(t, webrtc_internal.OutputQueuePolicyDropOldest, collector.logs[0].Attributes[webrtc_internal.DataPolicy])
 	assert.Equal(t, "1", collector.logs[0].Attributes[webrtc_internal.DataDroppedFrames])
 	assert.Equal(t, fmt.Sprintf("%d", limit), collector.logs[0].Attributes[webrtc_internal.DataLimitFrames])
 	assert.Equal(t, fmt.Sprintf("%d", limit), collector.logs[0].Attributes[webrtc_internal.DataQueueDepthFrames])
-	require.Len(t, collector.metrics, 1)
-	require.Len(t, collector.metrics[0].Metrics, 3)
+	assert.Empty(t, collector.metrics)
 }
 
 func TestClearOutputAudio_ReturnsClearedFrameCount(t *testing.T) {

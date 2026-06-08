@@ -68,7 +68,6 @@ type DispatchHandler interface {
 	HandleInitializeBehavior(context.Context, internal_type.InitializeBehaviorPacket)
 	HandleInitializationCompleted(context.Context, internal_type.InitializationCompletedPacket)
 	HandleInitializeTelemetry(context.Context, internal_type.InitializeTelemetryPacket)
-	HandleInitializeOutboundDispatcher(context.Context, internal_type.InitializeOutboundDispatcherPacket)
 	HandleInitializeInboundDispatcher(context.Context, internal_type.InitializeInboundDispatcherPacket)
 	HandleModeSwitchRequested(context.Context, internal_type.ModeSwitchRequestedPacket)
 	HandleModeSwitchCompleted(context.Context, internal_type.ModeSwitchCompletedPacket)
@@ -204,8 +203,6 @@ func DispatchPacket(ctx context.Context, p internal_type.Packet, handler Dispatc
 		handler.HandleInitializationCompleted(ctx, vl)
 	case internal_type.InitializeTelemetryPacket:
 		handler.HandleInitializeTelemetry(ctx, vl)
-	case internal_type.InitializeOutboundDispatcherPacket:
-		handler.HandleInitializeOutboundDispatcher(ctx, vl)
 	case internal_type.InitializeInboundDispatcherPacket:
 		handler.HandleInitializeInboundDispatcher(ctx, vl)
 	case internal_type.ModeSwitchRequestedPacket:

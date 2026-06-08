@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Button,
   CodeSnippet,
@@ -96,6 +97,94 @@ const DEFAULT_TRACE_FILTERS: TraceFilterState = {
   selectedRole: ROLE_OPTIONS[0],
   selectedScope: SCOPE_OPTIONS[0],
   traceIdInput: '',
+};
+
+const getQueryValue = (
+  searchParams: URLSearchParams,
+  keys: string[],
+): string => {
+  for (const key of keys) {
+    const value = searchParams.get(key)?.trim();
+    if (value) return value;
+  }
+  return '';
+};
+
+const getFilterOption = (
+  options: FilterOption[],
+  id: string,
+  fallback: FilterOption,
+): FilterOption => options.find(option => option.id === id) || fallback;
+
+const getTraceFiltersFromSearchParams = (
+  searchParams: URLSearchParams,
+): TraceFilterState => {
+  const assistantId = getQueryValue(searchParams, [
+    'assistant_id',
+    'assistantId',
+  ]);
+  const conversationId = getQueryValue(searchParams, [
+    'conversation_id',
+    'conversationId',
+    'assistant_conversation_id',
+    'assistantConversationId',
+  ]);
+  const messageId = getQueryValue(searchParams, ['message_id', 'messageId']);
+  const scopeQuery = getQueryValue(searchParams, ['scope']);
+
+  let selectedScope = getFilterOption(
+    SCOPE_OPTIONS,
+    scopeQuery,
+    DEFAULT_TRACE_FILTERS.selectedScope,
+  );
+
+  if (!scopeQuery) {
+    if (messageId)
+      selectedScope = getFilterOption(
+        SCOPE_OPTIONS,
+        'message',
+        SCOPE_OPTIONS[0],
+      );
+    else if (conversationId)
+      selectedScope = getFilterOption(
+        SCOPE_OPTIONS,
+        'conversation',
+        SCOPE_OPTIONS[0],
+      );
+    else if (assistantId)
+      selectedScope = getFilterOption(
+        SCOPE_OPTIONS,
+        'assistant',
+        SCOPE_OPTIONS[0],
+      );
+  }
+
+  return {
+    ...DEFAULT_TRACE_FILTERS,
+    assistantIdInput: selectedScope.id === 'assistant' ? assistantId : '',
+    conversationIdInput:
+      selectedScope.id === 'conversation' ? conversationId : '',
+    messageIdInput: selectedScope.id === 'message' ? messageId : '',
+    searchText: getQueryValue(searchParams, ['q', 'search']),
+    selectedRole:
+      selectedScope.id === 'message'
+        ? getFilterOption(
+            ROLE_OPTIONS,
+            getQueryValue(searchParams, [
+              'message_role',
+              'messageRole',
+              'role',
+            ]),
+            DEFAULT_TRACE_FILTERS.selectedRole,
+          )
+        : DEFAULT_TRACE_FILTERS.selectedRole,
+    selectedScope,
+    traceIdInput: getQueryValue(searchParams, [
+      'trace_id',
+      'traceId',
+      'traceID',
+    ]),
+  };
 };
 
 const TRACE_LOAD_ERROR_MESSAGE = 'Unable to load trace records.';
@@ -522,46 +611,44 @@ const TraceInspectorPanel = ({
 
 export const ListingPage = () => {
   const { token, authId, projectId } = useCurrentCredential();
-  const [searchText, setSearchText] = useState(
-    DEFAULT_TRACE_FILTERS.searchText,
+  const [searchParams] = useSearchParams();
+  const searchParamsKey = searchParams.toString();
+  const queryFilters = useMemo(
+    () => getTraceFiltersFromSearchParams(new URLSearchParams(searchParamsKey)),
+    [searchParamsKey],
   );
-  const [selectedKind, setSelectedKind] = useState(
-    DEFAULT_TRACE_FILTERS.selectedKind,
-  );
+  const lastSearchParamsKey = useRef(searchParamsKey);
+  const [searchText, setSearchText] = useState(queryFilters.searchText);
+  const [selectedKind, setSelectedKind] = useState(queryFilters.selectedKind);
   const [selectedLevel, setSelectedLevel] = useState(
-    DEFAULT_TRACE_FILTERS.selectedLevel,
+    queryFilters.selectedLevel,
   );
   const [selectedScope, setSelectedScope] = useState(
-    DEFAULT_TRACE_FILTERS.selectedScope,
+    queryFilters.selectedScope,
   );
-  const [selectedRole, setSelectedRole] = useState(
-    DEFAULT_TRACE_FILTERS.selectedRole,
-  );
+  const [selectedRole, setSelectedRole] = useState(queryFilters.selectedRole);
   const [selectedComponents, setSelectedComponents] = useState<string[]>([]);
   const [selectedEvent, setSelectedEvent] = useState(
-    DEFAULT_TRACE_FILTERS.selectedEvent,
+    queryFilters.selectedEvent,
   );
   const [metricNameInput, setMetricNameInput] = useState(
-    DEFAULT_TRACE_FILTERS.metricNameInput,
+    queryFilters.metricNameInput,
   );
   const [assistantIdInput, setAssistantIdInput] = useState(
-    DEFAULT_TRACE_FILTERS.assistantIdInput,
+    queryFilters.assistantIdInput,
   );
   const [conversationIdInput, setConversationIdInput] = useState(
-    DEFAULT_TRACE_FILTERS.conversationIdInput,
+    queryFilters.conversationIdInput,
   );
   const [messageIdInput, setMessageIdInput] = useState(
-    DEFAULT_TRACE_FILTERS.messageIdInput,
+    queryFilters.messageIdInput,
   );
-  const [traceIdInput, setTraceIdInput] = useState(
-    DEFAULT_TRACE_FILTERS.traceIdInput,
-  );
+  const [traceIdInput, setTraceIdInput] = useState(queryFilters.traceIdInput);
   const [dateRange, setDateRange] = useState<[Date, Date] | null>(
-    DEFAULT_TRACE_FILTERS.dateRange,
+    queryFilters.dateRange,
   );
-  const [appliedFilters, setAppliedFilters] = useState<TraceFilterState>(
-    DEFAULT_TRACE_FILTERS,
-  );
+  const [appliedFilters, setAppliedFilters] =
+    useState<TraceFilterState>(queryFilters);
   const [documents, setDocuments] = useState<TimelineDocument[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [page, setPage] = useState(1);
@@ -613,6 +700,28 @@ export const ListingPage = () => {
     ],
   );
 
+  useEffect(() => {
+    if (lastSearchParamsKey.current === searchParamsKey) return;
+    lastSearchParamsKey.current = searchParamsKey;
+
+    setSearchText(queryFilters.searchText);
+    setSelectedKind(queryFilters.selectedKind);
+    setSelectedLevel(queryFilters.selectedLevel);
+    setSelectedScope(queryFilters.selectedScope);
+    setSelectedRole(queryFilters.selectedRole);
+    setSelectedComponents(queryFilters.selectedComponents);
+    setSelectedEvent(queryFilters.selectedEvent);
+    setMetricNameInput(queryFilters.metricNameInput);
+    setAssistantIdInput(queryFilters.assistantIdInput);
+    setConversationIdInput(queryFilters.conversationIdInput);
+    setMessageIdInput(queryFilters.messageIdInput);
+    setTraceIdInput(queryFilters.traceIdInput);
+    setDateRange(queryFilters.dateRange);
+    setAppliedFilters(queryFilters);
+    setPage(1);
+    setRefreshKey(key => key + 1);
+  }, [queryFilters, searchParamsKey]);
+
   const requestCriteria = useMemo(() => {
     const next: Criteria[] = [];
     const addCriteria = (key: string, value: string, logic = '=') => {
@@ -653,13 +762,10 @@ export const ListingPage = () => {
     if (appliedFilters.selectedScope.id !== SCOPE_OPTIONS[0].id) {
       addCriteria('scope', appliedFilters.selectedScope.id);
     }
-    if (appliedFilters.selectedScope.id !== SCOPE_OPTIONS[0].id) {
+    if (appliedFilters.selectedScope.id === 'assistant') {
       addCriteria('assistantId', appliedFilters.assistantIdInput.trim());
     }
-    if (
-      appliedFilters.selectedScope.id === 'conversation' ||
-      appliedFilters.selectedScope.id === 'message'
-    ) {
+    if (appliedFilters.selectedScope.id === 'conversation') {
       addCriteria(
         'assistantConversationId',
         appliedFilters.conversationIdInput.trim(),
@@ -709,8 +815,13 @@ export const ListingPage = () => {
       setSelectedRole(ROLE_OPTIONS[0]);
     }
     if (selectedScope.id === 'conversation') {
+      setAssistantIdInput('');
       setMessageIdInput('');
       setSelectedRole(ROLE_OPTIONS[0]);
+    }
+    if (selectedScope.id === 'message') {
+      setAssistantIdInput('');
+      setConversationIdInput('');
     }
   }, [selectedScope]);
 
@@ -813,7 +924,7 @@ export const ListingPage = () => {
             document.name === appliedFilters.metricNameInput) &&
           (appliedFilters.selectedScope.id === SCOPE_OPTIONS[0].id ||
             document.scope === appliedFilters.selectedScope.id) &&
-          (appliedFilters.selectedScope.id === SCOPE_OPTIONS[0].id ||
+          (appliedFilters.selectedScope.id !== 'assistant' ||
             !appliedFilters.assistantIdInput.trim() ||
             String(document.assistantId) ===
               appliedFilters.assistantIdInput.trim()) &&
@@ -822,11 +933,8 @@ export const ListingPage = () => {
             String(document.assistantConversationId) ===
               appliedFilters.conversationIdInput.trim()) &&
           (appliedFilters.selectedScope.id !== 'message' ||
-            ((!appliedFilters.conversationIdInput.trim() ||
-              String(document.assistantConversationId) ===
-                appliedFilters.conversationIdInput.trim()) &&
-              (!appliedFilters.messageIdInput.trim() ||
-                document.messageId === appliedFilters.messageIdInput.trim()) &&
+            ((!appliedFilters.messageIdInput.trim() ||
+              document.messageId === appliedFilters.messageIdInput.trim()) &&
               (appliedFilters.selectedRole.id === ROLE_OPTIONS[0].id ||
                 document.messageRole === appliedFilters.selectedRole.id)))
         );

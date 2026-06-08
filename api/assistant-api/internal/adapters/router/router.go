@@ -51,7 +51,6 @@ func Classify(p internal_type.Packet) Route {
 		internal_type.InitializationCompletedPacket,
 		internal_type.InitializationFailedPacket,
 		internal_type.InitializeTelemetryPacket,
-		internal_type.InitializeOutboundDispatcherPacket,
 		internal_type.InitializeInboundDispatcherPacket,
 		internal_type.ModeSwitchRequestedPacket,
 		internal_type.ModeSwitchCompletedPacket,

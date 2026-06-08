@@ -350,21 +350,6 @@ func (rnd *rnnoiseDenoiser) Execute(ctx context.Context, pkt internal_type.Denoi
 			ContextID:  pkt.ContextID,
 			Audio:      restoredInputRate,
 			Confidence: confidence,
-		}, internal_type.ObservabilityEventRecordPacket{
-			ContextID:   pkt.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
-			Record: observability.RecordEvent{
-				Component: observability.ComponentDenoise,
-				Event:     observability.DenoiseCompleted,
-				Attributes: observability.Attributes{
-					"provider":     "rnnoise",
-					"context_id":   pkt.ContextID,
-					"confidence":   fmt.Sprintf("%.4f", confidence),
-					"input_bytes":  fmt.Sprintf("%d", len(input)),
-					"output_bytes": fmt.Sprintf("%d", len(restoredInputRate)),
-				},
-			},
 		})
 	}
 	return nil

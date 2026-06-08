@@ -13,7 +13,6 @@ import (
 	internal_output "github.com/rapidaai/api/assistant-api/internal/channel/output"
 	webrtc_internal "github.com/rapidaai/api/assistant-api/internal/channel/webrtc/internal"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
-	"github.com/rapidaai/protos"
 )
 
 func (s *webrtcStreamer) runOutputHealthReporter() {
@@ -63,18 +62,23 @@ func (s *webrtcStreamer) runOutputHealthReporter() {
 		}
 
 		if snap.Ticks != prev.Ticks {
-			_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordMetric{
-				Metrics: []*protos.Metric{
-					{Name: "webrtc_output_ticks", Value: fmt.Sprintf("%d", snap.Ticks), Description: "WebRTC output pacer ticks"},
-					{Name: "webrtc_output_late_ticks", Value: fmt.Sprintf("%d", snap.LateTicks), Description: "WebRTC output pacer late ticks"},
-					{Name: "webrtc_output_active_ticks", Value: fmt.Sprintf("%d", snap.ActiveTicks), Description: "WebRTC output pacer active ticks"},
-					{Name: "webrtc_output_idle_ticks", Value: fmt.Sprintf("%d", snap.IdleTicks), Description: "WebRTC output pacer idle ticks"},
-					{Name: "webrtc_output_send_errors", Value: fmt.Sprintf("%d", snap.SendErrors), Description: "WebRTC output send errors"},
-					{Name: "webrtc_output_idle_ratio", Value: fmt.Sprintf("%.4f", snap.IdleRatio), Description: "WebRTC output pacer idle ratio"},
-					{Name: "webrtc_output_pending_audio_frames", Value: fmt.Sprintf("%d", outputAudioFrames), Description: "WebRTC output pending audio frames"},
-					{Name: "webrtc_output_pending_audio_oldest_age_ms", Value: fmt.Sprintf("%d", outputAudioOldestAgeMs), Description: "WebRTC output oldest queued audio age"},
-					{Name: "webrtc_last_assistant_frame_sent_ms_ago", Value: fmt.Sprintf("%d", lastAssistantFrameSentMsAgo), Description: "WebRTC last assistant frame sent age"},
-					{Name: "webrtc_output_total_dropped_frames", Value: fmt.Sprintf("%d", s.sessionState.OutputAudioDroppedFrames()), Description: "WebRTC output total dropped frames"},
+			_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "WebRTC output pacer health snapshot recorded for transport diagnostics; high late ticks, send errors, or queued audio can explain assistant audio delay or dropouts.",
+				Attributes: observability.Attributes{
+					"component":                                     observability.ComponentWebRTC.String(),
+					webrtc_internal.DataType:                        webrtc_internal.EventOutputPacerHealth,
+					webrtc_internal.DataSessionID:                   s.sessionID,
+					webrtc_internal.DataTicks:                       fmt.Sprintf("%d", snap.Ticks),
+					webrtc_internal.DataLateTicks:                   fmt.Sprintf("%d", snap.LateTicks),
+					webrtc_internal.DataActiveTicks:                 fmt.Sprintf("%d", snap.ActiveTicks),
+					webrtc_internal.DataIdleTicks:                   fmt.Sprintf("%d", snap.IdleTicks),
+					webrtc_internal.DataSendErrors:                  fmt.Sprintf("%d", snap.SendErrors),
+					webrtc_internal.DataIdleRatio:                   fmt.Sprintf("%.4f", snap.IdleRatio),
+					webrtc_internal.DataPendingAudioFrames:          fmt.Sprintf("%d", outputAudioFrames),
+					webrtc_internal.DataPendingAudioOldestAgeMs:     fmt.Sprintf("%d", outputAudioOldestAgeMs),
+					webrtc_internal.DataLastAssistantFrameSentMsAgo: fmt.Sprintf("%d", lastAssistantFrameSentMsAgo),
+					webrtc_internal.DataTotalDroppedFrames:          fmt.Sprintf("%d", s.sessionState.OutputAudioDroppedFrames()),
 				},
 			})
 
@@ -121,15 +125,10 @@ func (s *webrtcStreamer) runOutputHealthReporter() {
 				qualityData[webrtc_internal.DataRoundTripTimeMs] = fmt.Sprintf("%d", mediaHealthState.LastReceiverReportRoundTripTimeMs)
 			}
 			qualityData["component"] = observability.ComponentWebRTC.String()
-			_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordMetric{
-				Metrics: []*protos.Metric{
-					{Name: "webrtc_receiver_reports", Value: fmt.Sprintf("%d", mediaHealthState.ReceiverReports), Description: "WebRTC receiver reports"},
-					{Name: "webrtc_packet_loss_fraction", Value: fmt.Sprintf("%d", mediaHealthState.LastReceiverReportFractionLost), Description: "WebRTC packet loss fraction"},
-					{Name: "webrtc_packet_loss_percent", Value: fmt.Sprintf("%.4f", mediaHealthState.LastReceiverReportPacketLossPercent), Description: "WebRTC packet loss percent"},
-					{Name: "webrtc_packet_loss_total", Value: fmt.Sprintf("%d", mediaHealthState.LastReceiverReportTotalLost), Description: "WebRTC packet loss total"},
-					{Name: "webrtc_jitter_ms", Value: fmt.Sprintf("%.4f", mediaHealthState.LastReceiverReportJitterMs), Description: "WebRTC jitter"},
-					{Name: "webrtc_last_feedback_ms_ago", Value: fmt.Sprintf("%d", lastFeedbackMsAgo), Description: "WebRTC last feedback age"},
-				},
+			_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordLog{
+				Level:      observability.LevelInfo,
+				Message:    "WebRTC peer quality snapshot recorded from RTCP receiver feedback; packet loss, jitter, and RTT help explain degraded audio quality.",
+				Attributes: observability.Attributes(qualityData),
 			})
 			_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordEvent{
 				Component:  observability.ComponentWebRTC,

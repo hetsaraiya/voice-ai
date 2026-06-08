@@ -86,9 +86,8 @@ export const ExplorerFilter = ({
           text: metricName,
         }
       : METRIC_NAME_OPTIONS[0];
-  const showAssistantId = selectedScope.id !== 'all';
-  const showConversationId =
-    selectedScope.id === 'conversation' || selectedScope.id === 'message';
+  const showAssistantId = selectedScope.id === 'assistant';
+  const showConversationId = selectedScope.id === 'conversation';
   const showMessageFields = selectedScope.id === 'message';
 
   return (

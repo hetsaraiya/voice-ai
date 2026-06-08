@@ -99,7 +99,18 @@ func (cApi *ConversationApi) CallTalkerByContext(c *gin.Context) {
 		cApi.logger.Errorf("failed to create streamer for context %s: %v", contextID, err)
 		return
 	}
-	talker, err := internal_adapter.GetTalker(utils.PhoneCall, c, cApi.cfg, cApi.logger, cApi.postgres, cApi.opensearch, cApi.redis, cApi.storage, streamer)
+	talker, err := internal_adapter.New(
+		internal_adapter.WithSource(utils.PhoneCall),
+		internal_adapter.WithContext(c),
+		internal_adapter.WithConfig(cApi.cfg),
+		internal_adapter.WithLogger(cApi.logger),
+		internal_adapter.WithPostgres(cApi.postgres),
+		internal_adapter.WithOpenSearch(cApi.opensearch),
+		internal_adapter.WithRedis(cApi.redis),
+		internal_adapter.WithStorage(cApi.storage),
+		internal_adapter.WithStreamer(streamer),
+		internal_adapter.WithObserver(observer),
+	)
 	if err != nil {
 		cApi.logger.Errorf("failed to create talker for context %s: %v", contextID, err)
 		return

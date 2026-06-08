@@ -232,10 +232,17 @@ func (s *webrtcStreamer) reportSelectedICECandidatePair(peerConnection *pionwebr
 			webrtc_internal.DataQualityState:                qualityState,
 		},
 	})
-	_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordMetric{
-		Metrics: []*protos.Metric{
-			{Name: "webrtc_candidate_pair_rtt_ms", Value: fmt.Sprintf("%d", pair.CurrentRoundTripTimeMs), Description: "WebRTC selected ICE candidate pair RTT"},
-			{Name: "webrtc_available_outgoing_bitrate_bps", Value: fmt.Sprintf("%d", pair.AvailableOutgoingBitrateBps), Description: "WebRTC selected ICE candidate pair available outgoing bitrate"},
+	_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordLog{
+		Level:   observability.LevelInfo,
+		Message: "WebRTC selected ICE candidate pair changed; RTT and outgoing bitrate help diagnose network path changes that can affect audio latency or quality.",
+		Attributes: observability.Attributes{
+			"component":                                     observability.ComponentWebRTC.String(),
+			webrtc_internal.DataType:                        webrtc_internal.EventSelectedICECandidatePair,
+			webrtc_internal.DataSessionID:                   s.sessionID,
+			webrtc_internal.DataCandidatePairID:             pair.ID,
+			webrtc_internal.DataCandidatePairRTTMs:          fmt.Sprintf("%d", pair.CurrentRoundTripTimeMs),
+			webrtc_internal.DataAvailableOutgoingBitrateBps: fmt.Sprintf("%d", pair.AvailableOutgoingBitrateBps),
+			webrtc_internal.DataQualityState:                qualityState,
 		},
 	})
 }

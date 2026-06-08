@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	transformer_testutil "github.com/rapidaai/api/assistant-api/internal/transformer/internal/testutil"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/utils"
@@ -54,6 +55,25 @@ func (collector *packetCollector) all() []internal_type.Packet {
 	out := make([]internal_type.Packet, len(collector.packets))
 	copy(out, collector.packets)
 	return out
+}
+
+func (collector *packetCollector) waitForSTTError(t *testing.T) internal_type.SpeechToTextErrorPacket {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for SpeechToTextErrorPacket")
+		case <-ticker.C:
+			for _, packet := range collector.all() {
+				if sttErr, ok := packet.(internal_type.SpeechToTextErrorPacket); ok {
+					return sttErr
+				}
+			}
+		}
+	}
 }
 
 func TestSpeechToText_HTTPFlow_FlushesBufferedSpeechOnVADEnd(t *testing.T) {
@@ -160,4 +180,62 @@ func TestSpeechToText_HTTPFlow_FlushesBufferedSpeechOnVADEnd(t *testing.T) {
 		}
 	}
 	assert.True(t, hasLatencyMetric, "expected stt_latency_ms metric")
+}
+
+func TestSpeechToText_HTTPStatusError_EmitsErrorLog(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusInternalServerError)
+		_, _ = writer.Write([]byte("Internal Server Error"))
+	}))
+	defer server.Close()
+
+	collector := newPacketCollector()
+	transformer, err := NewSpeechToText(
+		context.Background(),
+		transformer_testutil.NewTestLogger(),
+		testCredential(t, map[string]any{
+			credentialKeyBaseURLCamel: server.URL,
+		}),
+		collector.onPacket,
+		utils.Option{
+			optionKeyRequestRules:  `[{"when":{"packet":"audio"},"send":{"frame":"json","body":{"audio":{"$path":"packet.audio.base64"}}}}]`,
+			optionKeyResponseRules: `[{"when":{"frame":"json"},"emit":{"script":{"$path":"text"},"interim":false}}]`,
+		},
+	)
+	require.NoError(t, err)
+
+	typedTransformer, ok := transformer.(*speechToText)
+	require.True(t, ok)
+	typedTransformer.httpClient = server.Client()
+
+	require.NoError(t, transformer.Initialize())
+	require.NoError(t, transformer.Transform(context.Background(), internal_type.SpeechToTextStartPacket{ContextID: "ctx-http-500"}))
+	require.NoError(t, transformer.Transform(context.Background(), internal_type.SpeechToTextAudioPacket{
+		ContextID: "ctx-http-500",
+		Audio:     []byte{0x01, 0x02},
+	}))
+	require.NoError(t, transformer.Transform(context.Background(), internal_type.SpeechToTextEndPacket{ContextID: "ctx-http-500"}))
+
+	sttErr := collector.waitForSTTError(t)
+	assert.Equal(t, "stt: custom-stt http_v1: status 500: Internal Server Error", sttErr.ErrMessage())
+	assert.Equal(t, internal_type.STTErrorType(internal_type.STTNetworkTimeout), sttErr.Type)
+
+	var errorLog *internal_type.ObservabilityLogRecordPacket
+	for _, packet := range collector.all() {
+		if logPacket, ok := packet.(internal_type.ObservabilityLogRecordPacket); ok && logPacket.Record.Level == observability.LevelError {
+			errorLog = &logPacket
+			break
+		}
+	}
+	require.NotNil(t, errorLog, "expected custom STT HTTP error log")
+	assert.Equal(t, "ctx-http-500", errorLog.ContextID)
+	assert.Equal(t, internal_type.ObservabilityRecordScopeMessage, errorLog.Scope)
+	assert.Equal(t, observability.MessageRoleUser, errorLog.MessageRole)
+	assert.Equal(t, "stt: custom-stt http_v1: status 500: Internal Server Error", errorLog.Record.Message)
+	assert.Equal(t, observability.ComponentSTT.String(), errorLog.Record.Attributes["component"])
+	assert.Equal(t, "custom-stt-http-v1", errorLog.Record.Attributes["provider"])
+	assert.Equal(t, "http_transcribe", errorLog.Record.Attributes["operation"])
+	assert.Equal(t, "500", errorLog.Record.Attributes["http_status"])
+	assert.Equal(t, "true", errorLog.Record.Attributes["recoverable"])
+	assert.Equal(t, "stt: custom-stt http_v1: status 500: Internal Server Error", errorLog.Record.Attributes["error"])
 }

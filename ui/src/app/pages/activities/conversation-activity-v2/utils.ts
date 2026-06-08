@@ -49,6 +49,14 @@ const mapToObject = (map: {
 const firstPresent = (...values: Array<string | undefined>): string =>
   values.find(value => value && value.trim() !== '') || '';
 
+const parseDurationMs = (value: string): number | undefined => {
+  if (value.trim() === '') return undefined;
+  const durationMs = Number(value);
+  return Number.isFinite(durationMs) && durationMs >= 0
+    ? Math.round(durationMs)
+    : undefined;
+};
+
 const inferOutcome = ({
   attributes,
   level,
@@ -99,21 +107,28 @@ const getDurationFromAttributes = (
     attributes.elapsedMs,
     attributes.elapsed_ms,
   );
-  const value = Number(candidate);
-  return Number.isFinite(value) && value >= 0 ? Math.round(value) : undefined;
+  return parseDurationMs(candidate);
 };
 
-const isDurationMetricName = (name: string): boolean =>
-  ['duration', 'duration_ms', 'latency', 'latency_ms', 'elapsed_ms'].includes(
-    name.toLowerCase(),
+const isDurationMetricName = (name: string): boolean => {
+  const normalizedName = name.trim().toLowerCase();
+  if (!normalizedName) return false;
+
+  return (
+    ['duration', 'duration_ms', 'latency', 'latency_ms', 'elapsed_ms'].includes(
+      normalizedName,
+    ) ||
+    normalizedName.endsWith('_duration_ms') ||
+    normalizedName.endsWith('_latency_ms') ||
+    normalizedName.endsWith('_elapsed_ms')
   );
+};
 
 const getDurationFromMetric = (
   metric: ObservabilityMetricRecord,
 ): number | undefined => {
   if (!isDurationMetricName(metric.getName())) return undefined;
-  const value = Number(metric.getValue());
-  return Number.isFinite(value) && value >= 0 ? Math.round(value) : undefined;
+  return parseDurationMs(metric.getValue());
 };
 
 const getScopeAttributes = (

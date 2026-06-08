@@ -90,7 +90,6 @@
     --color-blue-700: oklch(48.8% 0.243 264.376);
     --color-blue-800: oklch(42.4% 0.199 265.638);
     --color-blue-900: oklch(37.9% 0.146 265.522);
-    --color-blue-950: oklch(28.2% 0.091 267.935);
     --color-indigo-100: oklch(93% 0.034 272.788);
     --color-indigo-200: oklch(87% 0.065 274.039);
     --color-indigo-400: oklch(67.3% 0.182 276.935);
@@ -418,6 +417,9 @@
   .inset-0 {
     inset: calc(var(--spacing) * 0);
   }
+  .inset-auto\! {
+    inset: auto !important;
+  }
   .inset-x-0 {
     inset-inline: calc(var(--spacing) * 0);
   }
@@ -543,6 +545,9 @@
   }
   .z-0 {
     z-index: 0;
+  }
+  .z-0\! {
+    z-index: 0 !important;
   }
   .z-1 {
     z-index: 1;
@@ -2385,6 +2390,9 @@
   .\!mb-6 {
     margin-bottom: calc(var(--spacing) * 6) !important;
   }
+  .mb-0\! {
+    margin-bottom: calc(var(--spacing) * 0) !important;
+  }
   .mb-0\.5 {
     margin-bottom: calc(var(--spacing) * 0.5);
   }
@@ -3204,9 +3212,6 @@
   }
   .min-w-\[880px\] {
     min-width: 880px;
-  }
-  .min-w-\[900px\] {
-    min-width: 900px;
   }
   .min-w-\[1040px\] {
     min-width: 1040px;

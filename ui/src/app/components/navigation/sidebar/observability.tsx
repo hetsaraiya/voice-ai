@@ -17,19 +17,22 @@ export const Observability = memo(({ isLoading }: { isLoading?: boolean }) => {
   const location = useLocation();
   const { pathname } = location;
   const workspace = useWorkspace();
+  const telemetryEnabled = workspace.features?.telemetry !== false;
 
   return (
     <li>
-      <SidebarSimpleListItem
-        active={pathname.includes('/logs/traces')}
-        navigate="/logs/traces"
-        loading={isLoading}
-      >
-        <SidebarIconWrapper>
-          <DataCheck size={20} />
-        </SidebarIconWrapper>
-        <SidebarLabel isLoading={isLoading}>Trace</SidebarLabel>
-      </SidebarSimpleListItem>
+      {telemetryEnabled && (
+        <SidebarSimpleListItem
+          active={pathname.includes('/logs/traces')}
+          navigate="/logs/traces"
+          loading={isLoading}
+        >
+          <SidebarIconWrapper>
+            <DataCheck size={20} />
+          </SidebarIconWrapper>
+          <SidebarLabel isLoading={isLoading}>Trace</SidebarLabel>
+        </SidebarSimpleListItem>
+      )}
       <SidebarSimpleListItem
         active={pathname.endsWith('/logs')}
         navigate="/logs"

@@ -33,7 +33,9 @@ export const useGlobalNavigation = () => {
   const goToConfigureWeb = (assistantId: string) =>
     navigate(`/deployment/assistant/${assistantId}/deployment/web`);
   const goToEditWeb = (assistantId: string, deploymentId: string) =>
-    navigate(`/deployment/assistant/${assistantId}/deployment/web/${deploymentId}`);
+    navigate(
+      `/deployment/assistant/${assistantId}/deployment/web/${deploymentId}`,
+    );
 
   const goToConfigureApp = (assistantId: string) =>
     navigate(`/deployment/assistant/${assistantId}/deployment/app`);
@@ -52,7 +54,9 @@ export const useGlobalNavigation = () => {
   const goToConfigureApi = (assistantId: string) =>
     navigate(`/deployment/assistant/${assistantId}/deployment/api`);
   const goToEditApi = (assistantId: string, deploymentId: string) =>
-    navigate(`/deployment/assistant/${assistantId}/deployment/api/${deploymentId}`);
+    navigate(
+      `/deployment/assistant/${assistantId}/deployment/api/${deploymentId}`,
+    );
 
   const goToConfigureDebugger = (assistantId: string) =>
     navigate(`/deployment/assistant/${assistantId}/deployment/debugger`);
@@ -148,6 +152,22 @@ export const useGlobalNavigation = () => {
   const goToAssistantSessionList = (assistantId: string) =>
     navigate(`/deployment/assistant/${assistantId}/sessions`);
 
+  const goToConversationTelemetry = (conversationId: string) => {
+    const params = new URLSearchParams({
+      scope: 'conversation',
+      conversation_id: conversationId,
+    });
+    navigate(`/logs/traces?${params.toString()}`);
+  };
+
+  const goToMessageTelemetry = (messageId: string) => {
+    const params = new URLSearchParams({
+      scope: 'message',
+      message_id: messageId,
+    });
+    navigate(`/logs/traces?${params.toString()}`);
+  };
+
   const goToCreateKnowledge = () => navigate('/knowledge/create-knowledge');
   const goToAssistantListing = () => navigate('/deployment/assistant/');
 
@@ -227,6 +247,8 @@ export const useGlobalNavigation = () => {
     //
     goToAssistantSession,
     goToAssistantSessionList,
+    goToConversationTelemetry,
+    goToMessageTelemetry,
     goToAssistantListing,
     goToAssistantVersions,
 

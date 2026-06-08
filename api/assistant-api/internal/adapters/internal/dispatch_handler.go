@@ -174,7 +174,7 @@ func (h requestorDispatchHandler) HandleUserInput(ctx context.Context, p interna
 			MessageRole: observability.MessageRoleUser,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "messaging transition failed",
+				Message: "Message state transition failed; check target_state and current turn state",
 				Attributes: observability.Attributes{
 					"component":    observability.ComponentTurn.String(),
 					"operation":    "transition",
@@ -299,7 +299,7 @@ func (h requestorDispatchHandler) HandleEndOfSpeechInterruption(ctx context.Cont
 				MessageRole: observability.MessageRoleUser,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "end of speech analysis failed",
+					Message: "End-of-speech analysis failed; user turn completion may be delayed",
 					Attributes: observability.Attributes{
 						"component":    observability.ComponentEOS.String(),
 						"operation":    "execute",
@@ -325,7 +325,7 @@ func (h requestorDispatchHandler) HandleTextToSpeechInterrupt(ctx context.Contex
 				MessageRole: observability.MessageRoleAssistant,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "text to speech interrupt failed",
+					Message: "TTS interrupt failed; assistant audio may continue after interruption",
 					Attributes: observability.Attributes{
 						"component":    observability.ComponentTTS.String(),
 						"operation":    "interrupt",
@@ -349,7 +349,7 @@ func (h requestorDispatchHandler) HandleLLMInterrupt(ctx context.Context, p inte
 				MessageRole: observability.MessageRoleAssistant,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "llm interrupt failed",
+					Message: "LLM interrupt failed; generation may continue after user interruption",
 					Attributes: observability.Attributes{
 						"component":    observability.ComponentLLM.String(),
 						"operation":    "interrupt",
@@ -374,7 +374,7 @@ func (h requestorDispatchHandler) HandleSpeechToTextStart(ctx context.Context, p
 				MessageRole: observability.MessageRoleUser,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "speech to text start failed",
+					Message: "STT start notification failed; provider may miss the speech boundary",
 					Attributes: observability.Attributes{
 						"component":    observability.ComponentSTT.String(),
 						"operation":    "start",
@@ -399,7 +399,7 @@ func (h requestorDispatchHandler) HandleSpeechToTextEnd(ctx context.Context, p i
 				MessageRole: observability.MessageRoleUser,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "speech to text end failed",
+					Message: "STT end notification failed; buffered speech may not flush",
 					Attributes: observability.Attributes{
 						"component":    observability.ComponentSTT.String(),
 						"operation":    "end",
@@ -429,7 +429,7 @@ func (h requestorDispatchHandler) HandleTurnChange(ctx context.Context, p intern
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "turn change update failed",
+					Message: "Turn context update failed; downstream packets may use a stale context",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentSTT.String(),
 						"operation":  "turn_change",
@@ -449,7 +449,7 @@ func (h requestorDispatchHandler) HandleTurnChange(ctx context.Context, p intern
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "turn change update failed",
+					Message: "Turn context update failed; downstream packets may use a stale context",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentTTS.String(),
 						"operation":  "turn_change",
@@ -500,7 +500,7 @@ func (h requestorDispatchHandler) HandleLLMResponseDelta(ctx context.Context, p 
 			MessageRole: observability.MessageRoleAssistant,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "messaging transition failed",
+				Message: "Message state transition failed; check target_state and current turn state",
 				Attributes: observability.Attributes{
 					"component":    observability.ComponentLLM.String(),
 					"operation":    "transition",
@@ -543,7 +543,7 @@ func (h requestorDispatchHandler) HandleLLMResponseDone(ctx context.Context, p i
 				MessageRole: observability.MessageRoleUser,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "end of speech analysis failed",
+					Message: "End-of-speech analysis failed; user turn completion may be delayed",
 					Attributes: observability.Attributes{
 						"component":    observability.ComponentEOS.String(),
 						"operation":    "execute",
@@ -565,7 +565,7 @@ func (h requestorDispatchHandler) HandleLLMResponseDone(ctx context.Context, p i
 			MessageRole: observability.MessageRoleAssistant,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "messaging transition failed",
+				Message: "Message state transition failed; check target_state and current turn state",
 				Attributes: observability.Attributes{
 					"component":    observability.ComponentLLM.String(),
 					"operation":    "transition",
@@ -603,7 +603,6 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 	case internal_type.InitializationFailedPacket:
 		_ = h.r.sessionLifecycle.Transition(adapter_lifecycle.EventInitializationFailed)
 		h.r.OnPacket(ctx,
-			internal_type.InitializeOutboundDispatcherPacket{ContextID: p.ContextId()},
 			internal_type.ObservabilityEventRecordPacket{
 				ContextID: p.ContextId(),
 				Scope:     internal_type.ObservabilityRecordScopeAssistant,
@@ -755,7 +754,7 @@ func (h requestorDispatchHandler) HandleInjectMessage(ctx context.Context, p int
 			MessageRole: observability.MessageRoleAssistant,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "messaging transition failed",
+				Message: "Message state transition failed; check target_state and current turn state",
 				Attributes: observability.Attributes{
 					"component":    observability.ComponentLLM.String(),
 					"operation":    "transition",
@@ -779,7 +778,7 @@ func (h requestorDispatchHandler) HandleInjectMessage(ctx context.Context, p int
 					MessageRole: observability.MessageRoleAssistant,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
-						Message: "assistant executor failed",
+						Message: "Assistant executor failed during response generation",
 						Attributes: observability.Attributes{
 							"component":    observability.ComponentLLM.String(),
 							"operation":    "execute",
@@ -819,7 +818,7 @@ func (h requestorDispatchHandler) HandleInjectMessage(ctx context.Context, p int
 				MessageRole: observability.MessageRoleAssistant,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "messaging transition failed",
+					Message: "Message state transition failed; check target_state and current turn state",
 					Attributes: observability.Attributes{
 						"component":    observability.ComponentLLM.String(),
 						"operation":    "transition",
@@ -861,7 +860,7 @@ func (h requestorDispatchHandler) HandleStartIdleTimeout(ctx context.Context, p 
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "idle timeout handling failed",
+					Message: "Idle timeout handling failed; conversation may not end as configured",
 					Attributes: observability.Attributes{
 						"component":        observability.ComponentConversation.String(),
 						"operation":        "idle_timeout",
@@ -895,7 +894,7 @@ func (h requestorDispatchHandler) HandleTextToSpeechText(ctx context.Context, p 
 			MessageRole: observability.MessageRoleAssistant,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "text to speech abaonded due to stale context",
+				Message: "Skipped TTS for stale context; assistant text belongs to an older turn",
 				Attributes: observability.Attributes{
 					"component":          observability.ComponentTTS.String(),
 					"operation":          "discard",
@@ -918,7 +917,7 @@ func (h requestorDispatchHandler) HandleTextToSpeechText(ctx context.Context, p 
 				MessageRole: observability.MessageRoleAssistant,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "text to speech transform failed",
+					Message: "TTS transform failed; assistant audio was not generated",
 					Attributes: observability.Attributes{
 						"component":    observability.ComponentTTS.String(),
 						"operation":    "transform",
@@ -951,7 +950,7 @@ func (h requestorDispatchHandler) HandleTextToSpeechDone(ctx context.Context, p 
 				MessageRole: observability.MessageRoleAssistant,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "text to speech transform failed",
+					Message: "TTS transform failed; assistant audio was not generated",
 					Attributes: observability.Attributes{
 						"component":    observability.ComponentTTS.String(),
 						"operation":    "transform",
@@ -1101,7 +1100,7 @@ func (h requestorDispatchHandler) HandleLLMToolCall(ctx context.Context, p inter
 					MessageRole: observability.MessageRoleAssistant,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
-						Message: "tool call execution failed",
+						Message: "Tool call execution failed; tool result will be marked failed",
 						Attributes: observability.Attributes{
 							"component":    observability.ComponentTool.String(),
 							"operation":    "execute",
@@ -1200,7 +1199,7 @@ func (h requestorDispatchHandler) HandleLLMToolResult(ctx context.Context, p int
 					MessageRole: observability.MessageRoleAssistant,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
-						Message: "tool result processing failed",
+						Message: "Tool result processing failed; assistant context may miss tool output",
 						Attributes: observability.Attributes{
 							"component":    observability.ComponentTool.String(),
 							"operation":    "process_result",
@@ -1227,7 +1226,7 @@ func (h requestorDispatchHandler) HandleRecordUserAudio(ctx context.Context, p i
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "user audio recording failed",
+					Message: "User audio recording failed; conversation recording may be incomplete",
 					Attributes: observability.Attributes{
 						"component":   observability.ComponentRecording.String(),
 						"operation":   "record_user_audio",
@@ -1250,7 +1249,7 @@ func (h requestorDispatchHandler) HandleRecordAssistantAudio(ctx context.Context
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "assistant audio recording failed",
+					Message: "Assistant audio recording failed; conversation recording may be incomplete",
 					Attributes: observability.Attributes{
 						"component":   observability.ComponentRecording.String(),
 						"operation":   "record_assistant_audio",
@@ -1272,7 +1271,7 @@ func (h requestorDispatchHandler) HandleConversationRecordingCompleted(ctx conte
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "conversation recording persistence failed",
+				Message: "Conversation recording persistence failed; recording artifact may be missing",
 				Attributes: observability.Attributes{
 					"component":             observability.ComponentRecording.String(),
 					"operation":             "persist_recording",
@@ -1295,7 +1294,7 @@ func (h requestorDispatchHandler) HandleMessageCreate(ctx context.Context, p int
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "message persistence failed",
+				Message: "Message persistence failed; conversation transcript may be incomplete",
 				Attributes: observability.Attributes{
 					"component":    observability.ComponentSTT.String(),
 					"operation":    "persist_message",
@@ -1314,40 +1313,36 @@ func (h requestorDispatchHandler) HandleMessageCreate(ctx context.Context, p int
 
 func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Context, p internal_type.ObservabilityRecordPacket) {
 	if h.r.observabilityRecorder != nil {
-		var scope observability.Scope
 		switch p.GetScope() {
 		case internal_type.ObservabilityRecordScopeAssistant:
 			if h.r.Assistant() == nil {
-				h.r.logger.Error("observability assistant scope failed to resolve", "record", p.GetRecord())
+				h.r.logger.Errorw("observability assistant scope failed to resolve", "record", p)
 				return
 			}
-			scope = observability.AssistantScope{
+			if err := h.r.observabilityRecorder.Record(ctx, observability.AssistantScope{
 				AssistantID: h.r.Assistant().Id,
+			}, p.GetRecord()); err != nil {
+				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
 		case internal_type.ObservabilityRecordScopeConversation:
 			if h.r.Assistant() == nil || h.r.Conversation() == nil {
-				h.r.logger.Error("observability conversation scope failed to resolve", "record", p.GetRecord())
+				h.r.logger.Errorw("observability conversation scope failed to resolve", "record", p)
 				return
 			}
-			scope = observability.ConversationScope{
+			if err := h.r.observabilityRecorder.Record(ctx, observability.ConversationScope{
 				AssistantScope: observability.AssistantScope{
 					AssistantID: h.r.Assistant().Id,
 				},
 				ConversationID: h.r.Conversation().Id,
+			}, p.GetRecord()); err != nil {
+				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
 		case internal_type.ObservabilityRecordScopeMessage:
 			if h.r.Assistant() == nil || h.r.Conversation() == nil {
-				h.r.logger.Error("observability message scope failed to resolve", "record", p.GetRecord())
+				h.r.logger.Errorw("observability message scope failed to resolve", "record", p)
 				return
 			}
-			role := p.GetMessageRole()
-			switch role {
-			case observability.MessageRoleUser, observability.MessageRoleAssistant:
-			default:
-				h.r.logger.Error("observability message role failed to resolve", "record", p.GetRecord(), "role", role)
-				return
-			}
-			scope = observability.MessageScope{
+			if err := h.r.observabilityRecorder.Record(ctx, observability.MessageScope{
 				ConversationScope: observability.ConversationScope{
 					AssistantScope: observability.AssistantScope{
 						AssistantID: h.r.Assistant().Id,
@@ -1355,14 +1350,13 @@ func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Co
 					ConversationID: h.r.Conversation().Id,
 				},
 				MessageID: p.ContextId(),
-				Role:      role,
+				Role:      p.GetMessageRole(),
+			}, p.GetRecord()); err != nil {
+				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
 		default:
-			h.r.logger.Error("observability scope is unsupported", "record", p.GetRecord(), "scope", p.GetScope())
+			h.r.logger.Errorw("observability scope is unsupported", "record", p, "scope", p.GetScope())
 			return
-		}
-		if err := h.r.observabilityRecorder.Record(ctx, scope, p.GetRecord()); err != nil {
-			h.r.logger.Error("observability record failed to persist", "error", err, "record", p.GetRecord())
 		}
 
 	}
@@ -1376,7 +1370,7 @@ func (h requestorDispatchHandler) HandleToolLogCreate(ctx context.Context, p int
 			MessageRole: observability.MessageRoleAssistant,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "tool log create skipped",
+				Message: "Skipped tool log creation because tool_id is empty",
 				Attributes: observability.Attributes{
 					"component":    observability.ComponentTool.String(),
 					"operation":    "create_tool_log",
@@ -1397,7 +1391,7 @@ func (h requestorDispatchHandler) HandleToolLogCreate(ctx context.Context, p int
 			MessageRole: observability.MessageRoleAssistant,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "tool log create failed",
+				Message: "Tool log creation failed; tool execution trace may be incomplete",
 				Attributes: observability.Attributes{
 					"component":    observability.ComponentTool.String(),
 					"operation":    "create_tool_log",
@@ -1421,7 +1415,7 @@ func (h requestorDispatchHandler) HandleToolLogUpdate(ctx context.Context, p int
 			MessageRole: observability.MessageRoleAssistant,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "tool log update skipped",
+				Message: "Skipped tool log update because tool_id is empty",
 				Attributes: observability.Attributes{
 					"component":    observability.ComponentTool.String(),
 					"operation":    "update_tool_log",
@@ -1441,7 +1435,7 @@ func (h requestorDispatchHandler) HandleToolLogUpdate(ctx context.Context, p int
 			MessageRole: observability.MessageRoleAssistant,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "tool log update failed",
+				Message: "Tool log update failed; tool execution trace may be stale",
 				Attributes: observability.Attributes{
 					"component":    observability.ComponentTool.String(),
 					"operation":    "update_tool_log",
@@ -1478,7 +1472,7 @@ func (h requestorDispatchHandler) HandleHTTPLogCreate(ctx context.Context, p int
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "http log persistence failed",
+				Message: "HTTP log persistence failed; webhook trace may be incomplete",
 				Attributes: observability.Attributes{
 					"component":     observability.ComponentWebhook.String(),
 					"operation":     "persist_http_log",
@@ -1677,7 +1671,7 @@ func (h requestorDispatchHandler) HandleInitializeAuthentication(ctx context.Con
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "authentication arguments failed",
+					Message: "Authentication argument resolution failed; authentication cannot run",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentConversation.String(),
 						"operation":  "build_authentication_arguments",
@@ -1715,7 +1709,7 @@ func (h requestorDispatchHandler) HandleExecuteSessionAuthentication(ctx context
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "authentication execution failed",
+				Message: "Authentication execution failed; session may be rejected",
 				Attributes: observability.Attributes{
 					"component":  observability.ComponentConversation.String(),
 					"operation":  "execute_authentication",
@@ -1998,7 +1992,7 @@ func (h requestorDispatchHandler) HandleInitializeBehavior(ctx context.Context, 
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "behavior initialization failed",
+				Message: "Behavior initialization failed; greeting or timeout behavior may be unavailable",
 				Attributes: observability.Attributes{
 					"component":  observability.ComponentConversation.String(),
 					"operation":  "initialize_behavior",
@@ -2298,7 +2292,7 @@ func (h requestorDispatchHandler) HandleModeSwitchFinalizeSpeechToText(ctx conte
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "mode switch finalize failed",
+					Message: "Mode switch finalization failed; previous media component may still be active",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentSTT.String(),
 						"operation":  "finalize",
@@ -2322,7 +2316,7 @@ func (h requestorDispatchHandler) HandleModeSwitchFinalizeTextToSpeech(ctx conte
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "mode switch finalize failed",
+					Message: "Mode switch finalization failed; previous media component may still be active",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentTTS.String(),
 						"operation":  "finalize",
@@ -2346,7 +2340,7 @@ func (h requestorDispatchHandler) HandleModeSwitchFinalizeVoiceActivityDetection
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "mode switch finalize failed",
+					Message: "Mode switch finalization failed; previous media component may still be active",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentVAD.String(),
 						"operation":  "finalize",
@@ -2370,7 +2364,7 @@ func (h requestorDispatchHandler) HandleModeSwitchFinalizeEndOfSpeech(ctx contex
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "mode switch finalize failed",
+					Message: "Mode switch finalization failed; previous media component may still be active",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentEOS.String(),
 						"operation":  "finalize",
@@ -2394,7 +2388,7 @@ func (h requestorDispatchHandler) HandleModeSwitchFinalizeDenoise(ctx context.Co
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "mode switch finalize failed",
+					Message: "Mode switch finalization failed; previous media component may still be active",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentDenoise.String(),
 						"operation":  "finalize",
@@ -2470,12 +2464,9 @@ func (h requestorDispatchHandler) HandleInitializationCompleted(ctx context.Cont
 }
 
 func (h requestorDispatchHandler) HandleInitializeTelemetry(ctx context.Context, p internal_type.InitializeTelemetryPacket) {
-	defer h.r.OnPacket(ctx, internal_type.InitializeOutboundDispatcherPacket{ContextID: p.ContextID})
 	configuredCollectors := make([]observability.Collector, 0)
-	// adding env collectors
-	configuredCollectors = append(configuredCollectors, collectors.NewWithEnv(ctx, h.r.logger, h.r.config)...)
 
-	// adding assistant collectors
+	// Platform telemetry collectors attach configured assistant/webhook sinks and the conversation DB sink.
 	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantTelemetry(ctx, h.r.logger, h.r.assistant.AssistantTelemetryProviders)...)
 
 	// adding webhook collectors
@@ -2487,15 +2478,14 @@ func (h requestorDispatchHandler) HandleInitializeTelemetry(ctx context.Context,
 		ConversationService: h.r.conversationService,
 	}))
 
-	h.r.observabilityRecorder = observability.New(observability.WithLogger(h.r.logger),
-		observability.WithAuth(h.r.auth),
-		observability.WithCollectors(configuredCollectors...))
-}
-
-func (h requestorDispatchHandler) HandleInitializeOutboundDispatcher(ctx context.Context, p internal_type.InitializeOutboundDispatcherPacket) {
-	h.r.lowStart.Do(func() {
-		go h.r.runLowDispatcher(h.r.sessionCtx)
-	})
+	if err := h.r.observabilityRecorder.AddCollectors(configuredCollectors...); err != nil {
+		h.r.logger.Error(
+			"platform observability collector registration failed",
+			"component", "platform",
+			"operation", "initialize_observability_collectors",
+			"error", err,
+		)
+	}
 }
 
 func (h requestorDispatchHandler) HandleInitializeInboundDispatcher(ctx context.Context, p internal_type.InitializeInboundDispatcherPacket) {
@@ -2521,7 +2511,7 @@ func (h requestorDispatchHandler) HandleFinalizeEndOfSpeech(ctx context.Context,
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "end of speech close failed",
+					Message: "End-of-speech executor close failed; shutdown may leave resources open",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentEOS.String(),
 						"operation":  "finalize",
@@ -2546,7 +2536,7 @@ func (h requestorDispatchHandler) HandleFinalizeVoiceActivityDetection(ctx conte
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "voice activity detection close failed",
+					Message: "VAD executor close failed; shutdown may leave resources open",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentVAD.String(),
 						"operation":  "finalize",
@@ -2571,7 +2561,7 @@ func (h requestorDispatchHandler) HandleFinalizeTextToSpeech(ctx context.Context
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "text to speech close failed",
+					Message: "TTS transformer close failed; shutdown may leave resources open",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentTTS.String(),
 						"operation":  "finalize",
@@ -2596,7 +2586,7 @@ func (h requestorDispatchHandler) HandleFinalizeSpeechToText(ctx context.Context
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "speech to text close failed",
+					Message: "STT transformer close failed; shutdown may leave resources open",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentSTT.String(),
 						"operation":  "finalize",
@@ -2640,7 +2630,7 @@ func (h requestorDispatchHandler) HandleFinalizeSessionRuntime(ctx context.Conte
 					Scope:     internal_type.ObservabilityRecordScopeConversation,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
-						Message: "audio recording persistence failed",
+						Message: "Recorded audio persistence failed; recording artifact may be incomplete",
 						Attributes: observability.Attributes{
 							"component":  observability.ComponentRecording.String(),
 							"operation":  "finalize",
@@ -2677,7 +2667,7 @@ func (h requestorDispatchHandler) HandleFinalizeConversation(ctx context.Context
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "analysis executor close failed",
+					Message: "Analysis executor close failed; shutdown may leave resources open",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentConversation.String(),
 						"operation":  "finalize",
@@ -2698,7 +2688,7 @@ func (h requestorDispatchHandler) HandleFinalizeConversation(ctx context.Context
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "webhook executor close failed",
+					Message: "Webhook executor close failed; shutdown may leave resources open",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentWebhook.String(),
 						"operation":  "finalize",
@@ -2719,7 +2709,7 @@ func (h requestorDispatchHandler) HandleFinalizeConversation(ctx context.Context
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "authentication executor close failed",
+					Message: "Authentication executor close failed; shutdown may leave resources open",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentConversation.String(),
 						"operation":  "finalize",
@@ -2742,7 +2732,7 @@ func (h requestorDispatchHandler) HandleFinalizeAssistant(ctx context.Context, p
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "assistant executor close failed",
+					Message: "Assistant executor close failed; shutdown may leave resources open",
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentLLM.String(),
 						"operation":  "finalize",
@@ -2753,11 +2743,6 @@ func (h requestorDispatchHandler) HandleFinalizeAssistant(ctx context.Context, p
 					},
 				},
 			})
-		}
-	}
-	if h.r.observabilityRecorder != nil {
-		if err := h.r.observabilityRecorder.Close(ctx); err != nil {
-			h.r.logger.Error("failed to close observability recorder", "error", err)
 		}
 	}
 	h.r.OnPacket(ctx, internal_type.FinalizationCompletedPacket{ContextID: p.ContextID})
@@ -2783,7 +2768,7 @@ func (h requestorDispatchHandler) HandleExecuteAnalysis(ctx context.Context, p i
 					Scope:     internal_type.ObservabilityRecordScopeConversation,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
-						Message: "analysis arguments failed",
+						Message: "Analysis argument resolution failed; analysis cannot run",
 						Attributes: observability.Attributes{
 							"component":  observability.ComponentConversation.String(),
 							"operation":  "build_analysis_arguments",
@@ -2805,7 +2790,7 @@ func (h requestorDispatchHandler) HandleExecuteAnalysis(ctx context.Context, p i
 					Scope:     internal_type.ObservabilityRecordScopeConversation,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
-						Message: "analysis execution failed",
+						Message: "Analysis execution failed; post-call analysis may be missing",
 						Attributes: observability.Attributes{
 							"component":  observability.ComponentConversation.String(),
 							"operation":  "execute_analysis",
@@ -2839,7 +2824,7 @@ func (h requestorDispatchHandler) HandleExecuteWebhook(ctx context.Context, p in
 					Scope:     internal_type.ObservabilityRecordScopeConversation,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
-						Message: "webhook arguments failed",
+						Message: "Webhook argument resolution failed; webhook cannot run",
 						Attributes: observability.Attributes{
 							"component":  observability.ComponentWebhook.String(),
 							"operation":  "build_webhook_arguments",
@@ -2861,7 +2846,7 @@ func (h requestorDispatchHandler) HandleExecuteWebhook(ctx context.Context, p in
 					Scope:     internal_type.ObservabilityRecordScopeConversation,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
-						Message: "webhook execution failed",
+						Message: "Webhook execution failed; external callback did not complete",
 						Attributes: observability.Attributes{
 							"component":  observability.ComponentWebhook.String(),
 							"operation":  "execute_webhook",
@@ -2890,7 +2875,7 @@ func (h requestorDispatchHandler) callInputNormalizer(ctx context.Context, vl in
 			MessageRole: observability.MessageRoleUser,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "input normalization failed",
+				Message: "Input normalization failed; raw user text will be used",
 				Attributes: observability.Attributes{
 					"component":    observability.ComponentSTT.String(),
 					"operation":    "normalize_input",
@@ -2940,7 +2925,7 @@ func (r *genericRequestor) OnNotifyAssistantConfiguration(ctx context.Context, c
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "configuration notification failed",
+				Message: "Configuration notification failed; streamer may use stale settings",
 				Attributes: observability.Attributes{
 					"component":  observability.ComponentConversation.String(),
 					"operation":  "notify_configuration",

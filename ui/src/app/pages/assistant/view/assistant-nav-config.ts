@@ -11,8 +11,8 @@ import {
   Phone,
   ChartLine,
   DigitalIdentity,
+  CarbonIconType,
 } from '@carbon/icons-react';
-import type { ComponentType } from 'react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ export interface AssistantNavChild {
 export interface AssistantNavItem {
   key: string;
   label: string;
-  icon: ComponentType<{ size?: number }>;
+  icon: CarbonIconType;
   path: string;
   exact?: boolean;
   action?: string;

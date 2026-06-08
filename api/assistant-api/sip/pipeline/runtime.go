@@ -126,9 +126,17 @@ func (d *Dispatcher) prepareSIPCallRuntime(ctx context.Context, session *sip_inf
 	}
 
 	d.configureSIPTransfer(ctx, session, sipConfig, resolvedCallContext, streamer)
-	talker, err := internal_adapter.GetTalker(
-		utils.PhoneCall, talkContext, d.assistantConfig, d.logger,
-		d.postgres, d.opensearch, d.redis, d.storage, streamer,
+	talker, err := internal_adapter.New(
+		internal_adapter.WithSource(utils.PhoneCall),
+		internal_adapter.WithContext(talkContext),
+		internal_adapter.WithConfig(d.assistantConfig),
+		internal_adapter.WithLogger(d.logger),
+		internal_adapter.WithPostgres(d.postgres),
+		internal_adapter.WithOpenSearch(d.opensearch),
+		internal_adapter.WithRedis(d.redis),
+		internal_adapter.WithStorage(d.storage),
+		internal_adapter.WithStreamer(streamer),
+		internal_adapter.WithObserver(observer),
 	)
 	if err != nil {
 		cancelTalk()

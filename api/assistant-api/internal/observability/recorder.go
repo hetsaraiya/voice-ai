@@ -26,13 +26,14 @@ type Recorder interface {
 }
 
 type recorderOptions struct {
-	logger      commons.Logger
-	auth        types.SimplePrinciple
-	globalScope GlobalScope
-	context     Context
-	clock       func() time.Time
-	buffer      int
-	collectors  []Collector
+	logger           commons.Logger
+	auth             types.SimplePrinciple
+	globalScope      GlobalScope
+	context          Context
+	clock            func() time.Time
+	buffer           int
+	closeGracePeriod *time.Duration
+	collectors       []Collector
 }
 
 type Option interface {
@@ -95,6 +96,15 @@ func WithBuffer(buffer int) Option {
 	})
 }
 
+func WithCloseGracePeriod(closeGracePeriod time.Duration) Option {
+	return newOption(func(recorderOptions *recorderOptions) {
+		if closeGracePeriod < 0 {
+			closeGracePeriod = 0
+		}
+		recorderOptions.closeGracePeriod = &closeGracePeriod
+	})
+}
+
 func WithCollector(collector Collector) Option {
 	return WithCollectors(collector)
 }
@@ -106,18 +116,20 @@ func WithCollectors(collectors ...Collector) Option {
 }
 
 type recorder struct {
-	logger      commons.Logger
-	auth        types.SimplePrinciple
-	globalScope GlobalScope
-	context     Context
-	clock       func() time.Time
-	fanout      *Collectors
-	queue       chan observation
-	done        chan struct{}
-	closed      bool
-	mu          sync.RWMutex
-	errMu       sync.Mutex
-	errs        []error
+	logger           commons.Logger
+	auth             types.SimplePrinciple
+	globalScope      GlobalScope
+	context          Context
+	clock            func() time.Time
+	closeGracePeriod time.Duration
+	fanout           *Collectors
+	queue            chan observation
+	done             chan struct{}
+	closeRequested   bool
+	closed           bool
+	mu               sync.RWMutex
+	errMu            sync.Mutex
+	errs             []error
 }
 
 type observation struct {
@@ -127,6 +139,8 @@ type observation struct {
 }
 
 const defaultBufferSize = 1024
+
+const DefaultCloseGracePeriod = 10 * time.Second
 
 var (
 	ErrRecorderClosed = errors.New("observability: recorder is closed")
@@ -159,15 +173,20 @@ func New(options ...Option) Recorder {
 	if buffer <= 0 {
 		buffer = defaultBufferSize
 	}
+	closeGracePeriod := DefaultCloseGracePeriod
+	if resolvedOptions.closeGracePeriod != nil {
+		closeGracePeriod = *resolvedOptions.closeGracePeriod
+	}
 	r := &recorder{
-		logger:      resolvedOptions.logger,
-		auth:        resolvedOptions.auth,
-		globalScope: globalScope,
-		context:     resolvedOptions.context,
-		clock:       clock,
-		fanout:      NewCollectors(resolvedOptions.collectors...),
-		queue:       make(chan observation, buffer),
-		done:        make(chan struct{}),
+		logger:           resolvedOptions.logger,
+		auth:             resolvedOptions.auth,
+		globalScope:      globalScope,
+		context:          resolvedOptions.context,
+		clock:            clock,
+		closeGracePeriod: closeGracePeriod,
+		fanout:           NewCollectors(resolvedOptions.collectors...),
+		queue:            make(chan observation, buffer),
+		done:             make(chan struct{}),
 	}
 	go r.run()
 	return r
@@ -179,9 +198,6 @@ func (r *recorder) Record(ctx context.Context, scope Scope, records ...Record) e
 		if err != nil {
 			return err
 		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		item.context = r.context
 		if traceID, ok := ctx.Value(types.REQUEST_ID_KEY).(string); ok && traceID != "" {
 			item.context.TraceID = traceID
@@ -191,16 +207,15 @@ func (r *recorder) Record(ctx context.Context, scope Scope, records ...Record) e
 		}
 
 		r.mu.RLock()
-		defer r.mu.RUnlock()
 		if r.closed {
+			r.mu.RUnlock()
 			return ErrRecorderClosed
 		}
 		select {
 		case r.queue <- item:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
+			r.mu.RUnlock()
 		default:
+			r.mu.RUnlock()
 			return ErrBufferFull
 		}
 	}
@@ -329,10 +344,43 @@ func (r *recorder) run() {
 }
 
 func (r *recorder) Close(ctx context.Context) error {
+	ownsClose := false
+	var closeGracePeriodContextError error
+	r.mu.Lock()
+	if !r.closeRequested && !r.closed {
+		r.closeRequested = true
+		ownsClose = true
+	}
+	r.mu.Unlock()
+
+	if !ownsClose {
+		select {
+		case <-r.done:
+			return r.errors()
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	if r.closeGracePeriod > 0 {
+		closeGracePeriodTimer := time.NewTimer(r.closeGracePeriod)
+		select {
+		case <-closeGracePeriodTimer.C:
+		case <-ctx.Done():
+			if !closeGracePeriodTimer.Stop() {
+				select {
+				case <-closeGracePeriodTimer.C:
+				default:
+				}
+			}
+			closeGracePeriodContextError = ctx.Err()
+		}
+	}
+
 	r.mu.Lock()
 	if !r.closed {
-		r.closed = true
 		close(r.queue)
+		r.closed = true
 	}
 	r.mu.Unlock()
 
@@ -345,7 +393,7 @@ func (r *recorder) Close(ctx context.Context) error {
 	if err := r.fanout.Close(ctx); err != nil {
 		r.addError(err)
 	}
-	return r.errors()
+	return errors.Join(closeGracePeriodContextError, r.errors())
 }
 
 func (r *recorder) addError(err error) {

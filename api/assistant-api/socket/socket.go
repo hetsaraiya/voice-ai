@@ -151,7 +151,18 @@ func (m *audioSocketEngine) handleConnection(ctx context.Context, conn net.Conn)
 		m.logger.Warnw("AudioSocket failed to create streamer", "contextId", contextID, "error", err)
 		return
 	}
-	talker, err := internal_adapter.GetTalker(utils.PhoneCall, ctx, m.cfg, m.logger, m.postgres, m.opensearch, m.redis, m.storage, streamer)
+	talker, err := internal_adapter.New(
+		internal_adapter.WithSource(utils.PhoneCall),
+		internal_adapter.WithContext(ctx),
+		internal_adapter.WithConfig(m.cfg),
+		internal_adapter.WithLogger(m.logger),
+		internal_adapter.WithPostgres(m.postgres),
+		internal_adapter.WithOpenSearch(m.opensearch),
+		internal_adapter.WithRedis(m.redis),
+		internal_adapter.WithStorage(m.storage),
+		internal_adapter.WithStreamer(streamer),
+		internal_adapter.WithObserver(observer),
+	)
 	if err != nil {
 		m.logger.Warnw("AudioSocket failed to create talker", "contextId", contextID, "error", err)
 		return

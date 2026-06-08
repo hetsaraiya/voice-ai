@@ -12,6 +12,8 @@ import { Routes, Route, Outlet } from 'react-router-dom';
 import { CONFIG } from '@/configs';
 
 export function ObservabilityRoute() {
+  const telemetryEnabled = CONFIG.workspace.features?.telemetry !== false;
+
   return (
     <Routes>
       <Route
@@ -47,11 +49,13 @@ export function ObservabilityRoute() {
           path="/conversation"
           element={<ConversationActivityListingPage />}
         />
-        <Route
-          key="trace-explorer"
-          path="/traces"
-          element={<TraceExplorerPage />}
-        />
+        {telemetryEnabled && (
+          <Route
+            key="trace-explorer"
+            path="/traces"
+            element={<TraceExplorerPage />}
+          />
+        )}
       </Route>
     </Routes>
   );

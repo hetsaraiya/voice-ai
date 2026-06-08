@@ -26,8 +26,8 @@ func (s *webrtcStreamer) runOutputWriter() {
 			clearedFrames := s.clearOutputAudio()
 			if clearedFrames > 0 {
 				_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordLog{
-					Level:   observability.LevelDebug,
-					Message: "WebRTC output queue cleared",
+					Level:   observability.LevelInfo,
+					Message: "WebRTC output queue cleared after a flush request; this drops queued assistant audio so stale audio is not sent after the client asks to flush playback.",
 					Attributes: observability.Attributes{
 						"component":                              observability.ComponentWebRTC.String(),
 						webrtc_internal.DataType:                 webrtc_internal.EventOutputQueueCleared,
@@ -35,11 +35,6 @@ func (s *webrtcStreamer) runOutputWriter() {
 						webrtc_internal.DataReason:               webrtc_internal.OutputQueueClearReasonFlush,
 						webrtc_internal.DataClearedFrames:        fmt.Sprintf("%d", clearedFrames),
 						webrtc_internal.DataRemainingQueueFrames: fmt.Sprintf("%d", webrtc_internal.OutputAudioQueueEmptySize),
-					},
-				})
-				_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordMetric{
-					Metrics: []*protos.Metric{
-						{Name: "webrtc_output_cleared_frames", Value: fmt.Sprintf("%d", clearedFrames), Description: "WebRTC output queue cleared frames"},
 					},
 				})
 			}

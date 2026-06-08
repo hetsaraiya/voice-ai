@@ -11,6 +11,7 @@ import (
 	"github.com/rapidaai/api/assistant-api/config"
 
 	adapter_internal "github.com/rapidaai/api/assistant-api/internal/adapters/internal"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/connectors"
@@ -18,7 +19,97 @@ import (
 	"github.com/rapidaai/pkg/utils"
 )
 
-func GetTalker(source utils.RapidaSource, ctx context.Context, cfg *config.AssistantConfig, logger commons.Logger, postgres connectors.PostgresConnector, opensearch connectors.OpenSearchConnector, redis connectors.RedisConnector, storage storages.Storage, streamer internal_type.Streamer,
-) (internal_type.Talking, error) {
-	return adapter_internal.NewGenericRequestor(ctx, cfg, logger, source, postgres, opensearch, redis, storage, streamer), nil
+type TalkerOptions struct {
+	Source     utils.RapidaSource
+	Context    context.Context
+	Config     *config.AssistantConfig
+	Logger     commons.Logger
+	Postgres   connectors.PostgresConnector
+	OpenSearch connectors.OpenSearchConnector
+	Redis      connectors.RedisConnector
+	Storage    storages.Storage
+	Streamer   internal_type.Streamer
+	Observer   observability.Recorder
+}
+
+type FuncOption func(*TalkerOptions)
+
+func WithSource(source utils.RapidaSource) FuncOption {
+	return func(options *TalkerOptions) {
+		options.Source = source
+	}
+}
+
+func WithContext(ctx context.Context) FuncOption {
+	return func(options *TalkerOptions) {
+		options.Context = ctx
+	}
+}
+
+func WithConfig(config *config.AssistantConfig) FuncOption {
+	return func(options *TalkerOptions) {
+		options.Config = config
+	}
+}
+
+func WithLogger(logger commons.Logger) FuncOption {
+	return func(options *TalkerOptions) {
+		options.Logger = logger
+	}
+}
+
+func WithPostgres(postgres connectors.PostgresConnector) FuncOption {
+	return func(options *TalkerOptions) {
+		options.Postgres = postgres
+	}
+}
+
+func WithOpenSearch(opensearch connectors.OpenSearchConnector) FuncOption {
+	return func(options *TalkerOptions) {
+		options.OpenSearch = opensearch
+	}
+}
+
+func WithRedis(redis connectors.RedisConnector) FuncOption {
+	return func(options *TalkerOptions) {
+		options.Redis = redis
+	}
+}
+
+func WithStorage(storage storages.Storage) FuncOption {
+	return func(options *TalkerOptions) {
+		options.Storage = storage
+	}
+}
+
+func WithStreamer(streamer internal_type.Streamer) FuncOption {
+	return func(options *TalkerOptions) {
+		options.Streamer = streamer
+	}
+}
+
+func WithObserver(observer observability.Recorder) FuncOption {
+	return func(options *TalkerOptions) {
+		options.Observer = observer
+	}
+}
+
+func New(opts ...FuncOption) (internal_type.Talking, error) {
+	var options TalkerOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	return adapter_internal.NewGenericRequestor(
+		options.Context,
+		options.Config,
+		options.Logger,
+		options.Source,
+		options.Postgres,
+		options.OpenSearch,
+		options.Redis,
+		options.Storage,
+		options.Streamer,
+		options.Observer,
+	), nil
 }

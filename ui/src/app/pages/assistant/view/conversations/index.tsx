@@ -3,7 +3,6 @@ import {
   Assistant,
   AssistantConversation,
   AssistantConversationTelephonyEvent,
-  Criteria,
 } from '@rapidaai/react';
 import { useCredential } from '@/hooks/use-credential';
 import { useRapidaStore } from '@/hooks/use-rapida-store';
@@ -15,7 +14,6 @@ import SourceIndicator from '@/app/components/indicators/source';
 import { getStatusMetric, getConversationDuration } from '@/utils/metadata';
 import { useGlobalNavigation } from '@/hooks/use-global-navigator';
 import { ConversationDirectionIndicator } from '@/app/components/indicators/conversation-direction';
-import { ConversationTelemetryDialog } from '@/app/components/base/modal/conversation-telemetry-modal';
 import { CONFIG } from '@/configs';
 import { AssistantConversationTelephonyEventDialog } from '@/app/components/base/modal/assistant-conversation-telephony-event-modal';
 import { ChannelIndicator } from './channel-indicator';
@@ -59,8 +57,6 @@ interface ConversationProps {
 
 export function Conversations({ currentAssistant }: ConversationProps) {
   const [userId, token, projectId] = useCredential();
-  const [criterias, setCriterias] = useState<Criteria[]>([]);
-  const [isTelemetryDialogOpen, setTelemetryDialogOpen] = useState(false);
   const [isTelephonyStatusOpen, setTelephonyStatusOpen] = useState(false);
   const [telephonyEvents, setTelephonyEvents] = useState<
     AssistantConversationTelephonyEvent[]
@@ -159,16 +155,6 @@ export function Conversations({ currentAssistant }: ConversationProps) {
     assistantConversationListAction.criteria,
   ]);
 
-  const handleTraceClick = (assistantId: string, conversationID: string) => {
-    const ctr = new Criteria();
-    ctr.setKey('conversationId');
-    ctr.setLogic('match');
-    ctr.setValue(conversationID);
-
-    setCriterias([ctr]);
-    setTelemetryDialogOpen(true);
-  };
-
   const csvEscape = (str: string): string => {
     return `"${str.replace(/"/g, '""')}"`;
   };
@@ -234,15 +220,6 @@ export function Conversations({ currentAssistant }: ConversationProps) {
 
   return (
     <div className="h-full flex flex-col flex-1">
-      {isTelemetryDialogOpen && (
-        <ConversationTelemetryDialog
-          modalOpen={isTelemetryDialogOpen}
-          setModalOpen={setTelemetryDialogOpen}
-          assistantId={currentAssistant.getId()}
-          criterias={criterias}
-        />
-      )}
-
       <AssistantConversationTelephonyEventDialog
         modalOpen={isTelephonyStatusOpen}
         setModalOpen={setTelephonyStatusOpen}
@@ -367,8 +344,7 @@ export function Conversations({ currentAssistant }: ConversationProps) {
                               renderIcon={DataCheck}
                               iconDescription="View telemetry"
                               onClick={() =>
-                                handleTraceClick(
-                                  row.getAssistantid(),
+                                navigation.goToConversationTelemetry(
                                   row.getId(),
                                 )
                               }

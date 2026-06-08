@@ -986,8 +986,8 @@ func (s *webrtcStreamer) enqueueOutputAudio(frame []byte) {
 	if droppedFrames > 0 {
 		totalDropped := s.sessionState.AddOutputAudioDroppedFrames(droppedFrames)
 		_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordLog{
-			Level:   observability.LevelDebug,
-			Message: "WebRTC output queue overflow",
+			Level:   observability.LevelInfo,
+			Message: "WebRTC output queue overflow dropped the oldest assistant audio frame; this keeps playback current when audio is produced faster than WebRTC can send it.",
 			Attributes: observability.Attributes{
 				"component":                            observability.ComponentWebRTC.String(),
 				webrtc_internal.DataType:               webrtc_internal.EventOutputQueueOverflow,
@@ -997,13 +997,6 @@ func (s *webrtcStreamer) enqueueOutputAudio(frame []byte) {
 				webrtc_internal.DataLimitFrames:        fmt.Sprintf("%d", webrtc_internal.OutputAudioQueueMaxFrames),
 				webrtc_internal.DataQueueDepthFrames:   fmt.Sprintf("%d", queueDepth),
 				webrtc_internal.DataTotalDroppedFrames: fmt.Sprintf("%d", totalDropped),
-			},
-		})
-		_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordMetric{
-			Metrics: []*protos.Metric{
-				{Name: "webrtc_output_dropped_frames", Value: fmt.Sprintf("%d", droppedFrames), Description: "WebRTC output queue dropped frames"},
-				{Name: "webrtc_output_queue_depth_frames", Value: fmt.Sprintf("%d", queueDepth), Description: "WebRTC output queue depth"},
-				{Name: "webrtc_output_total_dropped_frames", Value: fmt.Sprintf("%d", totalDropped), Description: "WebRTC output queue total dropped frames"},
 			},
 		})
 	}
@@ -1337,8 +1330,8 @@ func (s *webrtcStreamer) Send(response internal_type.Stream) error {
 			clearedFrames := s.clearOutputAudio()
 			if clearedFrames > 0 {
 				_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordLog{
-					Level:   observability.LevelDebug,
-					Message: "WebRTC output queue cleared",
+					Level:   observability.LevelInfo,
+					Message: "WebRTC output queue cleared after user interruption; this drops queued assistant audio so the response stops promptly when the user speaks.",
 					Attributes: observability.Attributes{
 						"component":                              observability.ComponentWebRTC.String(),
 						webrtc_internal.DataType:                 webrtc_internal.EventOutputQueueCleared,
@@ -1346,11 +1339,6 @@ func (s *webrtcStreamer) Send(response internal_type.Stream) error {
 						webrtc_internal.DataReason:               webrtc_internal.OutputQueueClearReasonInterruption,
 						webrtc_internal.DataClearedFrames:        fmt.Sprintf("%d", clearedFrames),
 						webrtc_internal.DataRemainingQueueFrames: fmt.Sprintf("%d", webrtc_internal.OutputAudioQueueEmptySize),
-					},
-				})
-				_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordMetric{
-					Metrics: []*protos.Metric{
-						{Name: "webrtc_output_cleared_frames", Value: fmt.Sprintf("%d", clearedFrames), Description: "WebRTC output queue cleared frames"},
 					},
 				})
 			}

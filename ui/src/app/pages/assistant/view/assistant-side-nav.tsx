@@ -21,7 +21,7 @@ import { Assistant } from '@rapidaai/react';
 
 const NavItemSkeleton: FC<{ itemKey: string }> = ({ itemKey }) => (
   <div key={itemKey} className="flex items-center h-8 px-4 py-2">
-    <SkeletonText className="!mb-0 flex-1" width="70%" />
+    <SkeletonText className="mb-0! flex-1" width="70%" />
   </div>
 );
 
@@ -118,7 +118,7 @@ const NavSection: FC<{
           {isLoading ? (
             <SkeletonText className="!mb-0" width="50%" />
           ) : (
-            <span>{section.label}</span>
+            <span className='uppercase!'>{section.label}</span>
           )}
         </li>
       )}
@@ -175,7 +175,7 @@ export const AssistantSideNav: FC<AssistantSideNavProps> = ({
         aria-label="Assistant actions"
         expanded={expanded}
         isRail={!expanded}
-        className="!relative !inset-auto !h-auto flex-1 !w-full !border-none !z-0"
+        className="relative! inset-auto! h-auto! flex-1 w-full! border-none! z-0!"
       >
         <SideNavItems>
           {assistantNavSections.map((section, idx) => (

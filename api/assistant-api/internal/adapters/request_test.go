@@ -217,36 +217,18 @@ func TestIdentifierFunctions_AllTypes(t *testing.T) {
 	}
 }
 
-// Test expected function signatures
-func TestGetTalkerFunction_Signature(t *testing.T) {
-	// GetTalker function accepts:
-	// - source (utils.RapidaSource)
-	// - ctx (context.Context)
-	// - cfg (*config.AssistantConfig)
-	// - logger (commons.Logger)
-	// - postgres (connectors.PostgresConnector)
-	// - opensearch (connectors.OpenSearchConnector)
-	// - redis (connectors.RedisConnector)
-	// - storage (storages.Storage)
-	// - streamer (internal_streamers.Streamer)
-	//
-	// Returns: (internal_adapter_requests.Talking, error)
+// Test expected constructor shape
+func TestNewTalkerFunction_Signature(t *testing.T) {
+	// New accepts functional options that populate TalkerOptions and returns:
+	// (internal_type.Talking, error)
 
-	t.Run("GetTalker accepts all required parameters", func(t *testing.T) {
-		// Verification that the function signature is as expected
+	t.Run("New accepts functional options", func(t *testing.T) {
 		assert.True(t, true) // Function exists in package
 	})
 }
 
-// Test routing logic validation
-func TestGetTalker_SourceRouting(t *testing.T) {
-	// GetTalker uses a switch statement to route based on source:
-	// - utils.SDK -> SDKTalking
-	// - utils.Debugger -> TalkingDebugger
-	// - utils.PhoneCall -> TalkingPhone
-	// - utils.WebPlugin -> TalkingWebPlugin
-	// - default -> TalkingDebugger
-
+// Test source values used by talker construction
+func TestNewTalker_SourceOptions(t *testing.T) {
 	sources := []utils.RapidaSource{
 		utils.SDK,
 		utils.Debugger,
@@ -266,7 +248,7 @@ func TestRequestFactory_ComprehensiveCoverage(t *testing.T) {
 	t.Run("Package exports all required functions", func(t *testing.T) {
 		// Functions in request_factory.go:
 		functions := []string{
-			"GetTalker",
+			"New",
 			"Identifier",
 			"DebuggerIdentifier",
 			"WebPluginIdentifier",
