@@ -61,8 +61,8 @@ help:
 	@echo "  make build-all-safe            - Build all services sequentially (low-memory)"
 	@echo "  make build-all-fast            - Build all services in parallel"
 	@echo "  make push-base-images          - Build + push all rapida-* base images (run when versions change)"
-	@echo "  make push-rapida-golang-bookworm - Rebuild + push rapidaai/rapida-golang:1.25.10-bookworm"
-	@echo "  make push-rapida-golang-alpine   - Rebuild + push rapidaai/rapida-golang:1.25.10-alpine"
+	@echo "  make push-rapida-golang-bookworm - Rebuild + push rapidaai/rapida-golang:1.25.11-bookworm"
+	@echo "  make push-rapida-golang-alpine   - Rebuild + push rapidaai/rapida-golang:1.25.11-alpine"
 	@echo "  make push-rapida-alpine          - Rebuild + push rapidaai/rapida-alpine:3.21"
 	@echo "  make push-rapida-debian-slim     - Rebuild + push rapidaai/rapida-debian:bookworm-slim"
 	@echo "  make push-rapida-node-alpine     - Rebuild + push rapidaai/rapida-node:22-alpine"
@@ -390,16 +390,16 @@ down: down-all
 # ============================================================================
 
 push-rapida-golang-bookworm:
-	@echo "Building rapidaai/rapida-golang:1.25.10-bookworm..."
-	DOCKER_BUILDKIT=1 docker build -f docker/base/rapida-golang-bookworm.Dockerfile -t rapidaai/rapida-golang:1.25.10-bookworm .
-	docker push rapidaai/rapida-golang:1.25.10-bookworm
-	@echo "✓ rapidaai/rapida-golang:1.25.10-bookworm pushed"
+	@echo "Building rapidaai/rapida-golang:1.25.11-bookworm..."
+	DOCKER_BUILDKIT=1 docker build -f docker/base/rapida-golang-bookworm.Dockerfile -t rapidaai/rapida-golang:1.25.11-bookworm .
+	docker push rapidaai/rapida-golang:1.25.11-bookworm
+	@echo "✓ rapidaai/rapida-golang:1.25.11-bookworm pushed"
 
 push-rapida-golang-alpine:
-	@echo "Building rapidaai/rapida-golang:1.25.10-alpine..."
-	DOCKER_BUILDKIT=1 docker build -f docker/base/rapida-golang-alpine.Dockerfile -t rapidaai/rapida-golang:1.25.10-alpine .
-	docker push rapidaai/rapida-golang:1.25.10-alpine
-	@echo "✓ rapidaai/rapida-golang:1.25.10-alpine pushed"
+	@echo "Building rapidaai/rapida-golang:1.25.11-alpine..."
+	DOCKER_BUILDKIT=1 docker build -f docker/base/rapida-golang-alpine.Dockerfile -t rapidaai/rapida-golang:1.25.11-alpine .
+	docker push rapidaai/rapida-golang:1.25.11-alpine
+	@echo "✓ rapidaai/rapida-golang:1.25.11-alpine pushed"
 
 push-rapida-alpine:
 	@echo "Building rapidaai/rapida-alpine:3.21..."
