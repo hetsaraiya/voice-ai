@@ -85,9 +85,9 @@ jobs:
 
   # ── Shared login step (reused via composite would be ideal, but keeping it inline) ──
 
-  # ── rapidaai/rapida-golang:1.25.10-bookworm (heavy — ONNX, RNNoise, Azure Speech SDK) ──
+  # ── rapidaai/rapida-golang:1.25.11-bookworm (heavy — ONNX, RNNoise, Azure Speech SDK) ──
   push-golang-bookworm:
-    name: Push rapida-golang:1.25.10-bookworm
+    name: Push rapida-golang:1.25.11-bookworm
     needs: changes
     if: needs.changes.outputs.golang-bookworm == 'true'
     runs-on: ubuntu-latest
@@ -108,13 +108,13 @@ jobs:
           file: ./docker/base/rapida-golang-bookworm.Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ${{ env.REGISTRY }}/rapida-golang:1.25.10-bookworm
+          tags: ${{ env.REGISTRY }}/rapida-golang:1.25.11-bookworm
           cache-from: type=gha,scope=rapida-golang-bookworm
           cache-to: type=gha,scope=rapida-golang-bookworm,mode=max
 
-  # ── rapidaai/rapida-golang:1.25.10-alpine ──────────────────────────────────
+  # ── rapidaai/rapida-golang:1.25.11-alpine ──────────────────────────────────
   push-golang-alpine:
-    name: Push rapida-golang:1.25.10-alpine
+    name: Push rapida-golang:1.25.11-alpine
     needs: changes
     if: needs.changes.outputs.golang-alpine == 'true'
     runs-on: ubuntu-latest
@@ -135,7 +135,7 @@ jobs:
           file: ./docker/base/rapida-golang-alpine.Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ${{ env.REGISTRY }}/rapida-golang:1.25.10-alpine
+          tags: ${{ env.REGISTRY }}/rapida-golang:1.25.11-alpine
           cache-from: type=gha,scope=rapida-golang-alpine
           cache-to: type=gha,scope=rapida-golang-alpine,mode=max
 
@@ -267,8 +267,8 @@ jobs:
             echo ""
             echo "| Image | Result |"
             echo "|-------|--------|"
-            echo "| \`rapidaai/rapida-golang:1.25.10-bookworm\` | ${{ needs.push-golang-bookworm.result }} |"
-            echo "| \`rapidaai/rapida-golang:1.25.10-alpine\`   | ${{ needs.push-golang-alpine.result }} |"
+            echo "| \`rapidaai/rapida-golang:1.25.11-bookworm\` | ${{ needs.push-golang-bookworm.result }} |"
+            echo "| \`rapidaai/rapida-golang:1.25.11-alpine\`   | ${{ needs.push-golang-alpine.result }} |"
             echo "| \`rapidaai/rapida-alpine:3.21\`            | ${{ needs.push-alpine.result }} |"
             echo "| \`rapidaai/rapida-debian:bookworm-slim\`   | ${{ needs.push-debian-slim.result }} |"
             echo "| \`rapidaai/rapida-node:22-alpine\`         | ${{ needs.push-node-alpine.result }} |"

@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
-# rapidaai/rapida-golang:1.25.10-bookworm
-# Extends golang:1.25.10-bookworm with C libraries required by assistant-api.
-# Published to: docker.io/rapidaai/rapida-golang:1.25.10-bookworm
+# rapidaai/rapida-golang:1.25.11-bookworm
+# Extends golang:1.25.11-bookworm with C libraries required by assistant-api.
+# Published to: docker.io/rapidaai/rapida-golang:1.25.11-bookworm
 # Rebuild + push only when SDK versions change: make push-rapida-golang-bookworm
-FROM golang:1.25.10-bookworm AS base
+FROM golang:1.25.11-bookworm AS base
 
 WORKDIR /app
 

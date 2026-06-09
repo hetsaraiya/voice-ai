@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build stage
-FROM rapidaai/rapida-golang:1.25.10-alpine AS builder
+FROM rapidaai/rapida-golang:1.25.11-alpine AS builder
 
 WORKDIR /app
 
