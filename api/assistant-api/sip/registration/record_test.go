@@ -3,6 +3,7 @@ package sip_registration
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -29,11 +30,25 @@ func newTestManager(t *testing.T) (*manager, *gorm.DB, context.Context) {
 	t.Helper()
 	ctx := context.Background()
 
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "registration.db")), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("failed to create sqlite db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("failed to get sqlite db handle: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
 	schema := []string{
+		`CREATE TABLE assistants (
+			id INTEGER PRIMARY KEY,
+			project_id BIGINT,
+			organization_id BIGINT
+		)`,
 		`CREATE TABLE assistant_phone_deployments (
 			id INTEGER PRIMARY KEY,
 			assistant_id BIGINT,

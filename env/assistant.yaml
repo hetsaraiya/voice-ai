@@ -108,3 +108,12 @@ telemetry:
     port: 9200
     max_retries: 3
     max_connection: 10
+
+observability:
+  provider: "opensearch"
+  opensearch:
+    schema: "http"
+    host: "localhost"
+    port: 9200
+    max_retries: 3
+    max_connection: 10

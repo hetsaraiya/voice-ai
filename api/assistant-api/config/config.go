@@ -67,23 +67,17 @@ type AudioSocketConfig struct {
 	Port int    `mapstructure:"port"`
 }
 
-type ObservabilityConfig struct {
-	Provider   string                    `mapstructure:"provider"`
-	OpenSearch *configs.OpenSearchConfig `mapstructure:"opensearch"`
-}
-
 type AssistantConfig struct {
-	config.AppConfig    `mapstructure:",squash"`
-	PostgresConfig      configs.PostgresConfig    `mapstructure:"postgres" validate:"required"`
-	RedisConfig         configs.RedisConfig       `mapstructure:"redis" validate:"required"`
-	OpenSearchConfig    *configs.OpenSearchConfig `mapstructure:"opensearch"`
-	TelemetryConfig     *configs.TelemetryConfig  `mapstructure:"telemetry"`
-	ObservabilityConfig *ObservabilityConfig      `mapstructure:"observability"`
-	WeaviateConfig      configs.WeaviateConfig    `mapstructure:"weaviate"`
-	AssetStoreConfig    configs.AssetStoreConfig  `mapstructure:"asset_store" validate:"required"`
-	SIPConfig           *SIPConfig                `mapstructure:"sip"`
-	AudioSocketConfig   *AudioSocketConfig        `mapstructure:"audiosocket"`
-	WebRTCConfig        *WebRTCConfig             `mapstructure:"webrtc"`
+	config.AppConfig  `mapstructure:",squash"`
+	PostgresConfig    configs.PostgresConfig    `mapstructure:"postgres" validate:"required"`
+	RedisConfig       configs.RedisConfig       `mapstructure:"redis" validate:"required"`
+	OpenSearchConfig  *configs.OpenSearchConfig `mapstructure:"opensearch"`
+	TelemetryConfig   *configs.TelemetryConfig  `mapstructure:"telemetry"`
+	WeaviateConfig    configs.WeaviateConfig    `mapstructure:"weaviate"`
+	AssetStoreConfig  configs.AssetStoreConfig  `mapstructure:"asset_store" validate:"required"`
+	SIPConfig         *SIPConfig                `mapstructure:"sip"`
+	AudioSocketConfig *AudioSocketConfig        `mapstructure:"audiosocket"`
+	WebRTCConfig      *WebRTCConfig             `mapstructure:"webrtc"`
 }
 
 // reading config and intializing configs for application

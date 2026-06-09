@@ -78,29 +78,6 @@ func TestNew_AppendsNoopForEmptyAssistantProvider(t *testing.T) {
 	}
 }
 
-func TestNew_SkipsMissingTimelineProvider(t *testing.T) {
-	collectors := NewWithEnv(context.Background(), testLogger(t), &assistant_config.AssistantConfig{
-		ObservabilityConfig: &assistant_config.ObservabilityConfig{
-			Provider: "",
-		},
-	})
-	if len(collectors) != 0 {
-		t.Fatalf("expected missing timeline provider to be skipped, got %d", len(collectors))
-	}
-}
-
-func TestNew_LogsAndSkipsIncompleteTimelineConfig(t *testing.T) {
-	collectors := NewWithEnv(context.Background(), testLogger(t), &assistant_config.AssistantConfig{
-		ObservabilityConfig: &assistant_config.ObservabilityConfig{
-			Provider:   string(configs.OPENSEARCH),
-			OpenSearch: &configs.OpenSearchConfig{Schema: "http"},
-		},
-	})
-	if len(collectors) != 0 {
-		t.Fatalf("expected incomplete timeline collector to be skipped, got %d", len(collectors))
-	}
-}
-
 func TestNew_LogsAndSkipsUnknownAssistantProvider(t *testing.T) {
 	collectors := NewWithAssistantTelemetry(context.Background(), testLogger(t), []*internal_telemetry_entity.AssistantTelemetryProvider{
 		{ProviderType: "unknown", Enabled: true},

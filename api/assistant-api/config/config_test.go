@@ -223,42 +223,6 @@ telemetry:
 	}
 }
 
-func TestGetApplicationConfig_ObservabilityParsing(t *testing.T) {
-	v := viper.New()
-	v.SetConfigType("yaml")
-	observabilityYAML := baseAssistantYAML + `
-observability:
-  provider: "opensearch"
-  opensearch:
-    schema: "http"
-    host: "observability-opensearch"
-    port: 9200
-    max_retries: 3
-    max_connection: 10
-`
-	if err := v.ReadConfig(strings.NewReader(observabilityYAML)); err != nil {
-		t.Fatalf("ReadConfig returned an error: %v", err)
-	}
-
-	appConfig, err := GetApplicationConfig(v)
-	if err != nil {
-		t.Fatalf("GetApplicationConfig returned an error: %v", err)
-	}
-	if appConfig == nil || appConfig.ObservabilityConfig == nil {
-		t.Fatalf("observability config is nil")
-	}
-	observability := appConfig.ObservabilityConfig
-	if observability.Provider != "opensearch" {
-		t.Fatalf("Observability.Provider = %q, want opensearch", observability.Provider)
-	}
-	if observability.OpenSearch == nil {
-		t.Fatalf("Observability.OpenSearch is nil")
-	}
-	if observability.OpenSearch.Host != "observability-opensearch" {
-		t.Fatalf("Observability.OpenSearch.Host = %q, want observability-opensearch", observability.OpenSearch.Host)
-	}
-}
-
 func TestGetApplicationConfig_DropsIncompleteNestedOpenSearchConfigs(t *testing.T) {
 	v := viper.New()
 	v.SetConfigType("yaml")
@@ -267,10 +231,6 @@ telemetry:
   type: "opensearch"
   opensearch:
     schema: "http"
-observability:
-  provider: "opensearch"
-  opensearch:
-    host: "observability-opensearch"
 `
 	if err := v.ReadConfig(strings.NewReader(configYAML)); err != nil {
 		t.Fatalf("ReadConfig returned an error: %v", err)
@@ -283,7 +243,5 @@ observability:
 	if appConfig.TelemetryConfig == nil || appConfig.TelemetryConfig.OpenSearch != nil {
 		t.Fatalf("expected incomplete telemetry opensearch config to be nil")
 	}
-	if appConfig.ObservabilityConfig == nil || appConfig.ObservabilityConfig.OpenSearch != nil {
-		t.Fatalf("expected incomplete observability opensearch config to be nil")
-	}
+
 }

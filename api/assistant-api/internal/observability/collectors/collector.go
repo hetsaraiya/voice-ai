@@ -14,7 +14,6 @@ import (
 	internal_telemetry_entity "github.com/rapidaai/api/assistant-api/internal/entity/telemetry"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors/telemetry"
-	"github.com/rapidaai/api/assistant-api/internal/observability/collectors/timeline"
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors/webhook"
 	"github.com/rapidaai/pkg/commons"
 )
@@ -31,20 +30,6 @@ func NewWithEnv(ctx context.Context, logger commons.Logger, config *assistant_co
 				Name:    string(config.TelemetryConfig.Type()),
 				Options: config.TelemetryConfig.ToMap(),
 			}}); err == nil {
-			collectors = append(collectors, collector)
-		}
-	}
-
-	if config.ObservabilityConfig != nil && config.ObservabilityConfig.OpenSearch != nil {
-		collector, err := timeline.New(ctx, timeline.Config{
-			Logger:           logger,
-			OpenSearchConfig: config.ObservabilityConfig.OpenSearch,
-		})
-		if err != nil {
-			if logger != nil {
-				logger.Warnf("observability: timeline collector initialization failed: %v", err)
-			}
-		} else if collector != nil {
 			collectors = append(collectors, collector)
 		}
 	}
