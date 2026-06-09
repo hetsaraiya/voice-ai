@@ -117,7 +117,6 @@ func (d *Dispatcher) prepareSession(ctx context.Context, v sip_infra.SessionEsta
 	}
 
 	observer := d.createObserver(ctx, setup, v.Auth)
-
 	codec := ""
 	sampleRate := ""
 	if negotiated := v.Session.GetNegotiatedCodec(); negotiated != nil {

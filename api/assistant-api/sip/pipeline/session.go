@@ -163,6 +163,7 @@ func (d *Dispatcher) createObserver(ctx context.Context, setup *CallSetupResult,
 			OrganizationID: setup.OrganizationID,
 		}),
 		observability.WithContext(ctx),
+		observability.WithGracePeriod(),
 		observability.WithCollectors(otelCollectors...),
 	)
 }
