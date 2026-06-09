@@ -109,7 +109,7 @@ func (d *Dispatcher) handleCallFailed(ctx context.Context, v sip_infra.CallFaile
 		observability.RecordMetric{
 			Metrics: []*protos.Metric{{
 				Name:        observability.MetricCallStatus,
-				Value:       "failed",
+				Value:       observability.MetricCallStatusFailed,
 				Description: reason,
 			}},
 		},

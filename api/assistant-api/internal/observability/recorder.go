@@ -103,6 +103,12 @@ func WithGracePeriod() Option {
 	})
 }
 
+func WithCustomGracePeriod(closeGracePeriod time.Duration) Option {
+	return newOption(func(recorderOptions *recorderOptions) {
+		recorderOptions.closeGracePeriod = &closeGracePeriod
+	})
+}
+
 func WithCollector(collector Collector) Option {
 	return WithCollectors(collector)
 }

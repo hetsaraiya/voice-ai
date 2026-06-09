@@ -150,7 +150,7 @@ func (d *Dispatcher) prepareSession(ctx context.Context, v sip_infra.SessionEsta
 		observability.RecordMetric{
 			Metrics: []*protos.Metric{{
 				Name:        observability.MetricCallStatus,
-				Value:       "answered",
+				Value:       observability.MetricCallStatusInProgress,
 				Description: "SIP session connected",
 			}},
 		},
@@ -182,7 +182,7 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 	go func() {
 		startTime := time.Now()
 		reason := "talk_completed"
-		status := "completed"
+		status := observability.MetricCallStatusComplete
 		scope := observability.ConversationScope{
 			AssistantScope: observability.AssistantScope{AssistantID: setup.AssistantID},
 			ConversationID: setup.ConversationID,
@@ -202,7 +202,7 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 			observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "answered",
+					Value:       observability.MetricCallStatusInProgress,
 					Description: "SIP call started",
 				}},
 			},
@@ -212,7 +212,7 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 			hasPanic := false
 			if r := recover(); r != nil {
 				reason = fmt.Sprintf("panic: %v", r)
-				status = "failed"
+				status = observability.MetricCallStatusFailed
 				d.logger.Error("Pipeline: onCallStart panicked", "call_id", v.ID, "panic", r)
 				hasPanic = true
 				panicRecord = observability.RecordLog{
@@ -229,7 +229,7 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 
 			durationMs := time.Since(startTime).Milliseconds()
 			event := observability.CallEnded
-			if status == "failed" {
+			if status == observability.MetricCallStatusFailed {
 				event = observability.CallFailed
 			}
 			eventRecord := observability.RecordEvent{
@@ -271,7 +271,7 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 		if prepared.runtime != nil {
 			if err := prepared.runtime.Start(ctx); err != nil {
 				reason = err.Error()
-				status = "failed"
+				status = observability.MetricCallStatusFailed
 			}
 		} else {
 			if v.Session.GetInfo().Direction == sip_infra.CallDirectionOutbound {
@@ -288,10 +288,10 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 			runtime, err := d.prepareSIPCallRuntime(ctx, v.Session, setup, observer, v.VaultCredential, v.Config, string(v.Direction))
 			if err != nil {
 				reason = err.Error()
-				status = "failed"
+				status = observability.MetricCallStatusFailed
 			} else if err := runtime.Start(ctx); err != nil {
 				reason = err.Error()
-				status = "failed"
+				status = observability.MetricCallStatusFailed
 			}
 		}
 

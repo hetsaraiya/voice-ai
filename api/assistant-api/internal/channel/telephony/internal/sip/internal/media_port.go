@@ -305,7 +305,7 @@ func (port *MediaPort) forwardIncomingAudio() {
 				}, observability.RecordMetric{
 					Metrics: []*protos.Metric{{
 						Name:        observability.MetricCallStatus,
-						Value:       "failed",
+						Value:       observability.MetricCallStatusFailed,
 						Description: "SIP provider audio processing failed",
 					}},
 				})
@@ -369,7 +369,7 @@ func (port *MediaPort) deliverAssistantFrame(outputFrame internal_telephony_medi
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "failed",
+					Value:       observability.MetricCallStatusFailed,
 					Description: "SIP assistant audio encoding failed",
 				}},
 			})
@@ -393,7 +393,7 @@ func (port *MediaPort) deliverAssistantFrame(outputFrame internal_telephony_medi
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "failed",
+					Value:       observability.MetricCallStatusFailed,
 					Description: "SIP assistant audio output failed",
 				}},
 			})

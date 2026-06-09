@@ -42,6 +42,13 @@ const (
 	MetricTelephonyPrice         = "telephony.price"
 )
 
+// Current call.status metric values.
+const (
+	MetricCallStatusComplete   = "COMPLETE"
+	MetricCallStatusFailed     = "FAILED"
+	MetricCallStatusInProgress = "INPROGRESS"
+)
+
 // Current turn and provider metric names.
 const (
 	MetricUserTurn             = "user_turn"

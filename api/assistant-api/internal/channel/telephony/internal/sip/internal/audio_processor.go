@@ -376,7 +376,7 @@ func (p *AudioProcessor) ForwardUserAudio(audioData []byte) bool {
 			}, observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
-					Value:       "failed",
+					Value:       observability.MetricCallStatusFailed,
 					Description: "SIP bridge audio output queue full",
 				}},
 			})

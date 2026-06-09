@@ -14,9 +14,6 @@ import (
 	"github.com/rapidaai/api/assistant-api/config"
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
 	internal_telephony_base "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/base"
-	"github.com/rapidaai/api/assistant-api/internal/observability"
-	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
-	observability_collector_conversationdb "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationdb"
 	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	web_client "github.com/rapidaai/pkg/clients/web"
@@ -170,65 +167,15 @@ func (d *OutboundDispatcher) monitorCallConnect(ctx context.Context, contextID s
 		return // Provider callback already moved call_status forward
 	}
 
-	if err := d.store.UpdateCallStatus(ctx, currentCallContext.ContextID, callcontext.CallStatusUpdate{
+	d.NewStatusReporter(currentCallContext.ContextID)(internal_type.ProviderCallStatusUpdate{
 		ExpectedCallStatus: callcontext.CallStatusNew,
 		CallStatus:         callcontext.CallStatusFailed,
+		ErrorMessage:       "Provider callback was not received before outbound connect timeout: " + providerConnectTimeout.String(),
 		FailureClass:       internal_telephony_base.OutboundFailureClassNoAnswer,
 		FailureReason:      internal_telephony_base.OutboundFailureReasonNoAnswer,
 		DisconnectReason:   internal_telephony_base.OutboundDisconnectReasonNoAnswer,
 		Retryable:          true,
-	}); err != nil {
-		d.logger.Warnw("Failed to persist outbound connect timeout status",
-			"contextId", currentCallContext.ContextID,
-			"call_status", callcontext.CallStatusFailed,
-			"failure_class", internal_telephony_base.OutboundFailureClassNoAnswer,
-			"error", err)
-	}
-	if d.conversationService == nil {
-		return
-	}
-	observer := observability.New(
-		observability.WithLogger(d.logger),
-		observability.WithAuth(currentCallContext.ToAuth()),
-		observability.WithContext(ctx),
-		observability.WithCollectors(append([]observability.Collector{
-			observability_collector_conversationdb.New(observability_collector_conversationdb.Config{
-				Logger:              d.logger,
-				ConversationService: d.conversationService,
-			}),
-		}, collectors.NewWithEnv(ctx, d.logger, d.cfg)...)...),
-	)
-	defer observer.Close(ctx)
-	if err := observer.Record(ctx,
-		observability.ConversationScope{
-			AssistantScope: observability.AssistantScope{AssistantID: currentCallContext.AssistantID},
-			ConversationID: currentCallContext.ConversationID,
-		},
-		observability.RecordLog{
-			Level:   observability.LevelError,
-			Message: "Outbound call provider did not answer before timeout",
-			Attributes: observability.Attributes{
-				"component":  "watchdog",
-				"context_id": currentCallContext.ContextID,
-				"provider":   currentCallContext.Provider,
-				"timeout":    providerConnectTimeout.String(),
-			},
-		},
-		observability.RecordMetric{
-			Metrics: observability.CallStatusMetric("FAILED", "no_answer_timeout"),
-			Attributes: observability.Attributes{
-				"component": "watchdog",
-			},
-		},
-		observability.RecordMetadata{
-			Metadata: observability.DisconnectMetadata(
-				"unknown",
-				"Provider callback was not received before outbound connect timeout",
-				"watchdog: outbound call remained pending after "+providerConnectTimeout.String(),
-			),
-		}); err != nil {
-		d.logger.Errorw("error while sending record to observability %+v", err)
-	}
+	})
 }
 
 func (d *OutboundDispatcher) providerOutboundConnectTimeout(provider string) time.Duration {
@@ -271,8 +218,7 @@ func (d *OutboundDispatcher) performOutbound(ctx context.Context, callContext *c
 	phoneDeploymentOptions := assistant.AssistantPhoneDeployment.GetOptions()
 	phoneDeploymentOptions["rapida.context_id"] = callContext.ContextID
 
-	statusReporter := d.newProviderCallStatusReporter(callContext.ContextID)
-	callInfo, outboundCallErr := telephonyProvider.OutboundCall(ctx, callAuth, callContext.CallerNumber, callContext.FromNumber, assistant, callContext.ConversationID, vaultCredential, statusReporter, phoneDeploymentOptions)
+	callInfo, outboundCallErr := telephonyProvider.OutboundCall(ctx, callAuth, callContext.CallerNumber, callContext.FromNumber, assistant, callContext.ConversationID, vaultCredential, d.NewStatusReporter(callContext.ContextID), phoneDeploymentOptions)
 	if outboundCallErr != nil {
 		d.logger.Errorf("outbound dispatcher[%s]: telephony call failed for contextId=%s: %v", callContext.Provider, callContext.ContextID, outboundCallErr)
 	}
@@ -287,36 +233,4 @@ func (d *OutboundDispatcher) performOutbound(ctx context.Context, callContext *c
 	}
 
 	return callInfo, outboundCallErr
-}
-
-func (d *OutboundDispatcher) newProviderCallStatusReporter(contextID string) internal_type.ProviderCallStatusReporter {
-	return func(update internal_type.ProviderCallStatusUpdate) {
-		if update.ChannelUUID != "" {
-			if err := d.store.UpdateField(context.Background(), contextID, "channel_uuid", update.ChannelUUID); err != nil {
-				d.logger.Warnw("Failed to persist outbound channel UUID",
-					"contextId", contextID,
-					"channel_uuid", update.ChannelUUID,
-					"error", err)
-			}
-		}
-		if update.CallStatus == "" || update.CallStatus == callcontext.CallStatusNew {
-			return
-		}
-		err := d.store.UpdateCallStatus(context.Background(), contextID, callcontext.CallStatusUpdate{
-			CallStatus:         update.CallStatus,
-			CallError:          update.ErrorMessage,
-			FailureClass:       update.FailureClass,
-			FailureReason:      update.FailureReason,
-			DisconnectReason:   update.DisconnectReason,
-			Retryable:          update.Retryable,
-			ProviderStatusCode: update.ProviderStatusCode,
-		})
-		if err != nil {
-			d.logger.Warnw("Failed to persist outbound status",
-				"contextId", contextID,
-				"call_status", update.CallStatus,
-				"failure_class", update.FailureClass,
-				"error", err)
-		}
-	}
 }

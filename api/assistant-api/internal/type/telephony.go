@@ -99,6 +99,8 @@ type ProviderCallStatusUpdate struct {
 	ChannelUUID string
 	// CallStatus is the normalized provider call state, such as initiated, failed, or cancelled.
 	CallStatus string
+	// ExpectedCallStatus is an optional compare-and-set guard for watchdog/race-sensitive updates.
+	ExpectedCallStatus string
 	// ErrorMessage is the operator-facing error detail for failed setup or terminal failure.
 	ErrorMessage string
 	// FailureClass is the normalized failure category used for filtering and alerting.
