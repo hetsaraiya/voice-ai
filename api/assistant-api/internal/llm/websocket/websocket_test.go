@@ -259,6 +259,7 @@ func TestHandleResponse_Close(t *testing.T) {
 
 func TestHandleResponse_Error(t *testing.T) {
 	e := newTestExecutor(t)
+	e.currentID = "ctx-1"
 	collected := make([]internal_type.Packet, 0)
 	onPacket := func(_ context.Context, pkts ...internal_type.Packet) error {
 		collected = append(collected, pkts...)
@@ -270,11 +271,21 @@ func TestHandleResponse_Error(t *testing.T) {
 		Data: json.RawMessage(`{"code":500,"message":"server error"}`),
 	}, onPacket)
 
-	require.Len(t, collected, 1)
-	log, ok := collected[0].(internal_type.ObservabilityLogRecordPacket)
+	require.Len(t, collected, 3)
+	errPkt, ok := collected[0].(internal_type.LLMErrorPacket)
+	require.True(t, ok)
+	assert.Equal(t, "ctx-1", errPkt.ContextID)
+
+	ev, ok := collected[1].(internal_type.ObservabilityEventRecordPacket)
+	require.True(t, ok)
+	assert.Equal(t, observability.LLMError, ev.Record.Event)
+	assert.Equal(t, "websocket", ev.Record.Attributes["provider"])
+
+	log, ok := collected[2].(internal_type.ObservabilityLogRecordPacket)
 	require.True(t, ok)
 	assert.Equal(t, observability.LevelError, log.Record.Level)
 	assert.Equal(t, "response", log.Record.Attributes["operation"])
+	assert.Equal(t, "websocket", log.Record.Attributes["provider"])
 }
 
 // =============================================================================

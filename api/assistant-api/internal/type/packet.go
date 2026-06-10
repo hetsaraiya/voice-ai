@@ -1081,93 +1081,84 @@ func (f HTTPLogCreatePacket) IsAsync() bool     { return true }
 type ObservabilityRecordScope string
 
 const (
-	ObservabilityRecordScopeAssistant    ObservabilityRecordScope = "assistant"
-	ObservabilityRecordScopeConversation ObservabilityRecordScope = "conversation"
-	ObservabilityRecordScopeMessage      ObservabilityRecordScope = "message"
+	ObservabilityRecordScopeAssistant        ObservabilityRecordScope = "assistant"
+	ObservabilityRecordScopeConversation     ObservabilityRecordScope = "conversation"
+	ObservabilityRecordScopeUserMessage      ObservabilityRecordScope = "user-message"
+	ObservabilityRecordScopeAssistantMessage ObservabilityRecordScope = "assistant-message"
 )
 
 type ObservabilityRecordPacket interface {
 	ContextId() string
 	GetScope() ObservabilityRecordScope
-	GetMessageRole() observability.MessageRole
 	GetRecord() observability.Record
 }
 
 // ObservabilityLogRecordPacket emits an observability.RecordLog.
 type ObservabilityLogRecordPacket struct {
-	ContextID   string
-	Scope       ObservabilityRecordScope
-	MessageRole observability.MessageRole
-	Record      observability.RecordLog
+	ContextID string
+	Scope     ObservabilityRecordScope
+	Record    observability.RecordLog
 }
 
 func (p ObservabilityLogRecordPacket) ContextId() string { return p.ContextID }
 func (p ObservabilityLogRecordPacket) GetScope() ObservabilityRecordScope {
 	return p.Scope
 }
-func (p ObservabilityLogRecordPacket) GetMessageRole() observability.MessageRole {
-	return p.MessageRole
-}
+
 func (p ObservabilityLogRecordPacket) GetRecord() observability.Record {
 	return p.Record
 }
 
 // ObservabilityEventRecordPacket emits an observability.RecordEvent.
 type ObservabilityEventRecordPacket struct {
-	ContextID   string
-	Scope       ObservabilityRecordScope
-	MessageRole observability.MessageRole
-	Record      observability.RecordEvent
+	ContextID string
+	Scope     ObservabilityRecordScope
+	Record    observability.RecordEvent
 }
 
 func (p ObservabilityEventRecordPacket) ContextId() string { return p.ContextID }
 func (p ObservabilityEventRecordPacket) GetScope() ObservabilityRecordScope {
 	return p.Scope
 }
-func (p ObservabilityEventRecordPacket) GetMessageRole() observability.MessageRole {
-	return p.MessageRole
-}
+
 func (p ObservabilityEventRecordPacket) GetRecord() observability.Record {
 	return p.Record
 }
+func (p ObservabilityEventRecordPacket) IsAsync() bool { return true }
 
 // ObservabilityMetricRecordPacket emits an observability.RecordMetric.
 type ObservabilityMetricRecordPacket struct {
-	ContextID   string
-	Scope       ObservabilityRecordScope
-	MessageRole observability.MessageRole
-	Record      observability.RecordMetric
+	ContextID string
+	Scope     ObservabilityRecordScope
+	Record    observability.RecordMetric
 }
 
 func (p ObservabilityMetricRecordPacket) ContextId() string { return p.ContextID }
 func (p ObservabilityMetricRecordPacket) GetScope() ObservabilityRecordScope {
 	return p.Scope
 }
-func (p ObservabilityMetricRecordPacket) GetMessageRole() observability.MessageRole {
-	return p.MessageRole
-}
 func (p ObservabilityMetricRecordPacket) GetRecord() observability.Record {
 	return p.Record
 }
+func (p ObservabilityMetricRecordPacket) IsAsync() bool { return true }
 
 // ObservabilityMetadataRecordPacket emits an observability.RecordMetadata.
 type ObservabilityMetadataRecordPacket struct {
-	ContextID   string
-	Scope       ObservabilityRecordScope
-	MessageRole observability.MessageRole
-	Record      observability.RecordMetadata
+	ContextID string
+	Scope     ObservabilityRecordScope
+	Record    observability.RecordMetadata
 }
 
 func (p ObservabilityMetadataRecordPacket) ContextId() string { return p.ContextID }
 func (p ObservabilityMetadataRecordPacket) GetScope() ObservabilityRecordScope {
 	return p.Scope
 }
-func (p ObservabilityMetadataRecordPacket) GetMessageRole() observability.MessageRole {
-	return p.MessageRole
-}
+
 func (p ObservabilityMetadataRecordPacket) GetRecord() observability.Record {
 	return p.Record
 }
+
+func (p ObservabilityMetadataRecordPacket) IsAsync() bool { return true }
 
 // ObservabilityUsageRecordPacket emits an observability.RecordUsage.
 type ObservabilityUsageRecordPacket struct {
@@ -1187,6 +1178,8 @@ func (p ObservabilityUsageRecordPacket) GetMessageRole() observability.MessageRo
 func (p ObservabilityUsageRecordPacket) GetRecord() observability.Record {
 	return p.Record
 }
+
+func (p ObservabilityUsageRecordPacket) IsAsync() bool { return true }
 
 // ObservabilityWebhookRecordPacket emits an observability.RecordWebhook.
 type ObservabilityWebhookRecordPacket struct {

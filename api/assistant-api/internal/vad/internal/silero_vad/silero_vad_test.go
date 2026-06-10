@@ -17,6 +17,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
@@ -94,6 +95,42 @@ func TestSileroVAD_Name(t *testing.T) {
 	vad := newSileroOrSkip(t, 0.5, callback)
 
 	assert.Equal(t, "silero_vad", vad.Name())
+}
+
+func TestNewSileroVAD_EmitsInitializationObservability(t *testing.T) {
+	var packets []internal_type.Packet
+	callback := func(_ context.Context, pkt ...internal_type.Packet) error {
+		packets = append(packets, pkt...)
+		return nil
+	}
+
+	_ = newSileroOrSkip(t, 0.5, callback)
+
+	var hasInitMetric bool
+	var hasInitLogWithOptions bool
+	for _, packet := range packets {
+		switch typed := packet.(type) {
+		case internal_type.ObservabilityMetricRecordPacket:
+			if typed.Scope == internal_type.ObservabilityRecordScopeConversation &&
+				len(typed.Record.Metrics) == 1 &&
+				typed.Record.Metrics[0].Name == observability.MetricVADInitLatencyMs &&
+				typed.Record.Attributes["provider"] == vadName {
+				hasInitMetric = true
+			}
+		case internal_type.ObservabilityLogRecordPacket:
+			if typed.Scope == internal_type.ObservabilityRecordScopeConversation &&
+				typed.Record.Level == observability.LevelInfo &&
+				typed.Record.Message == "silero_vad: initialization completed" &&
+				typed.Record.Attributes["component"] == observability.ComponentVAD.String() &&
+				typed.Record.Attributes["provider"] == vadName &&
+				typed.Record.Attributes["options"] != "" {
+				hasInitLogWithOptions = true
+			}
+		}
+	}
+
+	assert.True(t, hasInitMetric, "expected VAD init latency metric")
+	assert.True(t, hasInitLogWithOptions, "expected VAD init log with options")
 }
 
 func TestSileroVAD_Process_Silence_NoCallback(t *testing.T) {
@@ -190,6 +227,50 @@ func TestSileroVAD_Close_Idempotent(t *testing.T) {
 	require.NoError(t, vad.Close(context.Background()))
 	err = vad.Close(context.Background())
 	_ = err
+}
+
+func TestSileroVAD_Close_EmitsDurationUsageAndClosedEvent(t *testing.T) {
+	var packets []internal_type.Packet
+	logger, _ := commons.NewApplicationLogger()
+	callback := func(_ context.Context, pkt ...internal_type.Packet) error {
+		packets = append(packets, pkt...)
+		return nil
+	}
+	opts := newTestOptions(t, 0.5)
+
+	vad, err := NewSileroVAD(t.Context(), logger, callback, opts)
+	if err != nil {
+		if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
+			t.Skipf("silero model missing at %s", getModelPath())
+		}
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, vad.Close(context.Background()))
+
+	var hasDurationUsage bool
+	var hasClosedEvent bool
+	for _, packet := range packets {
+		switch typed := packet.(type) {
+		case internal_type.ObservabilityUsageRecordPacket:
+			if typed.Scope == internal_type.ObservabilityRecordScopeConversation &&
+				typed.Record.Component == observability.ComponentName(observability.UsageConversationVADDuration) &&
+				typed.Record.Provider == vadName &&
+				typed.Record.Duration > 0 {
+				hasDurationUsage = true
+			}
+		case internal_type.ObservabilityEventRecordPacket:
+			if typed.Scope == internal_type.ObservabilityRecordScopeConversation &&
+				typed.Record.Component == observability.ComponentVAD &&
+				typed.Record.Event == observability.VADClosed &&
+				typed.Record.Attributes["provider"] == vadName {
+				hasClosedEvent = true
+			}
+		}
+	}
+
+	assert.True(t, hasDurationUsage, "expected VAD duration usage after Close")
+	assert.True(t, hasClosedEvent, "expected VAD closed event after Close")
 }
 
 func TestSileroVAD_ModelPath_Environment(t *testing.T) {
@@ -327,8 +408,9 @@ func TestSileroVAD_NotifyInterruption_SetsEvent(t *testing.T) {
 	}
 
 	s := &SileroVAD{onPacket: callback}
-	s.notifyInterruption(context.Background(), internal_type.InterruptionEventEnd, 2.75, 1)
+	s.notifyInterruption(context.Background(), "ctx-test", internal_type.InterruptionEventEnd, 2.75, 1)
 
+	assert.Equal(t, "ctx-test", got.ContextID)
 	assert.Equal(t, internal_type.InterruptionSourceVad, got.Source)
 	assert.Equal(t, internal_type.InterruptionEventEnd, got.Event)
 	assert.Equal(t, 2.75, got.StartAt)

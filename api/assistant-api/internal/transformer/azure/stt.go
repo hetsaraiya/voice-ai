@@ -21,7 +21,6 @@ import (
 	azure_internal "github.com/rapidaai/api/assistant-api/internal/transformer/azure/internal"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
@@ -75,28 +74,52 @@ func NewAzureSpeechToText(
 // Initialize sets up the Azure Speech-to-Text recognizer with audio stream and event handlers.
 func (s *azureSpeechToText) Initialize() error {
 	start := time.Now()
+	emitInitializationErrorLog := func(initializationErr error) {
+		s.onPacket(internal_type.ObservabilityLogRecordPacket{
+			ContextID: s.contextId,
+			Scope:     internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "azure-stt: initialization failed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentSTT.String(),
+					"provider":  s.Name(),
+					"error":     observability.AttributeValue(initializationErr.Error()),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
+	}
 	inputStream, err := audio.CreatePushAudioInputStreamFromFormat(s.GetAudioStreamFormat())
 	if err != nil {
 		s.logger.Errorf("azure-stt: failed to create push audio input stream: %v", err)
-		return fmt.Errorf("failed to create push audio input stream: %w", err)
+		initializationErr := fmt.Errorf("failed to create push audio input stream: %w", err)
+		emitInitializationErrorLog(initializationErr)
+		return initializationErr
 	}
 
 	audioConfig, err := audio.NewAudioConfigFromStreamInput(inputStream)
 	if err != nil {
 		s.logger.Errorf("azure-stt: failed to create audio config from stream input: %v", err)
-		return fmt.Errorf("failed to create audio config from stream input: %w", err)
+		initializationErr := fmt.Errorf("failed to create audio config from stream input: %w", err)
+		emitInitializationErrorLog(initializationErr)
+		return initializationErr
 	}
 
 	speechConfig, err := s.SpeechToTextOption()
 	if err != nil {
 		s.logger.Errorf("azure-stt: failed to create speech config from subscription: %v", err)
-		return fmt.Errorf("failed to create speech config from subscription: %w", err)
+		initializationErr := fmt.Errorf("failed to create speech config from subscription: %w", err)
+		emitInitializationErrorLog(initializationErr)
+		return initializationErr
 	}
 
 	client, err := speech.NewSpeechRecognizerFromConfig(speechConfig, audioConfig)
 	if err != nil {
 		s.logger.Errorf("azure-stt: failed to create speech recognizer from config: %v", err)
-		return fmt.Errorf("failed to create speech recognizer from config: %w", err)
+		initializationErr := fmt.Errorf("failed to create speech recognizer from config: %w", err)
+		emitInitializationErrorLog(initializationErr)
+		return initializationErr
 	}
 
 	s.mu.Lock()
@@ -109,20 +132,26 @@ func (s *azureSpeechToText) Initialize() error {
 	s.registerEventHandlers()
 	s.client.StartContinuousRecognitionAsync()
 
-	s.onPacket(internal_type.ObservabilityEventRecordPacket{
-		ContextID: s.contextId,
-		Scope:     internal_type.ObservabilityRecordScopeConversation,
-		Record: observability.RecordEvent{
-			Component: observability.ComponentSTT,
-			Event:     observability.STTInitialized,
-			Attributes: observability.Attributes{
-				"type":     "initialized",
-				"provider": s.Name(),
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			},
-			OccurredAt: time.Now(),
+	s.onPacket(
+		internal_type.ObservabilityMetricRecordPacket{
+			ContextID: s.contextId,
+			Scope:     internal_type.ObservabilityRecordScopeConversation,
+			Record:    observability.NewMetricSTTInitLatencyMs(time.Since(start), observability.Attributes{"provider": s.Name()}),
 		},
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			ContextID: s.contextId,
+			Scope:     internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "azure-stt: initialization completed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentSTT.String(),
+					"provider":  s.Name(),
+				},
+				OccurredAt: time.Now(),
+			},
+		},
+	)
 	return nil
 }
 
@@ -137,7 +166,7 @@ func (s *azureSpeechToText) registerEventHandlers() {
 
 // Name returns the transformer identifier.
 func (s *azureSpeechToText) Name() string {
-	return "azure-speech-to-text"
+	return "azure-stt"
 }
 
 // Transform writes audio data to the input stream for recognition.
@@ -160,9 +189,8 @@ func (s *azureSpeechToText) Transform(_ context.Context, in internal_type.Packet
 		if s.startedAt.IsZero() {
 			s.startedAt = time.Now()
 		}
-		s.mu.Unlock()
-		s.mu.Lock()
 		stream := s.inputstream
+		ctxID := s.contextId
 		s.mu.Unlock()
 
 		if stream == nil {
@@ -171,11 +199,28 @@ func (s *azureSpeechToText) Transform(_ context.Context, in internal_type.Packet
 
 		if err := stream.Write(pkt.Content()); err != nil {
 			s.logger.Errorf("azure-stt: error sending audio: %v", err)
-			s.onPacket(internal_type.SpeechToTextErrorPacket{
-				ContextID: s.contextId,
-				Error:     fmt.Errorf("azure-stt: send failed: %w", err),
-				Type:      internal_type.STTNetworkTimeout,
-			})
+			sendErr := fmt.Errorf("azure-stt: send failed: %w", err)
+			s.onPacket(
+				internal_type.SpeechToTextErrorPacket{
+					ContextID: ctxID,
+					Error:     sendErr,
+					Type:      internal_type.STTNetworkTimeout,
+				},
+				internal_type.ObservabilityLogRecordPacket{
+					ContextID: ctxID,
+					Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+					Record: observability.RecordLog{
+						Level:   observability.LevelError,
+						Message: "azure-stt: error while sending audio",
+						Attributes: observability.Attributes{
+							"component": observability.ComponentSTT.String(),
+							"provider":  s.Name(),
+							"error":     observability.AttributeValue(sendErr.Error()),
+						},
+						OccurredAt: time.Now(),
+					},
+				},
+			)
 			return nil
 		}
 
@@ -228,9 +273,8 @@ func (s *azureSpeechToText) OnRecognizing(event speech.SpeechRecognitionEventArg
 			Interim:    true,
 		},
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   ctxID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
+			ContextID: ctxID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 			Record: observability.RecordEvent{
 				Component: observability.ComponentSTT,
 				Event:     observability.STTInterim,
@@ -267,12 +311,13 @@ func (s *azureSpeechToText) OnRecognized(event speech.SpeechRecognitionEventArgs
 		if threshold, err := s.mdlOpts.GetFloat64("listen.threshold"); err == nil {
 			if confidence < threshold {
 				s.logger.Debugf("confidence %.4f below threshold %.4f, skipping", confidence, threshold)
-				// emit event for low confidence and skip stt processing
+				s.mu.Lock()
+				ctxID := s.contextId
+				s.mu.Unlock()
 				s.onPacket(
 					internal_type.ObservabilityEventRecordPacket{
-						ContextID:   s.contextId,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleUser,
+						ContextID: ctxID,
+						Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 						Record: observability.RecordEvent{
 							Component: observability.ComponentSTT,
 							Event:     observability.STTLowConfidence,
@@ -299,10 +344,10 @@ func (s *azureSpeechToText) OnRecognized(event speech.SpeechRecognitionEventArgs
 	}
 
 	now := time.Now()
-	var latencyMs int64
+	var startedAt time.Time
 	s.mu.Lock()
 	if !s.startedAt.IsZero() {
-		latencyMs = now.Sub(s.startedAt).Milliseconds()
+		startedAt = s.startedAt
 		s.startedAt = time.Time{}
 	}
 	ctxID := s.contextId
@@ -319,9 +364,8 @@ func (s *azureSpeechToText) OnRecognized(event speech.SpeechRecognitionEventArgs
 			Interim:    false,
 		},
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   ctxID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
+			ContextID: ctxID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 			Record: observability.RecordEvent{
 				Component: observability.ComponentSTT,
 				Event:     observability.STTCompleted,
@@ -336,25 +380,45 @@ func (s *azureSpeechToText) OnRecognized(event speech.SpeechRecognitionEventArgs
 				OccurredAt: now,
 			},
 		},
-		internal_type.ObservabilityMetricRecordPacket{
-			ContextID:   ctxID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
-			Record: observability.RecordMetric{
-				Metrics:    []*protos.Metric{{Name: "stt_latency_ms", Value: fmt.Sprintf("%d", latencyMs)}},
-				Attributes: observability.Attributes{"provider": s.Name()},
-			},
-		},
 	)
+	if !startedAt.IsZero() {
+		s.onPacket(
+			internal_type.ObservabilityMetricRecordPacket{
+				ContextID: ctxID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+				Record:    observability.NewMetricSTTLatencyMs(now.Sub(startedAt), observability.Attributes{"provider": s.Name()}),
+			},
+		)
+	}
 }
 
 func (s *azureSpeechToText) OnCancelled(event speech.SpeechRecognitionCanceledEventArgs) {
 	defer event.Close()
-	s.onPacket(internal_type.SpeechToTextErrorPacket{
-		ContextID: s.contextId,
-		Error:     fmt.Errorf("azure-stt: recognition cancelled"),
-		Type:      internal_type.STTNetworkTimeout,
-	})
+	s.mu.Lock()
+	ctxID := s.contextId
+	s.mu.Unlock()
+	cancelErr := fmt.Errorf("azure-stt: recognition cancelled")
+	s.onPacket(
+		internal_type.SpeechToTextErrorPacket{
+			ContextID: ctxID,
+			Error:     cancelErr,
+			Type:      internal_type.STTNetworkTimeout,
+		},
+		internal_type.ObservabilityLogRecordPacket{
+			ContextID: ctxID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "azure-stt: recognition cancelled",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentSTT.String(),
+					"provider":  s.Name(),
+					"error":     observability.AttributeValue(cancelErr.Error()),
+				},
+				OccurredAt: time.Now(),
+			},
+		},
+	)
 }
 
 // Close stops recognition and releases all Azure Speech SDK resources.
@@ -381,44 +445,32 @@ func (s *azureSpeechToText) Close(_ context.Context) error {
 	if !connectedAt.IsZero() {
 		duration := time.Since(connectedAt)
 		s.onPacket(
-			internal_type.ObservabilityEventRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentSTT,
-					Event:     observability.STTClosed,
-					Attributes: observability.Attributes{
-						"type":     "closed",
-						"provider": s.Name(),
-					},
-					OccurredAt: time.Now(),
-				},
-			},
 			internal_type.ObservabilityMetricRecordPacket{
 				ContextID: ctxID,
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationMetricRecord([]*protos.Metric{{
-					Name:        type_enums.CONVERSATION_STT_DURATION.String(),
-					Value:       fmt.Sprintf("%d", duration.Nanoseconds()),
-					Description: "Total STT connection duration in nanoseconds",
-				}}),
+				Record:    observability.NewMetricSTTDuration(duration, observability.Attributes{"provider": s.Name()}),
 			},
 			internal_type.ObservabilityUsageRecordPacket{
 				ContextID: ctxID,
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordUsage{
-					Component: observability.ComponentSTT,
-					Provider:  s.Name(),
-					Duration:  duration,
-					Attributes: observability.Attributes{
-						"context_id": ctxID,
-						"provider":   s.Name(),
-						"metric":     type_enums.CONVERSATION_STT_DURATION.String(),
-					},
-				},
+				Record:    observability.NewSTTDurationUsageRecord(s.Name(), duration, observability.Attributes{}),
 			},
 		)
 	}
+	s.onPacket(
+		internal_type.ObservabilityEventRecordPacket{
+			ContextID: ctxID,
+			Scope:     internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentSTT,
+				Event:     observability.STTClosed,
+				Attributes: observability.Attributes{
+					"type":     "closed",
+					"provider": s.Name(),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 
 	return nil
 }

@@ -53,6 +53,7 @@ type FireRedVAD struct {
 
 	mu           sync.RWMutex
 	isTerminated bool
+	vadStartedAt time.Time
 }
 
 // NewFireRedVAD creates a new FireRedVAD instance.
@@ -68,6 +69,21 @@ func NewFireRedVAD(
 	modelPath := resolveModelPath()
 	detector, err := NewDetector(modelPath)
 	if err != nil {
+		if onPacket != nil {
+			_ = onPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: fmt.Sprintf("%s: error while initialization %s", vadName, err.Error()),
+					Attributes: observability.Attributes{
+						"component": observability.ComponentVAD.String(),
+						"provider":  vadName,
+						"options":   observability.AttributeValue(options),
+					},
+					OccurredAt: time.Now(),
+				},
+			})
+		}
 		return nil, fmt.Errorf("firered_vad: failed to create detector: %w", err)
 	}
 
@@ -82,6 +98,7 @@ func NewFireRedVAD(
 		postprocessor: NewPostprocessor(ppCfg),
 		audioBuf:      make([]int16, 0, frameLenSample*2),
 		isTerminated:  false,
+		vadStartedAt:  time.Now(),
 	}
 
 	go func() {
@@ -91,28 +108,21 @@ func NewFireRedVAD(
 
 	if onPacket != nil {
 		_ = onPacket(ctx,
-			internal_type.ObservabilityEventRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentVAD,
-					Event:     observability.VADStarted,
-					Attributes: observability.Attributes{
-						"provider": vadName,
-						"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-					},
-				},
+			internal_type.ObservabilityMetricRecordPacket{
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricVADInitLatencyMs(time.Since(start), observability.Attributes{"provider": vad.Name()}),
 			},
 			internal_type.ObservabilityLogRecordPacket{
 				Scope: internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
-					Level:   observability.LevelDebug,
-					Message: "vad initialized",
+					Level:   observability.LevelInfo,
+					Message: fmt.Sprintf("%s: initialization completed", vad.Name()),
 					Attributes: observability.Attributes{
 						"component": observability.ComponentVAD.String(),
-						"operation": "initialize",
-						"provider":  vadName,
-						"init_ms":   fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+						"provider":  vad.Name(),
+						"options":   observability.AttributeValue(vad.Options()),
 					},
+					OccurredAt: time.Now(),
 				},
 			},
 		)
@@ -178,9 +188,8 @@ func (v *FireRedVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRec
 			if v.onPacket != nil {
 				_ = v.onPacket(ctx,
 					internal_type.ObservabilityEventRecordPacket{
-						ContextID:   pkt.ContextID,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleUser,
+						ContextID: pkt.ContextID,
+						Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 						Record: observability.RecordEvent{
 							Component: observability.ComponentVAD,
 							Event:     observability.VADError,
@@ -189,15 +198,15 @@ func (v *FireRedVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRec
 								"context_id": pkt.ContextID,
 								"error":      "firered_vad inference failed",
 							},
+							OccurredAt: time.Now(),
 						},
 					},
 					internal_type.ObservabilityLogRecordPacket{
-						ContextID:   pkt.ContextID,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleUser,
+						ContextID: pkt.ContextID,
+						Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 						Record: observability.RecordLog{
 							Level:   observability.LevelError,
-							Message: "vad inference failed",
+							Message: "firered_vad: inference failed",
 							Attributes: observability.Attributes{
 								"component":   observability.ComponentVAD.String(),
 								"operation":   "infer",
@@ -207,6 +216,7 @@ func (v *FireRedVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRec
 								"error":       err.Error(),
 								"error_type":  fmt.Sprintf("%T", err),
 							},
+							OccurredAt: time.Now(),
 						},
 					},
 				)
@@ -260,10 +270,10 @@ func (v *FireRedVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRec
 
 	// Emit explicit interruption lifecycle events from VAD transitions.
 	if hasSpeechStart {
-		v.notifyInterruption(ctx, internal_type.InterruptionEventStart, speechStartAt)
+		v.notifyInterruption(ctx, pkt.ContextID, internal_type.InterruptionEventStart, speechStartAt)
 	}
 	if hasSpeechEnd {
-		v.notifyInterruption(ctx, internal_type.InterruptionEventEnd, speechEndAt)
+		v.notifyInterruption(ctx, pkt.ContextID, internal_type.InterruptionEventEnd, speechEndAt)
 	}
 
 	return nil
@@ -277,6 +287,8 @@ func (v *FireRedVAD) Close(ctx context.Context) error {
 		return nil
 	}
 	v.isTerminated = true
+	vadStartedAt := v.vadStartedAt
+	v.vadStartedAt = time.Time{}
 
 	if v.detector != nil {
 		v.detector.Destroy()
@@ -285,30 +297,26 @@ func (v *FireRedVAD) Close(ctx context.Context) error {
 	v.mu.Unlock()
 
 	if v.onPacket != nil {
-		_ = v.onPacket(ctx,
-			internal_type.ObservabilityEventRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentVAD,
-					Event:     observability.VADClosed,
-					Attributes: observability.Attributes{
-						"provider": vadName,
-					},
+		packets := []internal_type.Packet{}
+		if !vadStartedAt.IsZero() {
+			duration := time.Since(vadStartedAt)
+			packets = append(packets, internal_type.ObservabilityUsageRecordPacket{
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewVADDurationUsageRecord(v.Name(), duration, observability.Attributes{}),
+			})
+		}
+		packets = append(packets, internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentVAD,
+				Event:     observability.VADClosed,
+				Attributes: observability.Attributes{
+					"provider": v.Name(),
 				},
+				OccurredAt: time.Now(),
 			},
-			internal_type.ObservabilityLogRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordLog{
-					Level:   observability.LevelDebug,
-					Message: "vad closed",
-					Attributes: observability.Attributes{
-						"component": observability.ComponentVAD.String(),
-						"operation": "close",
-						"provider":  vadName,
-					},
-				},
-			},
-		)
+		})
+		_ = v.onPacket(ctx, packets...)
 	}
 
 	return nil
@@ -349,7 +357,7 @@ func (v *FireRedVAD) isActive() bool {
 	return !v.isTerminated && v.detector != nil
 }
 
-func (v *FireRedVAD) notifyInterruption(ctx context.Context, event internal_type.InterruptionEvent, at float64) {
+func (v *FireRedVAD) notifyInterruption(ctx context.Context, contextID string, event internal_type.InterruptionEvent, at float64) {
 	if v.onPacket == nil {
 		return
 	}
@@ -359,13 +367,15 @@ func (v *FireRedVAD) notifyInterruption(ctx context.Context, event internal_type
 	}
 	v.onPacket(ctx,
 		internal_type.InterruptionDetectedPacket{
-			Source:  internal_type.InterruptionSourceVad,
-			Event:   event,
-			StartAt: at,
-			EndAt:   at,
+			ContextID: contextID,
+			Source:    internal_type.InterruptionSourceVad,
+			Event:     event,
+			StartAt:   at,
+			EndAt:     at,
 		},
 		internal_type.ObservabilityEventRecordPacket{
-			Scope: internal_type.ObservabilityRecordScopeConversation,
+			ContextID: contextID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 			Record: observability.RecordEvent{
 				Component: observability.ComponentVAD,
 				Event:     eventName,
@@ -375,6 +385,7 @@ func (v *FireRedVAD) notifyInterruption(ctx context.Context, event internal_type
 					"start_at": fmt.Sprintf("%f", at),
 					"end_at":   fmt.Sprintf("%f", at),
 				},
+				OccurredAt: time.Now(),
 			},
 		},
 	)

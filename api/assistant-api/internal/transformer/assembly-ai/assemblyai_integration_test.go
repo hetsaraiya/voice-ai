@@ -30,8 +30,8 @@ import (
 // ---------------------------------------------------------------------------
 
 // TestAssemblyaiSTTLifecycle verifies the full STT flow:
-// create → initialize (event) → feed audio → transcripts arrive →
-// event sequence includes initialized + completed.
+// create → initialize (metric/log) → feed audio → transcripts arrive →
+// event sequence includes completed when final transcripts arrive.
 func TestAssemblyaiSTTLifecycle(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
 	pcfg := cfg.STTProvider(t, "assemblyai")
@@ -47,18 +47,11 @@ func TestAssemblyaiSTTLifecycle(t *testing.T) {
 	stt, err := NewAssemblyaiSpeechToText(ctx, logger, cred, collector.OnPacket, opts)
 	require.NoError(t, err)
 	require.NotNil(t, stt)
-	assert.Equal(t, "assemblyai-speech-to-text", stt.Name())
+	assert.Equal(t, "assemblyai-stt", stt.Name())
 
 	require.NoError(t, stt.Initialize())
 	defer stt.Close(ctx)
-
-	events := collector.EventPackets()
-	require.NotEmpty(t, events, "should emit initialized event")
-	assert.Equal(t, "stt", events[0].Record.Component.String())
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
-	assert.Equal(t, "assemblyai-speech-to-text", events[0].Record.Attributes["provider"])
-	_, err = strconv.Atoi(events[0].Record.Attributes["init_ms"])
-	assert.NoError(t, err, "init_ms should be a valid integer")
+	assertSTTInitMetric(t, collector)
 
 	feedDone := make(chan struct{})
 	go func() {
@@ -165,6 +158,7 @@ func TestAssemblyaiSTTReconnect(t *testing.T) {
 		stt, err := NewAssemblyaiSpeechToText(ctx, logger, cred, collector.OnPacket, opts)
 		require.NoError(t, err, "attempt %d", attempt)
 		require.NoError(t, stt.Initialize(), "attempt %d", attempt)
+		assertSTTInitMetric(t, collector)
 
 		feedDone := make(chan struct{})
 		go func() {
@@ -178,9 +172,6 @@ func TestAssemblyaiSTTReconnect(t *testing.T) {
 			t.Fatalf("attempt %d: context cancelled", attempt)
 		}
 
-		events := collector.EventPackets()
-		require.NotEmpty(t, events, "attempt %d: should emit initialized event", attempt)
-		assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
 		t.Logf("attempt=%d transcripts=%d", attempt, len(collector.TranscriptPackets()))
 
 		stt.Close(ctx)
@@ -204,6 +195,7 @@ func TestAssemblyaiSTTCloseWhileStreaming(t *testing.T) {
 		testutil.BuildOptions(pcfg.Options))
 	require.NoError(t, err)
 	require.NoError(t, stt.Initialize())
+	assertSTTInitMetric(t, collector)
 
 	go func() {
 		chunks := testutil.ChunkAudio(testutil.SineTonePCM(440, 3.0), testutil.FrameSize)
@@ -222,10 +214,6 @@ func TestAssemblyaiSTTCloseWhileStreaming(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	err = stt.Close(ctx)
 	assert.NoError(t, err, "closing STT mid-stream should not error")
-
-	events := collector.EventPackets()
-	require.NotEmpty(t, events)
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
 }
 
 // TestAssemblyaiSTTTranscriptContent verifies that real speech audio produces
@@ -301,4 +289,20 @@ func assertSTTLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {
 		}
 	}
 	t.Error("should have stt_latency_ms metric")
+}
+
+func assertSTTInitMetric(t *testing.T, collector *testutil.PacketCollector) {
+	t.Helper()
+	for _, m := range collector.MetricPackets() {
+		for _, metric := range m.Record.Metrics {
+			if metric.Name == "stt_init_ms" {
+				ms, err := strconv.Atoi(metric.Value)
+				assert.NoError(t, err)
+				assert.GreaterOrEqual(t, ms, 0, "stt_init_ms should be non-negative")
+				t.Logf("stt_init_ms=%d", ms)
+				return
+			}
+		}
+	}
+	t.Error("should have stt_init_ms metric")
 }

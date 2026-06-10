@@ -11,17 +11,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 
 	elevenlabs_internal "github.com/rapidaai/api/assistant-api/internal/transformer/elevenlabs/internal"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
@@ -61,7 +60,7 @@ func NewElevenlabsTextToSpeech(ctx context.Context, logger commons.Logger, crede
 }
 
 func (*elevenlabsTTS) Name() string {
-	return "elevenlabs-text-to-speech"
+	return "elevenlabs-tts"
 }
 
 // Initialize opens a fresh WebSocket connection to ElevenLabs and starts the
@@ -74,6 +73,19 @@ func (ct *elevenlabsTTS) Initialize() error {
 	conn, resp, err := websocket.DefaultDialer.Dial(ct.GetTextToSpeechConnectionString(), header)
 	if err != nil {
 		ct.logger.Errorf("elevenlabs-tts: dial failed %s with response %v", err, resp)
+		ct.onPacket(internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "elevenlabs-tts: error while performing connect",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentTTS.String(),
+					"provider":  ct.Name(),
+					"path":      observability.AttributeValue(ct.GetTextToSpeechConnectionString()),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 		return err
 	}
 
@@ -85,19 +97,24 @@ func (ct *elevenlabsTTS) Initialize() error {
 	ct.mu.Unlock()
 
 	go ct.readLoop(conn)
-	ct.onPacket(internal_type.ObservabilityEventRecordPacket{
-		Scope: internal_type.ObservabilityRecordScopeConversation,
-		Record: observability.RecordEvent{
-			Component: observability.ComponentTTS,
-			Event:     observability.TTSInitialized,
-			Attributes: observability.Attributes{
-				"type":     "initialized",
-				"provider": ct.Name(),
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			},
-			OccurredAt: time.Now(),
+	ct.onPacket(
+		internal_type.ObservabilityMetricRecordPacket{
+			Scope:  internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewMetricTTSInitLatencyMs(time.Since(start), observability.Attributes{"provider": ct.Name()}),
 		},
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "elevenlabs-tts: initialization completed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentTTS.String(),
+					"provider":  ct.Name(),
+					"path":      observability.AttributeValue(ct.GetTextToSpeechConnectionString()),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }
 
@@ -114,14 +131,14 @@ func (elt *elevenlabsTTS) readLoop(conn *websocket.Conn) {
 		_, audioChunk, err := conn.ReadMessage()
 		if err != nil {
 			elt.mu.Lock()
-			intentional := elt.connection == nil // set to nil before conn.Close() on intentional paths
-			if !intentional {
-				elt.connection = nil // unintentional drop: next delta will reconnect
+			if elt.connection != conn {
+				elt.mu.Unlock()
+				return
 			}
+			// Active connection dropped; next text packet reconnects.
+			elt.connection = nil
 			elt.mu.Unlock()
-			if !intentional {
-				elt.logger.Errorf("elevenlabs-tts: connection lost: %v", err)
-			}
+			elt.logger.Errorf("elevenlabs-tts: connection lost: %v", err)
 			return
 		}
 		var audioData elevenlabs_internal.ElevenlabTextToSpeechResponse
@@ -132,31 +149,23 @@ func (elt *elevenlabsTTS) readLoop(conn *websocket.Conn) {
 
 		if audioData.Audio != "" {
 			if rawAudioData, err := base64.StdEncoding.DecodeString(audioData.Audio); err == nil {
+				var shouldEmitFirstAudioLatencyMetric bool
 				elt.mu.Lock()
-				ctxId := elt.contextId
-				startedAt := elt.ttsStartedAt
-				metricSent := elt.ttsMetricSent
-				if !metricSent && !startedAt.IsZero() {
+				contextId := elt.contextId
+				ttsStartedAt := elt.ttsStartedAt
+				if !elt.ttsMetricSent && !ttsStartedAt.IsZero() {
 					elt.ttsMetricSent = true
+					shouldEmitFirstAudioLatencyMetric = true
 				}
 				elt.mu.Unlock()
-				if ctxId != "" {
-					if !metricSent && !startedAt.IsZero() {
-						elt.onPacket(internal_type.ObservabilityMetricRecordPacket{
-							ContextID:   ctxId,
-							Scope:       internal_type.ObservabilityRecordScopeMessage,
-							MessageRole: observability.MessageRoleAssistant,
-							Record: observability.RecordMetric{
-								Metrics: []*protos.Metric{{
-									Name:  "tts_latency_ms",
-									Value: fmt.Sprintf("%d", time.Since(startedAt).Milliseconds()),
-								}},
-								Attributes: observability.Attributes{"provider": elt.Name()},
-							},
-						})
-					}
-					elt.onPacket(internal_type.TextToSpeechAudioPacket{ContextID: ctxId, AudioChunk: rawAudioData})
+				if shouldEmitFirstAudioLatencyMetric {
+					elt.onPacket(internal_type.ObservabilityMetricRecordPacket{
+						ContextID: contextId,
+						Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
+						Record:    observability.NewMetricTTSLatencyMs(time.Since(ttsStartedAt), observability.Attributes{"provider": elt.Name()}),
+					})
 				}
+				elt.onPacket(internal_type.TextToSpeechAudioPacket{ContextID: contextId, AudioChunk: rawAudioData})
 			} else {
 				elt.logger.Errorf("elevenlabs-tts: base64 decode failed: %v", err)
 			}
@@ -181,9 +190,8 @@ func (elt *elevenlabsTTS) handleFlushComplete(conn *websocket.Conn) {
 	elt.onPacket(
 		internal_type.TextToSpeechEndPacket{ContextID: ctxId},
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   ctxId,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: ctxId,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordEvent{
 				Component:  observability.ComponentTTS,
 				Event:      observability.TTSCompleted,
@@ -218,9 +226,8 @@ func (t *elevenlabsTTS) Transform(ctx context.Context, in internal_type.Packet) 
 			conn.Close()
 		}
 		t.onPacket(internal_type.ObservabilityEventRecordPacket{
-			ContextID:   input.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: input.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordEvent{
 				Component:  observability.ComponentTTS,
 				Event:      observability.TTSInterrupted,
@@ -266,9 +273,8 @@ func (t *elevenlabsTTS) Transform(ctx context.Context, in internal_type.Packet) 
 			return nil
 		}
 		t.onPacket(internal_type.ObservabilityEventRecordPacket{
-			ContextID:   input.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: input.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordEvent{
 				Component:  observability.ComponentTTS,
 				Event:      observability.TTSSpeaking,
@@ -306,7 +312,6 @@ func (t *elevenlabsTTS) Transform(ctx context.Context, in internal_type.Packet) 
 func (t *elevenlabsTTS) Close(ctx context.Context) error {
 	t.ctxCancel()
 	t.mu.Lock()
-	ctxID := t.contextId
 	connectedAt := t.ttsConnectedAt
 	t.ttsConnectedAt = time.Time{}
 
@@ -320,42 +325,28 @@ func (t *elevenlabsTTS) Close(ctx context.Context) error {
 	if !connectedAt.IsZero() {
 		duration := time.Since(connectedAt)
 		t.onPacket(
-			internal_type.ObservabilityEventRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentTTS,
-					Event:     observability.TTSClosed,
-					Attributes: observability.Attributes{
-						"type":     "closed",
-						"provider": t.Name(),
-					},
-					OccurredAt: time.Now(),
-				},
-			},
 			internal_type.ObservabilityMetricRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationMetricRecord([]*protos.Metric{{
-					Name:        type_enums.CONVERSATION_TTS_DURATION.String(),
-					Value:       fmt.Sprintf("%d", duration.Nanoseconds()),
-					Description: "Total TTS connection duration in nanoseconds",
-				}}),
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricTTSDuration(duration, observability.Attributes{"provider": t.Name()}),
 			},
 			internal_type.ObservabilityUsageRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordUsage{
-					Component: observability.ComponentTTS,
-					Provider:  t.Name(),
-					Duration:  duration,
-					Attributes: observability.Attributes{
-						"context_id": ctxID,
-						"provider":   t.Name(),
-						"metric":     type_enums.CONVERSATION_TTS_DURATION.String(),
-					},
-				},
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewTTSDurationUsageRecord(t.Name(), duration, observability.Attributes{}),
 			},
 		)
 	}
+	t.onPacket(
+		internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentTTS,
+				Event:     observability.TTSClosed,
+				Attributes: observability.Attributes{
+					"type":     "closed",
+					"provider": t.Name(),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }

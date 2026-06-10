@@ -11,17 +11,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 
 	neuphonic_internal "github.com/rapidaai/api/assistant-api/internal/transformer/neuphonic/internal"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
@@ -71,6 +70,19 @@ func (ct *neuphonicTTS) Initialize() error {
 	conn, resp, err := websocket.DefaultDialer.Dial(ct.GetTextToSpeechConnectionString(), header)
 	if err != nil {
 		ct.logger.Errorf("neuphonic-tts: error while connecting to neuphonic %s with response %v", err, resp)
+		ct.onPacket(internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "neuphonic-tts: error while performing connect",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentTTS.String(),
+					"provider":  ct.Name(),
+					"path":      observability.AttributeValue(ct.GetTextToSpeechConnectionString()),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 		return err
 	}
 
@@ -82,24 +94,29 @@ func (ct *neuphonicTTS) Initialize() error {
 	ct.mu.Unlock()
 
 	go ct.readLoop(conn)
-	ct.onPacket(internal_type.ObservabilityEventRecordPacket{
-		Scope: internal_type.ObservabilityRecordScopeConversation,
-		Record: observability.RecordEvent{
-			Component: observability.ComponentTTS,
-			Event:     observability.TTSInitialized,
-			Attributes: observability.Attributes{
-				"type":     "initialized",
-				"provider": ct.Name(),
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			},
-			OccurredAt: time.Now(),
+	ct.onPacket(
+		internal_type.ObservabilityMetricRecordPacket{
+			Scope:  internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewMetricTTSInitLatencyMs(time.Since(start), observability.Attributes{"provider": ct.Name()}),
 		},
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "neuphonic-tts: initialization completed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentTTS.String(),
+					"provider":  ct.Name(),
+					"path":      observability.AttributeValue(ct.GetTextToSpeechConnectionString()),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }
 
 func (*neuphonicTTS) Name() string {
-	return "neuphonic-text-to-speech"
+	return "neuphonic-tts"
 }
 
 // readLoop owns a single WebSocket connection for the duration of one TTS turn.
@@ -117,14 +134,14 @@ func (rt *neuphonicTTS) readLoop(conn *websocket.Conn) {
 		_, audioChunk, err := conn.ReadMessage()
 		if err != nil {
 			rt.mu.Lock()
-			intentional := rt.connection == nil // set to nil before conn.Close() on intentional paths
-			if !intentional {
-				rt.connection = nil // unintentional drop: next delta will reconnect
+			if rt.connection != conn {
+				rt.mu.Unlock()
+				return
 			}
+			// Active connection dropped; next text packet reconnects.
+			rt.connection = nil
 			rt.mu.Unlock()
-			if !intentional {
-				rt.logger.Errorf("neuphonic-tts: connection lost: %v", err)
-			}
+			rt.logger.Errorf("neuphonic-tts: connection lost: %v", err)
 			return
 		}
 
@@ -136,27 +153,21 @@ func (rt *neuphonicTTS) readLoop(conn *websocket.Conn) {
 
 		if audioData.Data.Audio != "" {
 			if rawAudioData, err := base64.StdEncoding.DecodeString(audioData.Data.Audio); err == nil {
+				var shouldEmitFirstAudioLatencyMetric bool
 				rt.mu.Lock()
-				startedAt := rt.ttsStartedAt
-				metricSent := rt.ttsMetricSent
+				ttsStartedAt := rt.ttsStartedAt
 				ctxId := rt.contextId
-				if !metricSent && !startedAt.IsZero() {
+				if !rt.ttsMetricSent && !ttsStartedAt.IsZero() {
 					rt.ttsMetricSent = true
+					shouldEmitFirstAudioLatencyMetric = true
 				}
 				rt.mu.Unlock()
 				if ctxId != "" {
-					if !metricSent && !startedAt.IsZero() {
+					if shouldEmitFirstAudioLatencyMetric {
 						rt.onPacket(internal_type.ObservabilityMetricRecordPacket{
-							ContextID:   ctxId,
-							Scope:       internal_type.ObservabilityRecordScopeMessage,
-							MessageRole: observability.MessageRoleAssistant,
-							Record: observability.RecordMetric{
-								Metrics: []*protos.Metric{{
-									Name:  "tts_latency_ms",
-									Value: fmt.Sprintf("%d", time.Since(startedAt).Milliseconds()),
-								}},
-								Attributes: observability.Attributes{"provider": rt.Name()},
-							},
+							ContextID: ctxId,
+							Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
+							Record:    observability.NewMetricTTSLatencyMs(time.Since(ttsStartedAt), observability.Attributes{"provider": rt.Name()}),
 						})
 					}
 					rt.onPacket(internal_type.TextToSpeechAudioPacket{ContextID: ctxId, AudioChunk: rawAudioData})
@@ -191,9 +202,8 @@ func (t *neuphonicTTS) Transform(ctx context.Context, in internal_type.Packet) e
 			conn.Close()
 		}
 		t.onPacket(internal_type.ObservabilityEventRecordPacket{
-			ContextID:   input.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: input.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordEvent{
 				Component:  observability.ComponentTTS,
 				Event:      observability.TTSInterrupted,
@@ -242,9 +252,8 @@ func (t *neuphonicTTS) Transform(ctx context.Context, in internal_type.Packet) e
 			return nil
 		}
 		t.onPacket(internal_type.ObservabilityEventRecordPacket{
-			ContextID:   input.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: input.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordEvent{
 				Component: observability.ComponentTTS,
 				Event:     observability.TTSSpeaking,
@@ -277,9 +286,8 @@ func (t *neuphonicTTS) Transform(ctx context.Context, in internal_type.Packet) e
 		t.onPacket(
 			internal_type.TextToSpeechEndPacket{ContextID: ctxId},
 			internal_type.ObservabilityEventRecordPacket{
-				ContextID:   ctxId,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: ctxId,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.RecordEvent{
 					Component:  observability.ComponentTTS,
 					Event:      observability.TTSCompleted,
@@ -298,7 +306,6 @@ func (t *neuphonicTTS) Transform(ctx context.Context, in internal_type.Packet) e
 func (t *neuphonicTTS) Close(ctx context.Context) error {
 	t.ctxCancel()
 	t.mu.Lock()
-	ctxID := t.contextId
 	connectedAt := t.ttsConnectedAt
 	t.ttsConnectedAt = time.Time{}
 
@@ -312,42 +319,28 @@ func (t *neuphonicTTS) Close(ctx context.Context) error {
 	if !connectedAt.IsZero() {
 		duration := time.Since(connectedAt)
 		t.onPacket(
-			internal_type.ObservabilityEventRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentTTS,
-					Event:     observability.TTSClosed,
-					Attributes: observability.Attributes{
-						"type":     "closed",
-						"provider": t.Name(),
-					},
-					OccurredAt: time.Now(),
-				},
-			},
 			internal_type.ObservabilityMetricRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationMetricRecord([]*protos.Metric{{
-					Name:        type_enums.CONVERSATION_TTS_DURATION.String(),
-					Value:       fmt.Sprintf("%d", duration.Nanoseconds()),
-					Description: "Total TTS connection duration in nanoseconds",
-				}}),
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricTTSDuration(duration, observability.Attributes{"provider": t.Name()}),
 			},
 			internal_type.ObservabilityUsageRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordUsage{
-					Component: observability.ComponentTTS,
-					Provider:  t.Name(),
-					Duration:  duration,
-					Attributes: observability.Attributes{
-						"context_id": ctxID,
-						"provider":   t.Name(),
-						"metric":     type_enums.CONVERSATION_TTS_DURATION.String(),
-					},
-				},
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewTTSDurationUsageRecord(t.Name(), duration, observability.Attributes{}),
 			},
 		)
 	}
+	t.onPacket(
+		internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentTTS,
+				Event:     observability.TTSClosed,
+				Attributes: observability.Attributes{
+					"type":     "closed",
+					"provider": t.Name(),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }

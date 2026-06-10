@@ -19,7 +19,6 @@ import (
 	sarvam_internal "github.com/rapidaai/api/assistant-api/internal/transformer/sarvam/internal"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
@@ -41,7 +40,7 @@ type sarvamSpeechToText struct {
 }
 
 func (*sarvamSpeechToText) Name() string {
-	return "sarvam-speech-to-text"
+	return "sarvam-stt"
 }
 
 func NewSarvamSpeechToText(
@@ -71,32 +70,53 @@ func (cst *sarvamSpeechToText) Initialize() error {
 	start := time.Now()
 	header := http.Header{}
 	header.Set("Api-Subscription-Key", cst.GetKey())
-	conn, _, err := websocket.DefaultDialer.Dial(cst.speechToTextUrl(), header)
+	connectionString := cst.speechToTextUrl()
+	conn, _, err := websocket.DefaultDialer.Dial(connectionString, header)
 	if err != nil {
+		cst.logger.Errorf("sarvam-stt: dial failed: %v", err)
+		cst.onPacket(internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "sarvam-stt: error while performing connect",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentSTT.String(),
+					"provider":  cst.Name(),
+					"path":      observability.AttributeValue(connectionString),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 		return fmt.Errorf("sarvam-stt: dial failed: %w", err)
 	}
 
 	cst.mu.Lock()
 	cst.connection = conn
-	cst.sttConnectedAt = time.Now()
+	if cst.sttConnectedAt.IsZero() {
+		cst.sttConnectedAt = time.Now()
+	}
 	cst.mu.Unlock()
 
 	go cst.readLoop(conn)
 
-	cst.onPacket(internal_type.ObservabilityEventRecordPacket{
-		ContextID: cst.contextId,
-		Scope:     internal_type.ObservabilityRecordScopeConversation,
-		Record: observability.RecordEvent{
-			Component: observability.ComponentSTT,
-			Event:     observability.STTInitialized,
-			Attributes: observability.Attributes{
-				"type":     "initialized",
-				"provider": cst.Name(),
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			},
-			OccurredAt: time.Now(),
+	cst.onPacket(
+		internal_type.ObservabilityMetricRecordPacket{
+			Scope:  internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewMetricSTTInitLatencyMs(time.Since(start), observability.Attributes{"provider": cst.Name()}),
 		},
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "sarvam-stt: initialization completed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentSTT.String(),
+					"provider":  cst.Name(),
+					"path":      observability.AttributeValue(connectionString),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }
 
@@ -112,19 +132,19 @@ func (cst *sarvamSpeechToText) readLoop(conn *websocket.Conn) {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			cst.mu.Lock()
-			intentional := cst.connection == nil // set to nil before conn.Close() on intentional paths
-			if !intentional {
-				cst.connection = nil // unintentional drop
+			if cst.connection != conn {
+				cst.mu.Unlock()
+				return
 			}
+			ctxID := cst.contextId
+			cst.connection = nil
 			cst.mu.Unlock()
-			if !intentional {
-				cst.logger.Errorf("sarvam-stt: connection lost: %v", err)
-				cst.onPacket(internal_type.SpeechToTextErrorPacket{
-					ContextID: cst.contextId,
-					Error:     fmt.Errorf("sarvam-stt: connection lost: %w", err),
-					Type:      internal_type.STTNetworkTimeout,
-				})
-			}
+			cst.logger.Errorf("sarvam-stt: connection lost: %v", err)
+			cst.onPacket(internal_type.SpeechToTextErrorPacket{
+				ContextID: ctxID,
+				Error:     fmt.Errorf("sarvam-stt: connection lost: %w", err),
+				Type:      internal_type.STTNetworkTimeout,
+			})
 			return
 		}
 
@@ -155,10 +175,10 @@ func (cst *sarvamSpeechToText) handleTranscription(response sarvam_internal.Sarv
 	}
 
 	now := time.Now()
+	var startedAt time.Time
 	cst.mu.Lock()
-	var latencyMs int64
 	if !cst.startedAt.IsZero() {
-		latencyMs = now.Sub(cst.startedAt).Milliseconds()
+		startedAt = cst.startedAt
 		cst.startedAt = time.Time{}
 	}
 	ctxID := cst.contextId
@@ -169,7 +189,7 @@ func (cst *sarvamSpeechToText) handleTranscription(response sarvam_internal.Sarv
 		langCode = *transcriptionData.LanguageCode
 	}
 
-	cst.onPacket(
+	packets := []internal_type.Packet{
 		internal_type.InterruptionDetectedPacket{ContextID: ctxID, Source: internal_type.InterruptionSourceWord},
 		internal_type.SpeechToTextPacket{
 			ContextID:  ctxID,
@@ -179,9 +199,8 @@ func (cst *sarvamSpeechToText) handleTranscription(response sarvam_internal.Sarv
 			Interim:    false,
 		},
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   ctxID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
+			ContextID: ctxID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 			Record: observability.RecordEvent{
 				Component: observability.ComponentSTT,
 				Event:     observability.STTCompleted,
@@ -196,16 +215,15 @@ func (cst *sarvamSpeechToText) handleTranscription(response sarvam_internal.Sarv
 				OccurredAt: now,
 			},
 		},
-		internal_type.ObservabilityMetricRecordPacket{
-			ContextID:   ctxID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
-			Record: observability.RecordMetric{
-				Metrics:    []*protos.Metric{{Name: "stt_latency_ms", Value: fmt.Sprintf("%d", latencyMs)}},
-				Attributes: observability.Attributes{"provider": cst.Name()},
-			},
-		},
-	)
+	}
+	if !startedAt.IsZero() {
+		packets = append(packets, internal_type.ObservabilityMetricRecordPacket{
+			ContextID: ctxID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+			Record:    observability.NewMetricSTTLatencyMs(time.Since(startedAt), observability.Attributes{"provider": cst.Name()}),
+		})
+	}
+	cst.onPacket(packets...)
 }
 
 func (cst *sarvamSpeechToText) handleServerError(response sarvam_internal.SarvamSpeechToTextResponse) {
@@ -273,7 +291,6 @@ func (cst *sarvamSpeechToText) Transform(ctx context.Context, in internal_type.P
 func (cst *sarvamSpeechToText) Close(ctx context.Context) error {
 	cst.ctxCancel()
 	cst.mu.Lock()
-	ctxID := cst.contextId
 	connectedAt := cst.sttConnectedAt
 	cst.sttConnectedAt = time.Time{}
 	if cst.connection != nil {
@@ -286,42 +303,28 @@ func (cst *sarvamSpeechToText) Close(ctx context.Context) error {
 	if !connectedAt.IsZero() {
 		duration := time.Since(connectedAt)
 		cst.onPacket(
-			internal_type.ObservabilityEventRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentSTT,
-					Event:     observability.STTClosed,
-					Attributes: observability.Attributes{
-						"type":     "closed",
-						"provider": cst.Name(),
-					},
-					OccurredAt: time.Now(),
-				},
-			},
 			internal_type.ObservabilityMetricRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationMetricRecord([]*protos.Metric{{
-					Name:        type_enums.CONVERSATION_STT_DURATION.String(),
-					Value:       fmt.Sprintf("%d", duration.Nanoseconds()),
-					Description: "Total STT connection duration in nanoseconds",
-				}}),
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricSTTDuration(duration, observability.Attributes{"provider": cst.Name()}),
 			},
 			internal_type.ObservabilityUsageRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordUsage{
-					Component: observability.ComponentSTT,
-					Provider:  cst.Name(),
-					Duration:  duration,
-					Attributes: observability.Attributes{
-						"context_id": ctxID,
-						"provider":   cst.Name(),
-						"metric":     type_enums.CONVERSATION_STT_DURATION.String(),
-					},
-				},
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewSTTDurationUsageRecord(cst.Name(), duration, observability.Attributes{}),
 			},
 		)
 	}
+	cst.onPacket(
+		internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentSTT,
+				Event:     observability.STTClosed,
+				Attributes: observability.Attributes{
+					"type":     "closed",
+					"provider": cst.Name(),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }

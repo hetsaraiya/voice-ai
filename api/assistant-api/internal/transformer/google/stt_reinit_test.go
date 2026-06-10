@@ -64,10 +64,12 @@ func newTestSTT(ctx context.Context, factory func(context.Context) (speechpb.Spe
 func TestRecvLoop_ReinitOnTimeout(t *testing.T) {
 	var factoryCalls atomic.Int32
 	recvOnce := sync.Once{}
+	allowFirstRecv := make(chan struct{})
 
 	// The first stream returns a timeout error on Recv.
 	firstStream := &mockStream{
 		recvFunc: func() (*speechpb.StreamingRecognizeResponse, error) {
+			<-allowFirstRecv
 			var err error
 			recvOnce.Do(func() {
 				err = status.Error(codes.Aborted, "Stream timed out after receiving no more client requests.")
@@ -113,6 +115,7 @@ func TestRecvLoop_ReinitOnTimeout(t *testing.T) {
 	err := g.Initialize()
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, factoryCalls.Load(), "Initialize should call factory once")
+	close(allowFirstRecv)
 
 	// Wait for recvLoop to hit the timeout error and reinitialize
 	assert.Eventually(t, func() bool {

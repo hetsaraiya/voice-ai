@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
@@ -28,9 +29,10 @@ func (e *agentkitExecutor) handleResponse(ctx context.Context, comm internal_typ
 				Attributes: observability.Attributes{
 					"component":       observability.ComponentLLM.String(),
 					"operation":       "initialization_ack",
-					"provider":        "agentkit",
+					"provider":        e.Name(),
 					"conversation_id": fmt.Sprintf("%d", data.Initialization.GetAssistantConversationId()),
 				},
+				OccurredAt: time.Now(),
 			},
 		})
 
@@ -41,32 +43,29 @@ func (e *agentkitExecutor) handleResponse(ctx context.Context, comm internal_typ
 		comm.OnPacket(ctx,
 			internal_type.InterruptionDetectedPacket{ContextID: data.Interruption.Id, Source: internal_type.InterruptionSourceWord},
 			internal_type.ObservabilityEventRecordPacket{
-				ContextID:   data.Interruption.Id,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: data.Interruption.Id,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.NewMessageRecord(data.Interruption.Id, observability.ComponentLLM, observability.LLMDiscarded, observability.MessageRoleAssistant, observability.Attributes{
-					"provider":     "agentkit",
-					"context_id":   data.Interruption.Id,
-					"message_role": string(observability.MessageRoleAssistant),
-					"reason":       "interruption",
-					"source":       "word",
+					"provider":   e.Name(),
+					"context_id": data.Interruption.Id,
+					"reason":     "interruption",
+					"source":     "word",
 				}),
 			},
 			internal_type.ObservabilityLogRecordPacket{
-				ContextID:   data.Interruption.Id,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: data.Interruption.Id,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.RecordLog{
 					Level:   observability.LevelInfo,
 					Message: "agentkit response interrupted",
 					Attributes: observability.Attributes{
-						"component":    observability.ComponentLLM.String(),
-						"operation":    "interrupt",
-						"provider":     "agentkit",
-						"context_id":   data.Interruption.Id,
-						"message_role": string(observability.MessageRoleAssistant),
-						"source":       "word",
+						"component":  observability.ComponentLLM.String(),
+						"operation":  "interrupt",
+						"provider":   e.Name(),
+						"context_id": data.Interruption.Id,
+						"source":     "word",
 					},
+					OccurredAt: time.Now(),
 				},
 			},
 		)
@@ -79,30 +78,46 @@ func (e *agentkitExecutor) handleResponse(ctx context.Context, comm internal_typ
 		switch msg := data.Assistant.GetMessage().(type) {
 		case *protos.ConversationAssistantMessage_Text:
 			if data.Assistant.GetCompleted() {
-				comm.OnPacket(ctx,
+				e.stateMu.Lock()
+				requestStartedAt := e.requestStartedAt
+				e.requestStartedAt = time.Time{}
+				e.stateMu.Unlock()
+
+				packets := []internal_type.Packet{
 					internal_type.LLMResponseDonePacket{ContextID: contextID, Text: msg.Text},
 					internal_type.ObservabilityEventRecordPacket{
-						ContextID:   contextID,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleAssistant,
+						ContextID: contextID,
+						Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 						Record: observability.NewMessageRecord(contextID, observability.ComponentLLM, observability.LLMCompleted, observability.MessageRoleAssistant, observability.Attributes{
-							"provider":            "agentkit",
+							"provider":            e.Name(),
 							"context_id":          contextID,
-							"message_role":        string(observability.MessageRoleAssistant),
 							"response_char_count": fmt.Sprintf("%d", len(msg.Text)),
 						}),
 					},
 					internal_type.ObservabilityMetricRecordPacket{
-						ContextID:   contextID,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleAssistant,
-						Record: observability.NewMessageMetricRecord(contextID, observability.MessageRoleAssistant, []*protos.Metric{{
-							Name:        "llm_response_char_count",
-							Value:       fmt.Sprintf("%d", len(msg.Text)),
-							Description: "AgentKit response character count",
-						}}),
+						ContextID: contextID,
+						Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
+						Record: observability.RecordMetric{
+							Attributes: observability.Attributes{"provider": e.Name()},
+							Metrics: []*protos.Metric{{
+								Name:        "llm_response_char_count",
+								Value:       fmt.Sprintf("%d", len(msg.Text)),
+								Description: "AgentKit response character count",
+							}},
+						},
 					},
-				)
+				}
+				if !requestStartedAt.IsZero() {
+					packets = append(packets, internal_type.ObservabilityUsageRecordPacket{
+						ContextID: contextID,
+						Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
+						Record: observability.NewLLMDurationUsageRecord(e.Name(), time.Since(requestStartedAt), observability.Attributes{
+							"context_id":          contextID,
+							"response_char_count": fmt.Sprintf("%d", len(msg.Text)),
+						}),
+					})
+				}
+				comm.OnPacket(ctx, packets...)
 			} else {
 				comm.OnPacket(ctx, internal_type.LLMResponseDeltaPacket{ContextID: contextID, Text: msg.Text})
 			}
@@ -130,22 +145,21 @@ func (e *agentkitExecutor) handleResponse(ctx context.Context, comm internal_typ
 				Result:    data.ToolCallResult.GetResult(),
 			},
 			internal_type.ObservabilityLogRecordPacket{
-				ContextID:   data.ToolCallResult.GetId(),
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: data.ToolCallResult.GetId(),
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.RecordLog{
 					Level:   observability.LevelDebug,
 					Message: "agentkit tool result received",
 					Attributes: observability.Attributes{
-						"component":    observability.ComponentTool.String(),
-						"operation":    "tool_result",
-						"provider":     "agentkit",
-						"context_id":   data.ToolCallResult.GetId(),
-						"message_role": string(observability.MessageRoleAssistant),
-						"tool_id":      data.ToolCallResult.GetToolId(),
-						"name":         data.ToolCallResult.GetName(),
-						"action":       data.ToolCallResult.GetAction().String(),
+						"component":  observability.ComponentTool.String(),
+						"operation":  "tool_result",
+						"provider":   e.Name(),
+						"context_id": data.ToolCallResult.GetId(),
+						"tool_id":    data.ToolCallResult.GetToolId(),
+						"name":       data.ToolCallResult.GetName(),
+						"action":     data.ToolCallResult.GetAction().String(),
 					},
+					OccurredAt: time.Now(),
 				},
 			})
 
@@ -159,33 +173,30 @@ func (e *agentkitExecutor) handleResponse(ctx context.Context, comm internal_typ
 				Type:      internal_type.LLMSystemPanic,
 			},
 			internal_type.ObservabilityEventRecordPacket{
-				ContextID:   contextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: contextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.NewMessageRecord(contextID, observability.ComponentLLM, observability.LLMError, observability.MessageRoleAssistant, observability.Attributes{
-					"provider":     "agentkit",
-					"context_id":   contextID,
-					"message_role": string(observability.MessageRoleAssistant),
-					"error":        data.Error.GetErrorMessage(),
-					"code":         fmt.Sprintf("%d", data.Error.GetErrorCode()),
+					"provider":   e.Name(),
+					"context_id": contextID,
+					"error":      data.Error.GetErrorMessage(),
+					"code":       fmt.Sprintf("%d", data.Error.GetErrorCode()),
 				}),
 			},
 			internal_type.ObservabilityLogRecordPacket{
-				ContextID:   contextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: contextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
 					Message: "agentkit response failed",
 					Attributes: observability.Attributes{
-						"component":    observability.ComponentLLM.String(),
-						"operation":    "response",
-						"provider":     "agentkit",
-						"context_id":   contextID,
-						"message_role": string(observability.MessageRoleAssistant),
-						"error":        data.Error.GetErrorMessage(),
-						"code":         fmt.Sprintf("%d", data.Error.GetErrorCode()),
+						"component":  observability.ComponentLLM.String(),
+						"operation":  "response",
+						"provider":   e.Name(),
+						"context_id": contextID,
+						"error":      data.Error.GetErrorMessage(),
+						"code":       fmt.Sprintf("%d", data.Error.GetErrorCode()),
 					},
+					OccurredAt: time.Now(),
 				},
 			},
 			internal_type.LLMToolCallPacket{

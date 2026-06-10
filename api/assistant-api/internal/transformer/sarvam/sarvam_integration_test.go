@@ -30,7 +30,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // TestSarvamTTSLifecycle verifies the full TTS flow:
-// create → initialize (event) → transform delta+done → audio output → end packet → events in order.
+// create → initialize (metric/log) → transform delta+done → audio output → end packet → events in order.
 func TestSarvamTTSLifecycle(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
 	pcfg := cfg.TTSProvider(t, "sarvam")
@@ -45,18 +45,12 @@ func TestSarvamTTSLifecycle(t *testing.T) {
 	tts, err := NewSarvamTextToSpeech(ctx, logger, cred, collector.OnPacket, opts)
 	require.NoError(t, err)
 	require.NotNil(t, tts)
-	assert.Equal(t, "sarvam-text-to-speech", tts.Name())
+	assert.Equal(t, "sarvam-tts", tts.Name())
 
 	require.NoError(t, tts.Initialize())
 	defer tts.Close(ctx)
 
-	// Verify "initialized" event was emitted
-	events := collector.EventPackets()
-	require.NotEmpty(t, events, "should emit initialized event")
-	assert.Equal(t, "tts", events[0].Record.Component.String())
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
-	_, err = strconv.Atoi(events[0].Record.Attributes["init_ms"])
-	assert.NoError(t, err, "init_ms should be a valid integer")
+	assertTTSInitMetric(t, collector)
 
 	// Send text delta + done (done triggers flush)
 	require.NoError(t, tts.Transform(ctx, internal_type.LLMResponseDeltaPacket{
@@ -84,10 +78,9 @@ func TestSarvamTTSLifecycle(t *testing.T) {
 	endPackets := collector.EndPackets()
 	require.NotEmpty(t, endPackets, "should emit TextToSpeechEndPacket")
 
-	// Flow: event sequence includes initialized → speaking → completed
+	// Flow: event sequence includes speaking → completed
 	allEvents := collector.EventPackets()
 	eventTypes := ttsEventTypes(allEvents)
-	assert.Contains(t, eventTypes, "initialized")
 	assert.Contains(t, eventTypes, "speaking")
 	assert.Contains(t, eventTypes, "completed")
 	t.Logf("tts_event_sequence=%v", eventTypes)
@@ -147,7 +140,7 @@ func TestSarvamTTSStreamingDeltas(t *testing.T) {
 }
 
 // TestSarvamTTSInterruption verifies the interruption flow:
-// send delta+done → audio starts → interrupt → "interrupted" event → reconnect → second "initialized" event.
+// send delta+done → audio starts → interrupt → "interrupted" event → reconnect → second init metric.
 func TestSarvamTTSInterruption(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
 	pcfg := cfg.TTSProvider(t, "sarvam")
@@ -184,14 +177,7 @@ func TestSarvamTTSInterruption(t *testing.T) {
 	eventTypes := ttsEventTypes(collector.EventPackets())
 	assert.Contains(t, eventTypes, "interrupted")
 
-	initCount := 0
-	for _, typ := range eventTypes {
-		if typ == "initialized" {
-			initCount++
-		}
-	}
-	assert.GreaterOrEqual(t, initCount, 2,
-		"should see at least 2 initialized events (original + reconnect)")
+	assertTTSInitMetricCountAtLeast(t, collector, 2)
 	t.Logf("event_sequence=%v", eventTypes)
 }
 
@@ -463,7 +449,7 @@ func TestSarvamTTSFlow_RapidDeltasDone(t *testing.T) {
 
 // TestSarvamSTTLifecycle verifies the full STT flow:
 // create → initialize (event) → feed audio (no errors) → transcripts arrive →
-// event sequence includes initialized.
+// init metric is emitted.
 func TestSarvamSTTLifecycle(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
 	pcfg := cfg.STTProvider(t, "sarvam")
@@ -479,18 +465,12 @@ func TestSarvamSTTLifecycle(t *testing.T) {
 	stt, err := NewSarvamSpeechToText(ctx, logger, cred, collector.OnPacket, opts)
 	require.NoError(t, err)
 	require.NotNil(t, stt)
-	assert.Equal(t, "sarvam-speech-to-text", stt.Name())
+	assert.Equal(t, "sarvam-stt", stt.Name())
 
 	require.NoError(t, stt.Initialize())
 	defer stt.Close(ctx)
 
-	events := collector.EventPackets()
-	require.NotEmpty(t, events, "should emit initialized event")
-	assert.Equal(t, "stt", events[0].Record.Component.String())
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
-	assert.Equal(t, "sarvam-speech-to-text", events[0].Record.Attributes["provider"])
-	_, err = strconv.Atoi(events[0].Record.Attributes["init_ms"])
-	assert.NoError(t, err, "init_ms should be a valid integer")
+	assertSTTInitMetric(t, collector)
 
 	feedDone := make(chan struct{})
 	go func() {
@@ -611,9 +591,7 @@ func TestSarvamSTTReconnect(t *testing.T) {
 			t.Fatalf("attempt %d: context cancelled before audio feeding completed", attempt)
 		}
 
-		events := collector.EventPackets()
-		require.NotEmpty(t, events, "attempt %d: should emit initialized event", attempt)
-		assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
+		assertSTTInitMetric(t, collector)
 		t.Logf("attempt=%d transcripts=%d", attempt, len(collector.TranscriptPackets()))
 
 		stt.Close(ctx)
@@ -656,9 +634,7 @@ func TestSarvamSTTCloseWhileStreaming(t *testing.T) {
 	err = stt.Close(ctx)
 	assert.NoError(t, err, "closing STT mid-stream should not error")
 
-	events := collector.EventPackets()
-	require.NotEmpty(t, events)
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
+	assertSTTInitMetric(t, collector)
 }
 
 // TestSarvamSTTTranscriptContent verifies that real speech audio produces
@@ -747,6 +723,27 @@ func assertTTSLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {
 	t.Error("should have tts_latency_ms metric")
 }
 
+func assertTTSInitMetric(t *testing.T, collector *testutil.PacketCollector) {
+	t.Helper()
+	assertTTSInitMetricCountAtLeast(t, collector, 1)
+}
+
+func assertTTSInitMetricCountAtLeast(t *testing.T, collector *testutil.PacketCollector, minimumCount int) {
+	t.Helper()
+	count := 0
+	for _, m := range collector.MetricPackets() {
+		for _, metric := range m.Record.Metrics {
+			if metric.Name == "tts_init_latency_ms" {
+				ms, err := strconv.Atoi(metric.Value)
+				assert.NoError(t, err)
+				assert.GreaterOrEqual(t, ms, 0, "tts_init_latency_ms should be non-negative")
+				count++
+			}
+		}
+	}
+	assert.GreaterOrEqual(t, count, minimumCount, "should have enough tts_init_latency_ms metrics")
+}
+
 func assertSTTLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {
 	t.Helper()
 	for _, m := range collector.MetricPackets() {
@@ -761,4 +758,19 @@ func assertSTTLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {
 		}
 	}
 	t.Error("should have stt_latency_ms metric")
+}
+
+func assertSTTInitMetric(t *testing.T, collector *testutil.PacketCollector) {
+	t.Helper()
+	for _, m := range collector.MetricPackets() {
+		for _, metric := range m.Record.Metrics {
+			if metric.Name == "stt_init_latency_ms" {
+				ms, err := strconv.Atoi(metric.Value)
+				assert.NoError(t, err)
+				assert.GreaterOrEqual(t, ms, 0, "stt_init_latency_ms should be non-negative")
+				return
+			}
+		}
+	}
+	t.Error("should have stt_init_latency_ms metric")
 }

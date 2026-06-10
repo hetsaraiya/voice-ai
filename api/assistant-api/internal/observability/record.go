@@ -378,6 +378,14 @@ type RecordUsage struct {
 	OccurredAt time.Time
 }
 
+func NewUsageRecord(component ComponentName, provider string, duration time.Duration) RecordUsage {
+	return RecordUsage{
+		Component: component,
+		Provider:  provider,
+		Duration:  duration,
+	}
+}
+
 func (RecordUsage) isRecord() {}
 
 type RecordWebhook struct {

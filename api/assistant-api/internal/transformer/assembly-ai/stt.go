@@ -10,17 +10,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	assemblyai_internal "github.com/rapidaai/api/assistant-api/internal/transformer/assembly-ai/internal"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
@@ -48,7 +47,7 @@ func NewAssemblyaiSpeechToText(ctx context.Context, logger commons.Logger, crede
 		opts,
 	)
 	if err != nil {
-		logger.Errorf("assembly-ai-stt: key from credential failed %v", err)
+		logger.Errorf("assemblyai-stt: key from credential failed %v", err)
 		return nil, err
 	}
 	ct, ctxCancel := context.WithCancel(ctx)
@@ -62,7 +61,7 @@ func NewAssemblyaiSpeechToText(ctx context.Context, logger commons.Logger, crede
 }
 
 func (aai *assemblyaiSTT) Name() string {
-	return "assemblyai-speech-to-text"
+	return "assemblyai-stt"
 }
 
 func (aai *assemblyaiSTT) Initialize() error {
@@ -76,7 +75,21 @@ func (aai *assemblyaiSTT) Initialize() error {
 
 	connection, _, err := dialer.Dial(aai.GetSpeechToTextConnectionString(), headers)
 	if err != nil {
-		aai.logger.Errorf("assembly-ai-stt: failed to connect to websocket: %v", err)
+		aai.logger.Errorf("assemblyai-stt: failed to connect to websocket: %v", err)
+		aai.onPacket(
+			internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "assemblyai-stt: error while performing connect",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentSTT.String(),
+						"provider":  aai.Name(),
+						"path":      observability.AttributeValue(aai.GetSpeechToTextConnectionString()),
+					},
+					OccurredAt: time.Now(),
+				},
+			})
 		return fmt.Errorf("failed to connect to assemblyai websocket: %w", err)
 	}
 
@@ -84,24 +97,27 @@ func (aai *assemblyaiSTT) Initialize() error {
 	aai.connection = connection
 	aai.sttConnectedAt = time.Now()
 	aai.mu.Unlock()
-
-	aai.logger.Debugf("assembly-ai-stt: connection established")
 	go aai.readLoop(connection)
 
-	aai.onPacket(internal_type.ObservabilityEventRecordPacket{
-		ContextID: aai.contextId,
-		Scope:     internal_type.ObservabilityRecordScopeConversation,
-		Record: observability.RecordEvent{
-			Component: observability.ComponentSTT,
-			Event:     observability.STTInitialized,
-			Attributes: observability.Attributes{
-				"type":     "initialized",
-				"provider": aai.Name(),
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			},
-			OccurredAt: time.Now(),
+	aai.onPacket(
+		internal_type.ObservabilityMetricRecordPacket{
+			Scope:  internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewMetricSTTInitLatencyMs(time.Since(start), observability.Attributes{"provider": aai.Name()}),
 		},
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "assemblyai-stt: initialization completed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentSTT.String(),
+					"provider":  aai.Name(),
+					"path":      observability.AttributeValue(aai.GetSpeechToTextConnectionString()),
+				},
+				OccurredAt: time.Now(),
+			},
+		},
+	)
 	return nil
 }
 
@@ -118,23 +134,25 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			aai.mu.Lock()
-			intentional := aai.connection == nil // set to nil before conn.Close() on intentional paths
-			if !intentional {
-				aai.connection = nil // unintentional drop
+			if aai.connection != conn {
+				aai.mu.Unlock()
+				return
 			}
+			// Active connection dropped; next audio packet will be ignored.
+			aai.connection = nil
 			aai.mu.Unlock()
+			aai.logger.Errorf("assemblyai-stt: connection lost: %v", err)
 			return
 		}
 
 		var transcript assemblyai_internal.TranscriptMessage
 		if err := json.Unmarshal(msg, &transcript); err != nil {
-			aai.logger.Errorf("assembly-ai-stt: error unmarshalling transcript: %v", err)
+			aai.logger.Errorf("assemblyai-stt: error unmarshalling transcript: %v", err)
 			continue
 		}
 		switch transcript.Type {
 		case "Turn":
 			if len(transcript.Words) == 0 {
-				aai.logger.Warnf("assembly-ai-stt: received Turn message with no words")
 				continue
 			}
 
@@ -142,7 +160,6 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 			if v, err := aai.assemblyaiOption.mdlOpts.GetFloat64("listen.threshold"); err == nil {
 				threshold = v
 			}
-
 			var filteredTranscript string
 			var totalConfidence float64
 			var wordCount int
@@ -163,7 +180,6 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 			aai.mu.Lock()
 			ctxID := aai.contextId
 			aai.mu.Unlock()
-
 			if isInterim {
 				aai.onPacket(
 					internal_type.InterruptionDetectedPacket{ContextID: ctxID, Source: internal_type.InterruptionSourceWord},
@@ -175,9 +191,8 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 						Interim:    true,
 					},
 					internal_type.ObservabilityEventRecordPacket{
-						ContextID:   ctxID,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleUser,
+						ContextID: ctxID,
+						Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 						Record: observability.RecordEvent{
 							Component: observability.ComponentSTT,
 							Event:     observability.STTInterim,
@@ -192,10 +207,10 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 				)
 			} else {
 				now := time.Now()
-				var latencyMs int64
+				var startedAt time.Time
 				aai.mu.Lock()
 				if !aai.startedAt.IsZero() {
-					latencyMs = now.Sub(aai.startedAt).Milliseconds()
+					startedAt = aai.startedAt
 					aai.startedAt = time.Time{}
 				}
 				aai.mu.Unlock()
@@ -209,9 +224,8 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 						Interim:    false,
 					},
 					internal_type.ObservabilityEventRecordPacket{
-						ContextID:   ctxID,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleUser,
+						ContextID: ctxID,
+						Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 						Record: observability.RecordEvent{
 							Component: observability.ComponentSTT,
 							Event:     observability.STTCompleted,
@@ -226,31 +240,47 @@ func (aai *assemblyaiSTT) readLoop(conn *websocket.Conn) {
 							OccurredAt: now,
 						},
 					},
-					internal_type.ObservabilityMetricRecordPacket{
-						ContextID:   ctxID,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleUser,
-						Record: observability.RecordMetric{
-							Metrics:    []*protos.Metric{{Name: "stt_latency_ms", Value: fmt.Sprintf("%d", latencyMs)}},
-							Attributes: observability.Attributes{"provider": aai.Name()},
-						},
-					},
 				)
+				if !startedAt.IsZero() {
+					aai.onPacket(
+						internal_type.ObservabilityMetricRecordPacket{
+							ContextID: ctxID,
+							Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+							Record:    observability.NewMetricSTTLatencyMs(now.Sub(startedAt), observability.Attributes{"provider": aai.Name()}),
+						},
+					)
+				}
 			}
 
 		case "Begin":
-			aai.logger.Debugf("assembly-ai-stt: received Begin message")
+			aai.logger.Debugf("assemblyai-stt: received Begin message")
 		case "Error":
+			aai.mu.Lock()
+			ctxID := aai.contextId
+			aai.mu.Unlock()
 			aai.onPacket(
 				internal_type.SpeechToTextErrorPacket{
-					ContextID: aai.contextId,
-					Error:     fmt.Errorf("assembly-ai-stt: error from provider: %s (code %d)", transcript.Error, transcript.ErrorCode),
+					ContextID: ctxID,
+					Error:     fmt.Errorf("assemblyai-stt: error from provider: %s (code %d)", transcript.Error, transcript.ErrorCode),
 					Type:      internal_type.STTNetworkTimeout,
+				},
+				internal_type.ObservabilityLogRecordPacket{
+					ContextID: ctxID,
+					Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+					Record: observability.RecordLog{
+						Level:   observability.LevelError,
+						Message: fmt.Sprintf("assemblyai-stt: error while transcribing %s", transcript.Error),
+						Attributes: observability.Attributes{
+							"component": observability.ComponentSTT.String(),
+							"error":     observability.AttributeValue(transcript),
+						},
+						OccurredAt: time.Now(),
+					},
 				},
 			)
 
 		default:
-			aai.logger.Debugf("assembly-ai-stt: unhandled message type: %s", transcript.Type)
+			aai.logger.Debugf("assemblyai-stt: unhandled message type: %s", transcript.Type)
 		}
 	}
 }
@@ -274,17 +304,18 @@ func (aai *assemblyaiSTT) Transform(ctx context.Context, in internal_type.Packet
 		if aai.startedAt.IsZero() {
 			aai.startedAt = time.Now()
 		}
+		connection := aai.connection
+		ctxID := aai.contextId
 		aai.mu.Unlock()
-		aai.mu.Lock()
-		defer aai.mu.Unlock()
-		if aai.connection == nil {
+
+		if connection == nil {
 			return nil
 		}
-		if err := aai.connection.WriteMessage(websocket.BinaryMessage, pkt.Content()); err != nil {
-			aai.logger.Errorf("assembly-ai-stt: error sending audio: %v", err)
+		if err := connection.WriteMessage(websocket.BinaryMessage, pkt.Content()); err != nil {
+			aai.logger.Errorf("assemblyai-stt: error sending audio: %v", err)
 			aai.onPacket(internal_type.SpeechToTextErrorPacket{
-				ContextID: aai.contextId,
-				Error:     fmt.Errorf("assembly-ai-stt: send failed: %w", err),
+				ContextID: ctxID,
+				Error:     fmt.Errorf("assemblyai-stt: send failed: %w", err),
 				Type:      internal_type.STTNetworkTimeout,
 			})
 			return nil
@@ -302,52 +333,42 @@ func (aai *assemblyaiSTT) Close(ctx context.Context) error {
 	connectedAt := aai.sttConnectedAt
 	aai.sttConnectedAt = time.Time{}
 
+	var connection *websocket.Conn
 	if aai.connection != nil {
-		conn := aai.connection
-		aai.connection = nil // mark before Close so readLoop sees intentional
-		conn.Close()
+		connection = aai.connection
+		aai.connection = nil
 	}
 	aai.mu.Unlock()
+	if connection != nil {
+		connection.Close()
+	}
 
 	if !connectedAt.IsZero() {
 		duration := time.Since(connectedAt)
 		aai.onPacket(
-			internal_type.ObservabilityEventRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentSTT,
-					Event:     observability.STTClosed,
-					Attributes: observability.Attributes{
-						"type":     "closed",
-						"provider": aai.Name(),
-					},
-					OccurredAt: time.Now(),
-				},
-			},
 			internal_type.ObservabilityMetricRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationMetricRecord([]*protos.Metric{{
-					Name:        type_enums.CONVERSATION_STT_DURATION.String(),
-					Value:       fmt.Sprintf("%d", duration.Nanoseconds()),
-					Description: "Total STT connection duration in nanoseconds",
-				}}),
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricSTTDuration(duration, observability.Attributes{"provider": aai.Name()}),
 			},
 			internal_type.ObservabilityUsageRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordUsage{
-					Component: observability.ComponentSTT,
-					Provider:  aai.Name(),
-					Duration:  duration,
-					Attributes: observability.Attributes{
-						"context_id": ctxID,
-						"provider":   aai.Name(),
-						"metric":     type_enums.CONVERSATION_STT_DURATION.String(),
-					},
-				},
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewSTTDurationUsageRecord(aai.Name(), duration, observability.Attributes{}),
 			},
 		)
 	}
+	aai.onPacket(
+		internal_type.ObservabilityEventRecordPacket{
+			ContextID: ctxID,
+			Scope:     internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentSTT,
+				Event:     observability.STTClosed,
+				Attributes: observability.Attributes{
+					"type":     "closed",
+					"provider": aai.Name(),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }

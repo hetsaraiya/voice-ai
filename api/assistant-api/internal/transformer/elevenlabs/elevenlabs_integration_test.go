@@ -30,7 +30,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // TestElevenLabsTTSLifecycle verifies the full TTS flow:
-// create → initialize (event) → transform delta+done → audio output → end packet → events in order.
+// create → initialize (metric) → transform delta+done → audio output → end packet → events in order.
 func TestElevenLabsTTSLifecycle(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
 	pcfg := cfg.TTSProvider(t, "elevenlabs")
@@ -45,18 +45,12 @@ func TestElevenLabsTTSLifecycle(t *testing.T) {
 	tts, err := NewElevenlabsTextToSpeech(ctx, logger, cred, collector.OnPacket, opts)
 	require.NoError(t, err)
 	require.NotNil(t, tts)
-	assert.Equal(t, "elevenlabs-text-to-speech", tts.Name())
+	assert.Equal(t, "elevenlabs-tts", tts.Name())
 
 	require.NoError(t, tts.Initialize())
 	defer tts.Close(ctx)
 
-	// Verify "initialized" event was emitted
-	events := collector.EventPackets()
-	require.NotEmpty(t, events, "should emit initialized event")
-	assert.Equal(t, "tts", events[0].Record.Component.String())
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
-	_, err = strconv.Atoi(events[0].Record.Attributes["init_ms"])
-	assert.NoError(t, err, "init_ms should be a valid integer")
+	assertTTSInitMetric(t, collector)
 
 	// Send text delta + done (done sends flush:true to ElevenLabs)
 	require.NoError(t, tts.Transform(ctx, internal_type.LLMResponseDeltaPacket{
@@ -84,10 +78,9 @@ func TestElevenLabsTTSLifecycle(t *testing.T) {
 	endPackets := collector.EndPackets()
 	require.NotEmpty(t, endPackets, "should emit TextToSpeechEndPacket")
 
-	// Flow: event sequence includes initialized → speaking → completed
+	// Flow: event sequence includes speaking → completed
 	allEvents := collector.EventPackets()
 	eventTypes := ttsEventTypes(allEvents)
-	assert.Contains(t, eventTypes, "initialized")
 	assert.Contains(t, eventTypes, "speaking")
 	assert.Contains(t, eventTypes, "completed")
 	t.Logf("tts_event_sequence=%v", eventTypes)
@@ -147,7 +140,7 @@ func TestElevenLabsTTSStreamingDeltas(t *testing.T) {
 }
 
 // TestElevenLabsTTSInterruption verifies the interruption flow:
-// send delta+done → audio starts → interrupt → "interrupted" event → reconnect → second "initialized" event.
+// send delta+done → audio starts → interrupt → "interrupted" event → reconnect → second init metric.
 func TestElevenLabsTTSInterruption(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
 	pcfg := cfg.TTSProvider(t, "elevenlabs")
@@ -174,9 +167,8 @@ func TestElevenLabsTTSInterruption(t *testing.T) {
 
 	collector.WaitForAudio(t, 15*time.Second)
 
-	require.NoError(t, tts.Transform(ctx, internal_type.InterruptTTSPacket{
+	require.NoError(t, tts.Transform(ctx, internal_type.TextToSpeechInterruptPacket{
 		ContextID: "el-tts-interrupt",
-		Source:    internal_type.InterruptionSourceVad,
 	}))
 
 	time.Sleep(2 * time.Second)
@@ -184,14 +176,7 @@ func TestElevenLabsTTSInterruption(t *testing.T) {
 	eventTypes := ttsEventTypes(collector.EventPackets())
 	assert.Contains(t, eventTypes, "interrupted")
 
-	initCount := 0
-	for _, typ := range eventTypes {
-		if typ == "initialized" {
-			initCount++
-		}
-	}
-	assert.GreaterOrEqual(t, initCount, 2,
-		"should see at least 2 initialized events (original + reconnect)")
+	assertTTSInitMetricCountAtLeast(t, collector, 2)
 	t.Logf("event_sequence=%v", eventTypes)
 }
 
@@ -259,8 +244,8 @@ func TestElevenLabsTTSFlow_DeltaInterruptDeltaDone(t *testing.T) {
 	collector.WaitForAudio(t, 15*time.Second)
 
 	// Phase 2: interrupt
-	require.NoError(t, tts.Transform(ctx, internal_type.InterruptTTSPacket{
-		ContextID: "ctx-1", Source: internal_type.InterruptionSourceVad}))
+	require.NoError(t, tts.Transform(ctx, internal_type.TextToSpeechInterruptPacket{
+		ContextID: "ctx-1"}))
 	time.Sleep(500 * time.Millisecond)
 	assert.Contains(t, ttsEventTypes(collector.EventPackets()), "interrupted")
 
@@ -306,8 +291,8 @@ func TestElevenLabsTTSFlow_DeltaDoneInterrupt(t *testing.T) {
 	collector.WaitForTTSEnd(t, 15*time.Second)
 	assert.NotEmpty(t, collector.EndPackets(), "should have completed before interrupt")
 
-	err = tts.Transform(ctx, internal_type.InterruptTTSPacket{
-		ContextID: "ctx-late", Source: internal_type.InterruptionSourceVad})
+	err = tts.Transform(ctx, internal_type.TextToSpeechInterruptPacket{
+		ContextID: "ctx-late"})
 	require.NoError(t, err, "late interrupt should not error")
 	time.Sleep(1 * time.Second)
 	assert.Contains(t, ttsEventTypes(collector.EventPackets()), "interrupted")
@@ -347,9 +332,9 @@ func TestElevenLabsTTSFlow_MultipleInterrupts(t *testing.T) {
 		require.NoError(t, tts.Transform(ctx, internal_type.LLMResponseDonePacket{
 			ContextID: fmt.Sprintf("round-%d", round)}))
 		collector.WaitForAudio(t, 15*time.Second)
-		require.NoError(t, tts.Transform(ctx, internal_type.InterruptTTSPacket{
+		require.NoError(t, tts.Transform(ctx, internal_type.TextToSpeechInterruptPacket{
 			ContextID: fmt.Sprintf("round-%d", round),
-			Source:    internal_type.InterruptionSourceVad}))
+		}))
 		time.Sleep(500 * time.Millisecond)
 		collector.Clear()
 	}
@@ -419,6 +404,35 @@ func ttsEventTypes(events []internal_type.ObservabilityEventRecordPacket) []stri
 		}
 	}
 	return out
+}
+
+func assertTTSInitMetric(t *testing.T, collector *testutil.PacketCollector) {
+	t.Helper()
+	for _, m := range collector.MetricPackets() {
+		for _, metric := range m.Record.Metrics {
+			if metric.Name == "tts_init_ms" {
+				ms, err := strconv.Atoi(metric.Value)
+				assert.NoError(t, err)
+				assert.GreaterOrEqual(t, ms, 0, "tts_init_ms should be non-negative")
+				t.Logf("tts_init_ms=%d", ms)
+				return
+			}
+		}
+	}
+	t.Error("should have tts_init_ms metric")
+}
+
+func assertTTSInitMetricCountAtLeast(t *testing.T, collector *testutil.PacketCollector, minimumCount int) {
+	t.Helper()
+	count := 0
+	for _, m := range collector.MetricPackets() {
+		for _, metric := range m.Record.Metrics {
+			if metric.Name == "tts_init_ms" {
+				count++
+			}
+		}
+	}
+	assert.GreaterOrEqual(t, count, minimumCount, "should have enough tts_init_ms metrics")
 }
 
 func assertTTSLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {

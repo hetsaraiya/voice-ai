@@ -229,8 +229,7 @@ func TestSpeechToText_HTTPStatusError_EmitsErrorLog(t *testing.T) {
 	}
 	require.NotNil(t, errorLog, "expected custom STT HTTP error log")
 	assert.Equal(t, "ctx-http-500", errorLog.ContextID)
-	assert.Equal(t, internal_type.ObservabilityRecordScopeMessage, errorLog.Scope)
-	assert.Equal(t, observability.MessageRoleUser, errorLog.MessageRole)
+	assert.Equal(t, internal_type.ObservabilityRecordScopeUserMessage, errorLog.Scope)
 	assert.Equal(t, "stt: custom-stt http_v1: status 500: Internal Server Error", errorLog.Record.Message)
 	assert.Equal(t, observability.ComponentSTT.String(), errorLog.Record.Attributes["component"])
 	assert.Equal(t, "custom-stt-http-v1", errorLog.Record.Attributes["provider"])

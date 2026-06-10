@@ -67,6 +67,7 @@ type SileroVAD struct {
 	// Thread-safety for CGO resource protection
 	mu           sync.RWMutex
 	isTerminated bool
+	vadStartedAt time.Time
 }
 
 // -----------------------------------------------------------------------------
@@ -88,11 +89,41 @@ func NewSileroVAD(
 	// Initialize detector
 	detector, err := createDetector(options)
 	if err != nil {
+		if onPacket != nil {
+			_ = onPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: fmt.Sprintf("%s: error while initialization %s", vadName, err.Error()),
+					Attributes: observability.Attributes{
+						"component": observability.ComponentVAD.String(),
+						"provider":  vadName,
+						"options":   observability.AttributeValue(options),
+					},
+					OccurredAt: time.Now(),
+				},
+			})
+		}
 		return nil, fmt.Errorf("failed to create silero detector: %w", err)
 	}
 	converter, err := internal_audio_resampler.GetConverter(logger)
 	if err != nil {
 		detector.Destroy()
+		if onPacket != nil {
+			_ = onPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: fmt.Sprintf("%s: error while initialization %s", vadName, err.Error()),
+					Attributes: observability.Attributes{
+						"component": observability.ComponentVAD.String(),
+						"provider":  vadName,
+						"options":   observability.AttributeValue(options),
+					},
+					OccurredAt: time.Now(),
+				},
+			})
+		}
 		return nil, fmt.Errorf("failed to create audio converter: %w", err)
 	}
 
@@ -103,6 +134,7 @@ func NewSileroVAD(
 		detector:     detector,
 		converter:    converter,
 		isTerminated: false,
+		vadStartedAt: time.Now(),
 	}
 
 	go func() {
@@ -112,28 +144,21 @@ func NewSileroVAD(
 
 	if onPacket != nil {
 		_ = onPacket(ctx,
-			internal_type.ObservabilityEventRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentVAD,
-					Event:     observability.VADStarted,
-					Attributes: observability.Attributes{
-						"provider": vadName,
-						"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-					},
-				},
+			internal_type.ObservabilityMetricRecordPacket{
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricVADInitLatencyMs(time.Since(start), observability.Attributes{"provider": svad.Name()}),
 			},
 			internal_type.ObservabilityLogRecordPacket{
 				Scope: internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
-					Level:   observability.LevelDebug,
-					Message: "vad initialized",
+					Level:   observability.LevelInfo,
+					Message: fmt.Sprintf("%s: initialization completed", svad.Name()),
 					Attributes: observability.Attributes{
 						"component": observability.ComponentVAD.String(),
-						"operation": "initialize",
-						"provider":  vadName,
-						"init_ms":   fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+						"provider":  svad.Name(),
+						"options":   observability.AttributeValue(svad.Options()),
 					},
+					OccurredAt: time.Now(),
 				},
 			},
 		)
@@ -175,9 +200,8 @@ func (s *SileroVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRece
 		if s.onPacket != nil {
 			_ = s.onPacket(ctx,
 				internal_type.ObservabilityEventRecordPacket{
-					ContextID:   pkt.ContextID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleUser,
+					ContextID: pkt.ContextID,
+					Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 					Record: observability.RecordEvent{
 						Component: observability.ComponentVAD,
 						Event:     observability.VADError,
@@ -186,15 +210,15 @@ func (s *SileroVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRece
 							"context_id": pkt.ContextID,
 							"error":      "failed to convert audio to float32",
 						},
+						OccurredAt: time.Now(),
 					},
 				},
 				internal_type.ObservabilityLogRecordPacket{
-					ContextID:   pkt.ContextID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleUser,
+					ContextID: pkt.ContextID,
+					Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
-						Message: "vad audio conversion failed",
+						Message: "silero_vad: audio conversion failed",
 						Attributes: observability.Attributes{
 							"component":   observability.ComponentVAD.String(),
 							"operation":   "convert_audio",
@@ -204,6 +228,7 @@ func (s *SileroVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRece
 							"error":       err.Error(),
 							"error_type":  fmt.Sprintf("%T", err),
 						},
+						OccurredAt: time.Now(),
 					},
 				},
 			)
@@ -217,9 +242,8 @@ func (s *SileroVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRece
 		if s.onPacket != nil {
 			_ = s.onPacket(ctx,
 				internal_type.ObservabilityEventRecordPacket{
-					ContextID:   pkt.ContextID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleUser,
+					ContextID: pkt.ContextID,
+					Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 					Record: observability.RecordEvent{
 						Component: observability.ComponentVAD,
 						Event:     observability.VADError,
@@ -228,15 +252,15 @@ func (s *SileroVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRece
 							"context_id": pkt.ContextID,
 							"error":      "detection failed",
 						},
+						OccurredAt: time.Now(),
 					},
 				},
 				internal_type.ObservabilityLogRecordPacket{
-					ContextID:   pkt.ContextID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleUser,
+					ContextID: pkt.ContextID,
+					Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
-						Message: "vad detection failed",
+						Message: "silero_vad: detection failed",
 						Attributes: observability.Attributes{
 							"component":    observability.ComponentVAD.String(),
 							"operation":    "detect",
@@ -246,6 +270,7 @@ func (s *SileroVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRece
 							"error":        err.Error(),
 							"error_type":   fmt.Sprintf("%T", err),
 						},
+						OccurredAt: time.Now(),
 					},
 				},
 			)
@@ -277,10 +302,10 @@ func (s *SileroVAD) Execute(ctx context.Context, pkt internal_type.UserAudioRece
 
 	// Emit explicit interruption lifecycle events from VAD transitions.
 	if hasSpeechStart {
-		s.notifyInterruption(ctx, internal_type.InterruptionEventStart, speechStartAt, len(segments))
+		s.notifyInterruption(ctx, pkt.ContextID, internal_type.InterruptionEventStart, speechStartAt, len(segments))
 	}
 	if hasSpeechEnd {
-		s.notifyInterruption(ctx, internal_type.InterruptionEventEnd, speechEndAt, len(segments))
+		s.notifyInterruption(ctx, pkt.ContextID, internal_type.InterruptionEventEnd, speechEndAt, len(segments))
 	}
 
 	return nil
@@ -296,6 +321,8 @@ func (s *SileroVAD) Close(ctx context.Context) error {
 		return nil
 	}
 	s.isTerminated = true
+	vadStartedAt := s.vadStartedAt
+	s.vadStartedAt = time.Time{}
 
 	if s.detector != nil {
 		s.detector.Destroy()
@@ -304,30 +331,26 @@ func (s *SileroVAD) Close(ctx context.Context) error {
 	s.mu.Unlock()
 
 	if s.onPacket != nil {
-		_ = s.onPacket(ctx,
-			internal_type.ObservabilityEventRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentVAD,
-					Event:     observability.VADClosed,
-					Attributes: observability.Attributes{
-						"provider": vadName,
-					},
+		packets := []internal_type.Packet{}
+		if !vadStartedAt.IsZero() {
+			duration := time.Since(vadStartedAt)
+			packets = append(packets, internal_type.ObservabilityUsageRecordPacket{
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewVADDurationUsageRecord(s.Name(), duration, observability.Attributes{}),
+			})
+		}
+		packets = append(packets, internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentVAD,
+				Event:     observability.VADClosed,
+				Attributes: observability.Attributes{
+					"provider": s.Name(),
 				},
+				OccurredAt: time.Now(),
 			},
-			internal_type.ObservabilityLogRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordLog{
-					Level:   observability.LevelDebug,
-					Message: "vad closed",
-					Attributes: observability.Attributes{
-						"component": observability.ComponentVAD.String(),
-						"operation": "close",
-						"provider":  vadName,
-					},
-				},
-			},
-		)
+		})
+		_ = s.onPacket(ctx, packets...)
 	}
 
 	return nil
@@ -434,7 +457,7 @@ func (s *SileroVAD) detectSafely(samples []float32) ([]Segment, bool, error) {
 }
 
 // notifyInterruption emits a VAD interruption lifecycle event packet.
-func (s *SileroVAD) notifyInterruption(ctx context.Context, event internal_type.InterruptionEvent, at float64, segmentCount int) {
+func (s *SileroVAD) notifyInterruption(ctx context.Context, contextID string, event internal_type.InterruptionEvent, at float64, segmentCount int) {
 	if s.onPacket != nil {
 		eventName := observability.VADSpeechStarted
 		if event == internal_type.InterruptionEventEnd {
@@ -442,13 +465,15 @@ func (s *SileroVAD) notifyInterruption(ctx context.Context, event internal_type.
 		}
 		_ = s.onPacket(ctx,
 			internal_type.InterruptionDetectedPacket{
-				Source:  internal_type.InterruptionSourceVad,
-				Event:   event,
-				StartAt: at,
-				EndAt:   at,
+				ContextID: contextID,
+				Source:    internal_type.InterruptionSourceVad,
+				Event:     event,
+				StartAt:   at,
+				EndAt:     at,
 			},
 			internal_type.ObservabilityEventRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
+				ContextID: contextID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 				Record: observability.RecordEvent{
 					Component: observability.ComponentVAD,
 					Event:     eventName,
@@ -459,6 +484,7 @@ func (s *SileroVAD) notifyInterruption(ctx context.Context, event internal_type.
 						"end_at":        fmt.Sprintf("%f", at),
 						"segment_count": fmt.Sprintf("%d", segmentCount),
 					},
+					OccurredAt: time.Now(),
 				},
 			},
 		)

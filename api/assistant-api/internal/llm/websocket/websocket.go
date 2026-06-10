@@ -26,11 +26,12 @@ import (
 )
 
 type websocketExecutor struct {
-	logger    commons.Logger
-	conn      *websocket.Conn
-	writeMu   sync.Mutex
-	contextMu sync.RWMutex
-	currentID string
+	logger           commons.Logger
+	conn             *websocket.Conn
+	writeMu          sync.Mutex
+	contextMu        sync.RWMutex
+	currentID        string
+	requestStartedAt time.Time
 }
 
 // NewWebsocketAssistantExecutor creates a new WebSocket-based assistant executor.
@@ -50,11 +51,41 @@ func (e *websocketExecutor) Initialize(ctx context.Context, comm internal_type.C
 	start := time.Now()
 	provider := comm.Assistant().AssistantProviderWebsocket
 	if provider == nil {
+		comm.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: fmt.Sprintf("%s: error while initialization %s", e.Name(), "websocket provider is not enabled"),
+				Attributes: observability.Attributes{
+					"component": observability.ComponentLLM.String(),
+					"provider":  e.Name(),
+					"options":   observability.AttributeValue(cfg.GetOptions()),
+					"error":     "websocket provider is not enabled",
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 		return fmt.Errorf("websocket provider is not enabled")
 	}
 
 	// Connect
 	if err := e.connect(ctx, provider); err != nil {
+		comm.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: fmt.Sprintf("%s: error while initialization %s", e.Name(), err.Error()),
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentLLM.String(),
+					"provider":   e.Name(),
+					"options":    observability.AttributeValue(cfg.GetOptions()),
+					"url":        provider.Url,
+					"error":      err.Error(),
+					"error_type": fmt.Sprintf("%T", err),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 		return err
 	}
 
@@ -67,30 +98,41 @@ func (e *websocketExecutor) Initialize(ctx context.Context, comm internal_type.C
 
 	// Send initial configuration
 	if err := e.sendConfiguration(provider.AssistantId, provider.Id, comm.Conversation().Id, cfg); err != nil {
+		comm.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: fmt.Sprintf("%s: error while initialization %s", e.Name(), err.Error()),
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentLLM.String(),
+					"provider":   e.Name(),
+					"options":    observability.AttributeValue(cfg.GetOptions()),
+					"url":        provider.Url,
+					"error":      err.Error(),
+					"error_type": fmt.Sprintf("%T", err),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 		return fmt.Errorf("failed to send configuration: %w", err)
 	}
 	comm.OnPacket(ctx,
-		internal_type.ObservabilityEventRecordPacket{
-			Scope: internal_type.ObservabilityRecordScopeConversation,
-			Record: observability.NewConversationEventRecord(observability.LLMStarted, observability.Attributes{
-				"type":     "websocket_initialized",
-				"provider": "websocket",
-				"url":      provider.Url,
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			}),
+		internal_type.ObservabilityMetricRecordPacket{
+			Scope:  internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewMetricLLMInitLatencyMs(time.Since(start), observability.Attributes{"provider": e.Name()}),
 		},
 		internal_type.ObservabilityLogRecordPacket{
 			Scope: internal_type.ObservabilityRecordScopeConversation,
 			Record: observability.RecordLog{
-				Level:   observability.LevelDebug,
-				Message: "websocket llm initialized",
+				Level:   observability.LevelInfo,
+				Message: fmt.Sprintf("%s: initialization completed", e.Name()),
 				Attributes: observability.Attributes{
 					"component": observability.ComponentLLM.String(),
-					"operation": "initialize",
-					"provider":  "websocket",
+					"provider":  e.Name(),
 					"url":       provider.Url,
-					"init_ms":   fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+					"options":   observability.AttributeValue(cfg.GetOptions()),
 				},
+				OccurredAt: time.Now(),
 			},
 		},
 	)
@@ -155,6 +197,9 @@ func (e *websocketExecutor) sendConfiguration(assistantId uint64, assistantProvi
 func (e *websocketExecutor) setCurrentContextID(id string) {
 	e.contextMu.Lock()
 	e.currentID = id
+	if strings.TrimSpace(id) != "" {
+		e.requestStartedAt = time.Now()
+	}
 	e.contextMu.Unlock()
 }
 
@@ -216,11 +261,12 @@ func (e *websocketExecutor) listen(ctx context.Context, onPacket func(ctx contex
 						Attributes: observability.Attributes{
 							"component":  observability.ComponentLLM.String(),
 							"operation":  "listen",
-							"provider":   "websocket",
+							"provider":   e.Name(),
 							"context_id": currentID,
 							"error":      err.Error(),
 							"error_type": fmt.Sprintf("%T", err),
 						},
+						OccurredAt: time.Now(),
 					},
 				},
 				internal_type.LLMToolCallPacket{Action: protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, Arguments: map[string]string{"reason": err.Error()}},
@@ -243,11 +289,12 @@ func (e *websocketExecutor) listen(ctx context.Context, onPacket func(ctx contex
 					Attributes: observability.Attributes{
 						"component":  observability.ComponentLLM.String(),
 						"operation":  "decode_response",
-						"provider":   "websocket",
+						"provider":   e.Name(),
 						"context_id": currentID,
 						"error":      err.Error(),
 						"error_type": fmt.Sprintf("%T", err),
 					},
+					OccurredAt: time.Now(),
 				},
 			})
 			continue
@@ -267,22 +314,40 @@ func (e *websocketExecutor) handleResponse(ctx context.Context, resp *Response, 
 		e.contextMu.RLock()
 		currentID := e.currentID
 		e.contextMu.RUnlock()
-		onPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID: currentID,
-			Scope:     internal_type.ObservabilityRecordScopeConversation,
-			Record: observability.RecordLog{
-				Level:   observability.LevelError,
-				Message: "websocket llm response failed",
-				Attributes: observability.Attributes{
-					"component":  observability.ComponentLLM.String(),
-					"operation":  "response",
-					"provider":   "websocket",
+		onPacket(ctx,
+			internal_type.LLMErrorPacket{
+				ContextID: currentID,
+				Error:     fmt.Errorf("websocket error %d: %s", d.Code, d.Message),
+				Type:      internal_type.LLMSystemPanic,
+			},
+			internal_type.ObservabilityEventRecordPacket{
+				ContextID: currentID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
+				Record: observability.NewMessageRecord(currentID, observability.ComponentLLM, observability.LLMError, observability.MessageRoleAssistant, observability.Attributes{
+					"provider":   e.Name(),
 					"context_id": currentID,
 					"code":       fmt.Sprintf("%d", d.Code),
 					"error":      d.Message,
+				}),
+			},
+			internal_type.ObservabilityLogRecordPacket{
+				ContextID: currentID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "websocket llm response failed",
+					Attributes: observability.Attributes{
+						"component":  observability.ComponentLLM.String(),
+						"operation":  "response",
+						"provider":   e.Name(),
+						"context_id": currentID,
+						"code":       fmt.Sprintf("%d", d.Code),
+						"error":      d.Message,
+					},
+					OccurredAt: time.Now(),
 				},
 			},
-		})
+		)
 
 	case TypeStream:
 		var d StreamData
@@ -299,26 +364,28 @@ func (e *websocketExecutor) handleResponse(ctx context.Context, resp *Response, 
 			return
 		}
 		if d.Content != "" {
+			e.contextMu.Lock()
+			requestStartedAt := e.requestStartedAt
+			e.requestStartedAt = time.Time{}
+			e.contextMu.Unlock()
 			packets := []internal_type.Packet{
 				internal_type.LLMResponseDonePacket{
 					ContextID: d.ID,
 					Text:      d.Content,
 				},
 				internal_type.ObservabilityEventRecordPacket{
-					ContextID:   d.ID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleAssistant,
+					ContextID: d.ID,
+					Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 					Record: observability.NewMessageRecord(d.ID, observability.ComponentLLM, observability.LLMCompleted, observability.MessageRoleAssistant, observability.Attributes{
-						"provider":            "websocket",
+						"provider":            e.Name(),
 						"context_id":          d.ID,
-						"message_role":        string(observability.MessageRoleAssistant),
 						"response_char_count": fmt.Sprintf("%d", len(d.Content)),
 					}),
 				},
 			}
+			var usageDuration time.Duration
 			if len(d.Metrics) > 0 {
 				metrics := make([]*protos.Metric, 0, len(d.Metrics))
-				var usageDuration time.Duration
 				for _, metric := range d.Metrics {
 					metrics = append(metrics, &protos.Metric{
 						Name:  metric.Name,
@@ -339,28 +406,37 @@ func (e *websocketExecutor) handleResponse(ctx context.Context, resp *Response, 
 					}
 				}
 				packets = append(packets, internal_type.ObservabilityMetricRecordPacket{
-					ContextID:   d.ID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleAssistant,
-					Record:      observability.NewMessageMetricRecord(d.ID, observability.MessageRoleAssistant, metrics),
+					ContextID: d.ID,
+					Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
+					Record: observability.RecordMetric{
+						Attributes: observability.Attributes{"provider": e.Name()},
+						Metrics:    metrics,
+					},
 				})
 				if usageDuration > 0 {
 					packets = append(packets, internal_type.ObservabilityUsageRecordPacket{
-						ContextID:   d.ID,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleAssistant,
-						Record: observability.RecordUsage{
-							Component: observability.ComponentLLM,
-							Provider:  "websocket",
-							Duration:  usageDuration,
-							Attributes: observability.Attributes{
+						ContextID: d.ID,
+						Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
+						Record: observability.NewLLMDurationUsageRecord(
+							e.Name(),
+							usageDuration,
+							observability.Attributes{
 								"context_id":          d.ID,
-								"message_role":        string(observability.MessageRoleAssistant),
 								"response_char_count": fmt.Sprintf("%d", len(d.Content)),
 							},
-						},
+						),
 					})
 				}
+			}
+			if usageDuration == 0 && !requestStartedAt.IsZero() {
+				packets = append(packets, internal_type.ObservabilityUsageRecordPacket{
+					ContextID: d.ID,
+					Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
+					Record: observability.NewLLMDurationUsageRecord(e.Name(), time.Since(requestStartedAt), observability.Attributes{
+						"context_id":          d.ID,
+						"response_char_count": fmt.Sprintf("%d", len(d.Content)),
+					}),
+				})
 			}
 			onPacket(ctx, packets...)
 		}
@@ -383,15 +459,13 @@ func (e *websocketExecutor) handleResponse(ctx context.Context, resp *Response, 
 		onPacket(ctx,
 			internal_type.InterruptionDetectedPacket{ContextID: d.ID, Source: source},
 			internal_type.ObservabilityEventRecordPacket{
-				ContextID:   d.ID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: d.ID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.NewMessageRecord(d.ID, observability.ComponentLLM, observability.LLMDiscarded, observability.MessageRoleAssistant, observability.Attributes{
-					"provider":     "websocket",
-					"context_id":   d.ID,
-					"message_role": string(observability.MessageRoleAssistant),
-					"reason":       "interruption",
-					"source":       d.Source,
+					"provider":   e.Name(),
+					"context_id": d.ID,
+					"reason":     "interruption",
+					"source":     d.Source,
 				}),
 			},
 		)
@@ -444,6 +518,7 @@ func (e *websocketExecutor) Close(ctx context.Context) error {
 	}
 	e.contextMu.Lock()
 	e.currentID = ""
+	e.requestStartedAt = time.Time{}
 	e.contextMu.Unlock()
 	return nil
 }

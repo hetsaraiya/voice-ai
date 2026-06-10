@@ -30,7 +30,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // TestDeepgramTTSLifecycle verifies the full TTS flow:
-// create → initialize (event) → transform delta+done → audio output → end packet → events in order.
+// create → initialize (metric/log) → transform delta+done → audio output → end packet.
 func TestDeepgramTTSLifecycle(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
 	pcfg := cfg.TTSProvider(t, "deepgram")
@@ -45,18 +45,11 @@ func TestDeepgramTTSLifecycle(t *testing.T) {
 	tts, err := NewDeepgramTextToSpeech(ctx, logger, cred, collector.OnPacket, opts)
 	require.NoError(t, err)
 	require.NotNil(t, tts)
-	assert.Equal(t, "deepgram-text-to-speech", tts.Name())
+	assert.Equal(t, "deepgram-tts", tts.Name())
 
 	require.NoError(t, tts.Initialize())
 	defer tts.Close(ctx)
-
-	// Verify "initialized" event was emitted
-	events := collector.EventPackets()
-	require.NotEmpty(t, events, "should emit initialized event")
-	assert.Equal(t, "tts", events[0].Record.Component.String())
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
-	_, err = strconv.Atoi(events[0].Record.Attributes["init_ms"])
-	assert.NoError(t, err, "init_ms should be a valid integer")
+	assertTTSInitMetric(t, collector)
 
 	// Send text delta + done
 	require.NoError(t, tts.Transform(ctx, internal_type.LLMResponseDeltaPacket{
@@ -85,10 +78,9 @@ func TestDeepgramTTSLifecycle(t *testing.T) {
 	require.NotEmpty(t, endPackets)
 	assert.Equal(t, "dg-tts-lifecycle", endPackets[0].ContextID)
 
-	// Flow: event sequence includes initialized → speaking → completed
+	// Flow: event sequence includes speaking → completed
 	allEvents := collector.EventPackets()
 	eventTypes := ttsEventTypes(allEvents)
-	assert.Contains(t, eventTypes, "initialized")
 	assert.Contains(t, eventTypes, "speaking")
 	assert.Contains(t, eventTypes, "completed")
 	t.Logf("tts_event_sequence=%v", eventTypes)
@@ -150,7 +142,7 @@ func TestDeepgramTTSStreamingDeltas(t *testing.T) {
 }
 
 // TestDeepgramTTSInterruption verifies the interruption flow:
-// send delta+done → audio starts → interrupt → "interrupted" event → reconnect → second "initialized" event.
+// send delta+done → audio starts → interrupt → "interrupted" event → reconnect.
 func TestDeepgramTTSInterruption(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
 	pcfg := cfg.TTSProvider(t, "deepgram")
@@ -166,6 +158,7 @@ func TestDeepgramTTSInterruption(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, tts.Initialize())
 	defer tts.Close(ctx)
+	assertTTSInitMetric(t, collector)
 
 	// Send delta + done to trigger audio generation (Deepgram needs Flush to produce audio)
 	require.NoError(t, tts.Transform(ctx, internal_type.LLMResponseDeltaPacket{
@@ -192,15 +185,8 @@ func TestDeepgramTTSInterruption(t *testing.T) {
 	eventTypes := ttsEventTypes(collector.EventPackets())
 	assert.Contains(t, eventTypes, "interrupted")
 
-	// Flow: reconnect produces a second "initialized" event
-	initCount := 0
-	for _, typ := range eventTypes {
-		if typ == "initialized" {
-			initCount++
-		}
-	}
-	assert.GreaterOrEqual(t, initCount, 2,
-		"should see at least 2 initialized events (original + reconnect)")
+	// Flow: reconnect emits another TTS init metric.
+	assertTTSInitMetricCountAtLeast(t, collector, 2)
 	t.Logf("event_sequence=%v", eventTypes)
 }
 
@@ -502,9 +488,8 @@ func TestDeepgramTTSFlow_RapidDeltasDone(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestDeepgramSTTLifecycle verifies the full STT flow:
-// create → initialize (event) → feed audio (no errors) → transcripts arrive →
-// event sequence includes initialized. If transcripts arrive, verify they carry
-// the expected metadata fields.
+// create → initialize (metric/log) → feed audio (no errors) → transcripts arrive.
+// If transcripts arrive, verify they carry the expected metadata fields.
 func TestDeepgramSTTLifecycle(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
 	pcfg := cfg.STTProvider(t, "deepgram")
@@ -520,19 +505,11 @@ func TestDeepgramSTTLifecycle(t *testing.T) {
 	stt, err := NewDeepgramSpeechToText(ctx, logger, cred, collector.OnPacket, opts)
 	require.NoError(t, err)
 	require.NotNil(t, stt)
-	assert.Equal(t, "deepgram-speech-to-text", stt.Name())
+	assert.Equal(t, "deepgram-stt", stt.Name())
 
-	// Flow: Initialize succeeds and emits "initialized" event
 	require.NoError(t, stt.Initialize())
 	defer stt.Close(ctx)
-
-	events := collector.EventPackets()
-	require.NotEmpty(t, events, "should emit initialized event")
-	assert.Equal(t, "stt", events[0].Record.Component.String())
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
-	assert.Equal(t, "deepgram-speech-to-text", events[0].Record.Attributes["provider"])
-	_, err = strconv.Atoi(events[0].Record.Attributes["init_ms"])
-	assert.NoError(t, err, "init_ms should be a valid integer")
+	assertSTTInitMetric(t, collector)
 
 	// Flow: Feed audio without errors
 	feedDone := make(chan struct{})
@@ -652,6 +629,7 @@ func TestDeepgramSTTReconnect(t *testing.T) {
 		stt, err := NewDeepgramSpeechToText(ctx, logger, cred, collector.OnPacket, opts)
 		require.NoError(t, err, "attempt %d", attempt)
 		require.NoError(t, stt.Initialize(), "attempt %d", attempt)
+		assertSTTInitMetric(t, collector)
 
 		feedDone := make(chan struct{})
 		go func() {
@@ -665,9 +643,6 @@ func TestDeepgramSTTReconnect(t *testing.T) {
 			t.Fatalf("attempt %d: context cancelled before audio feeding completed", attempt)
 		}
 
-		events := collector.EventPackets()
-		require.NotEmpty(t, events, "attempt %d: should emit initialized event", attempt)
-		assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
 		t.Logf("attempt=%d transcripts=%d", attempt, len(collector.TranscriptPackets()))
 
 		stt.Close(ctx)
@@ -692,6 +667,7 @@ func TestDeepgramSTTCloseWhileStreaming(t *testing.T) {
 		testutil.BuildOptions(pcfg.Options))
 	require.NoError(t, err)
 	require.NoError(t, stt.Initialize())
+	assertSTTInitMetric(t, collector)
 
 	go func() {
 		chunks := testutil.ChunkAudio(testutil.SineTonePCM(440, 3.0), testutil.FrameSize)
@@ -710,10 +686,6 @@ func TestDeepgramSTTCloseWhileStreaming(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	err = stt.Close(ctx)
 	assert.NoError(t, err, "closing STT mid-stream should not error")
-
-	events := collector.EventPackets()
-	require.NotEmpty(t, events)
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
 }
 
 // TestDeepgramSTTTranscriptContent verifies that real speech audio produces
@@ -786,6 +758,35 @@ func sttEventTypes(events []internal_type.ObservabilityEventRecordPacket) []stri
 	return out
 }
 
+func assertTTSInitMetric(t *testing.T, collector *testutil.PacketCollector) {
+	t.Helper()
+	for _, m := range collector.MetricPackets() {
+		for _, metric := range m.Record.Metrics {
+			if metric.Name == "tts_init_ms" {
+				ms, err := strconv.Atoi(metric.Value)
+				assert.NoError(t, err)
+				assert.GreaterOrEqual(t, ms, 0, "tts_init_ms should be non-negative")
+				t.Logf("tts_init_ms=%d", ms)
+				return
+			}
+		}
+	}
+	t.Error("should have tts_init_ms metric")
+}
+
+func assertTTSInitMetricCountAtLeast(t *testing.T, collector *testutil.PacketCollector, minimumCount int) {
+	t.Helper()
+	count := 0
+	for _, m := range collector.MetricPackets() {
+		for _, metric := range m.Record.Metrics {
+			if metric.Name == "tts_init_ms" {
+				count++
+			}
+		}
+	}
+	assert.GreaterOrEqual(t, count, minimumCount, "should have enough tts_init_ms metrics")
+}
+
 func assertTTSLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {
 	t.Helper()
 	for _, m := range collector.MetricPackets() {
@@ -800,6 +801,22 @@ func assertTTSLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {
 		}
 	}
 	t.Error("should have tts_latency_ms metric")
+}
+
+func assertSTTInitMetric(t *testing.T, collector *testutil.PacketCollector) {
+	t.Helper()
+	for _, m := range collector.MetricPackets() {
+		for _, metric := range m.Record.Metrics {
+			if metric.Name == "stt_init_ms" {
+				ms, err := strconv.Atoi(metric.Value)
+				assert.NoError(t, err)
+				assert.GreaterOrEqual(t, ms, 0, "stt_init_ms should be non-negative")
+				t.Logf("stt_init_ms=%d", ms)
+				return
+			}
+		}
+	}
+	t.Error("should have stt_init_ms metric")
 }
 
 func assertSTTLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {

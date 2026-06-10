@@ -14,6 +14,7 @@ import (
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
+	"github.com/rapidaai/pkg/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -59,6 +60,141 @@ func generatePCM16Sine(samples int) []byte {
 		binary.LittleEndian.PutUint16(data[i*2:i*2+2], uint16(sample))
 	}
 	return data
+}
+
+func TestRnnoiseDenoiser_ObservabilityInitRecords(t *testing.T) {
+	logger := testLogger(t)
+	var packets []internal_type.Packet
+	opts := utils.Option{"microphone.denoising.provider": rnNoiseDenoiserName}
+
+	denoiser, err := NewRnnoiseDenoiser(
+		t.Context(),
+		logger,
+		func(_ context.Context, pkt ...internal_type.Packet) error {
+			packets = append(packets, pkt...)
+			return nil
+		},
+		opts,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, denoiser.Close(t.Context())) })
+
+	var initMetric internal_type.ObservabilityMetricRecordPacket
+	var initLog internal_type.ObservabilityLogRecordPacket
+	for _, packet := range packets {
+		switch typed := packet.(type) {
+		case internal_type.ObservabilityEventRecordPacket:
+			assert.NotEqual(t, observability.DenoiseStarted, typed.Record.Event)
+		case internal_type.ObservabilityMetricRecordPacket:
+			if len(typed.Record.Metrics) > 0 && typed.Record.Metrics[0].Name == observability.MetricDenoiseInitLatencyMs {
+				initMetric = typed
+			}
+		case internal_type.ObservabilityLogRecordPacket:
+			if typed.Record.Level == observability.LevelInfo {
+				initLog = typed
+			}
+		}
+	}
+
+	require.NotEmpty(t, initMetric.Record.Metrics)
+	assert.Equal(t, internal_type.ObservabilityRecordScopeConversation, initMetric.Scope)
+	assert.Equal(t, rnNoiseDenoiserName, initMetric.Record.Attributes["provider"])
+	assert.Equal(t, observability.MetricDenoiseInitLatencyMs, initMetric.Record.Metrics[0].Name)
+
+	assert.Equal(t, internal_type.ObservabilityRecordScopeConversation, initLog.Scope)
+	assert.Equal(t, rnNoiseDenoiserName, initLog.Record.Attributes["provider"])
+	assert.Equal(t, observability.ComponentDenoise.String(), initLog.Record.Attributes["component"])
+	assert.NotEmpty(t, initLog.Record.Attributes["options"])
+	assert.False(t, initLog.Record.OccurredAt.IsZero())
+}
+
+func TestRnnoiseDenoiser_ObservabilityCloseRecords(t *testing.T) {
+	logger := testLogger(t)
+	var packets []internal_type.Packet
+
+	denoiser, err := NewRnnoiseDenoiser(
+		t.Context(),
+		logger,
+		func(_ context.Context, pkt ...internal_type.Packet) error {
+			packets = append(packets, pkt...)
+			return nil
+		},
+		nil,
+	)
+	require.NoError(t, err)
+
+	packets = nil
+	require.NoError(t, denoiser.Close(t.Context()))
+
+	var usage internal_type.ObservabilityUsageRecordPacket
+	var closed internal_type.ObservabilityEventRecordPacket
+	for _, packet := range packets {
+		switch typed := packet.(type) {
+		case internal_type.ObservabilityUsageRecordPacket:
+			usage = typed
+		case internal_type.ObservabilityEventRecordPacket:
+			if typed.Record.Event == observability.DenoiseClosed {
+				closed = typed
+			}
+		case internal_type.ObservabilityLogRecordPacket:
+			t.Fatalf("unexpected close log packet: %+v", typed)
+		}
+	}
+
+	assert.Equal(t, internal_type.ObservabilityRecordScopeConversation, usage.Scope)
+	assert.Equal(t, observability.ComponentName(observability.UsageConversationDenoiseDuration), usage.Record.Component)
+	assert.Equal(t, rnNoiseDenoiserName, usage.Record.Provider)
+	assert.Greater(t, usage.Record.Duration.Nanoseconds(), int64(0))
+
+	assert.Equal(t, internal_type.ObservabilityRecordScopeConversation, closed.Scope)
+	assert.Equal(t, observability.ComponentDenoise, closed.Record.Component)
+	assert.Equal(t, observability.DenoiseClosed, closed.Record.Event)
+	assert.Equal(t, rnNoiseDenoiserName, closed.Record.Attributes["provider"])
+	assert.False(t, closed.Record.OccurredAt.IsZero())
+}
+
+func TestRnnoiseDenoiser_ObservabilityErrorScope(t *testing.T) {
+	var packets []internal_type.Packet
+	denoiser := &rnnoiseDenoiser{
+		onPacket: func(_ context.Context, pkt ...internal_type.Packet) error {
+			packets = append(packets, pkt...)
+			return nil
+		},
+	}
+
+	err := denoiser.Execute(t.Context(), internal_type.DenoiseAudioPacket{
+		ContextID: "ctx-error",
+		Audio:     generatePCM16Sine(160),
+	})
+	require.Error(t, err)
+
+	var errorEvent internal_type.ObservabilityEventRecordPacket
+	var errorLog internal_type.ObservabilityLogRecordPacket
+	for _, packet := range packets {
+		switch typed := packet.(type) {
+		case internal_type.ObservabilityEventRecordPacket:
+			if typed.Record.Event == observability.DenoiseError {
+				errorEvent = typed
+			}
+		case internal_type.ObservabilityLogRecordPacket:
+			if typed.Record.Level == observability.LevelError {
+				errorLog = typed
+			}
+		}
+	}
+
+	assert.Equal(t, "ctx-error", errorEvent.ContextID)
+	assert.Equal(t, internal_type.ObservabilityRecordScopeUserMessage, errorEvent.Scope)
+	assert.Equal(t, observability.ComponentDenoise, errorEvent.Record.Component)
+	assert.Equal(t, rnNoiseDenoiserName, errorEvent.Record.Attributes["provider"])
+	assert.False(t, errorEvent.Record.OccurredAt.IsZero())
+
+	assert.Equal(t, "ctx-error", errorLog.ContextID)
+	assert.Equal(t, internal_type.ObservabilityRecordScopeUserMessage, errorLog.Scope)
+	assert.Equal(t, observability.LevelError, errorLog.Record.Level)
+	assert.Equal(t, rnNoiseDenoiserName, errorLog.Record.Attributes["provider"])
+	assert.Equal(t, "validate_config", errorLog.Record.Attributes["operation"])
+	assert.False(t, errorLog.Record.OccurredAt.IsZero())
 }
 
 func TestRNNoise_ProcessAudioUsesPCMScaleBoundary(t *testing.T) {

@@ -515,7 +515,7 @@ func TestSpeechToText_EmitsLatencyMetricFromFirstAudioWithoutStart(t *testing.T)
 	assert.Equal(t, 1, latencyMetricPacketCount, "expected latency metric from first audio without explicit start")
 }
 
-func TestSpeechToText_LatencyUsesFirstStartInWindow(t *testing.T) {
+func TestSpeechToText_LatencyUsesLatestStartInWindow(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		connection, err := upgrader.Upgrade(writer, request, nil)
@@ -594,7 +594,7 @@ func TestSpeechToText_LatencyUsesFirstStartInWindow(t *testing.T) {
 	}
 
 	assert.Equal(t, 1, latencyMetricPacketCount, "expected one latency metric for the start window")
-	assert.GreaterOrEqual(t, latencyMilliseconds, int64(100), "expected latency to be measured from the first start in the window")
+	assert.Less(t, latencyMilliseconds, int64(100), "expected latency to be measured from the latest start in the window")
 }
 
 func TestSpeechToText_AudioRequestContextStaysBoundToAudioPacket(t *testing.T) {

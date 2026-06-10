@@ -16,34 +16,33 @@ import (
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
-	"github.com/rapidaai/protos"
 )
 
 // Implement the LiveMessageCallback interface
 type deepgramSttCallback struct {
-	logger       commons.Logger
-	onPacket     func(pkt ...internal_type.Packet) error
-	options      utils.Option
-	swapStarted  func() time.Time
-	contextID    func() string
-	providerName string
+	logger               commons.Logger
+	onPacket             func(pkt ...internal_type.Packet) error
+	options              utils.Option
+	getAndClearStartTime func() time.Time
+	contextID            func() string
+	providerName         string
 }
 
 func NewDeepgramSttCallback(
 	logger commons.Logger,
 	onPacket func(pkt ...internal_type.Packet) error,
 	options utils.Option,
-	swapStarted func() time.Time,
+	getAndClearStartTime func() time.Time,
 	contextID func() string,
 	providerName string,
 ) msginterfaces.LiveMessageCallback {
 	return &deepgramSttCallback{
-		logger:       logger,
-		onPacket:     onPacket,
-		options:      options,
-		swapStarted:  swapStarted,
-		contextID:    contextID,
-		providerName: providerName,
+		logger:               logger,
+		onPacket:             onPacket,
+		options:              options,
+		getAndClearStartTime: getAndClearStartTime,
+		contextID:            contextID,
+		providerName:         providerName,
 	}
 }
 
@@ -63,13 +62,11 @@ func (d *deepgramSttCallback) Message(mr *msginterfaces.MessageResponse) error {
 
 		if v, err := d.options.GetFloat64("listen.threshold"); err == nil {
 			if alternative.Confidence < v {
-				// confidence below threshold, emit event and skip stt processing
 				ctxID := d.contextID()
 				d.onPacket(
 					internal_type.ObservabilityEventRecordPacket{
-						ContextID:   ctxID,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleUser,
+						ContextID: ctxID,
+						Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 						Record: observability.RecordEvent{
 							Component: observability.ComponentSTT,
 							Event:     observability.STTLowConfidence,
@@ -88,12 +85,7 @@ func (d *deepgramSttCallback) Message(mr *msginterfaces.MessageResponse) error {
 		}
 
 		if mr.IsFinal {
-			now := time.Now()
-			var latencyMs int64
-			if started := d.swapStarted(); !started.IsZero() {
-				latencyMs = now.Sub(started).Milliseconds()
-			}
-			wordCount := len(strings.Fields(alternative.Transcript))
+			startedOn := d.getAndClearStartTime()
 			ctxID := d.contextID()
 			d.onPacket(
 				internal_type.InterruptionDetectedPacket{ContextID: ctxID, Source: "word"},
@@ -105,9 +97,8 @@ func (d *deepgramSttCallback) Message(mr *msginterfaces.MessageResponse) error {
 					Interim:    false,
 				},
 				internal_type.ObservabilityEventRecordPacket{
-					ContextID:   ctxID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleUser,
+					ContextID: ctxID,
+					Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 					Record: observability.RecordEvent{
 						Component: observability.ComponentSTT,
 						Event:     observability.STTCompleted,
@@ -116,22 +107,21 @@ func (d *deepgramSttCallback) Message(mr *msginterfaces.MessageResponse) error {
 							"script":     alternative.Transcript,
 							"confidence": confStr,
 							"language":   lang,
-							"word_count": fmt.Sprintf("%d", wordCount),
+							"word_count": fmt.Sprintf("%d", len(strings.Fields(alternative.Transcript))),
 							"char_count": fmt.Sprintf("%d", len(alternative.Transcript)),
 						},
-						OccurredAt: now,
-					},
-				},
-				internal_type.ObservabilityMetricRecordPacket{
-					ContextID:   ctxID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleUser,
-					Record: observability.RecordMetric{
-						Metrics:    []*protos.Metric{{Name: "stt_latency_ms", Value: fmt.Sprintf("%d", latencyMs)}},
-						Attributes: observability.Attributes{"provider": d.providerName},
+						OccurredAt: time.Now(),
 					},
 				},
 			)
+			if !startedOn.IsZero() {
+				d.onPacket(
+					internal_type.ObservabilityMetricRecordPacket{
+						ContextID: ctxID,
+						Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+						Record:    observability.NewMetricSTTLatencyMs(time.Since(startedOn), observability.Attributes{"provider": "deepgram-stt"}),
+					})
+			}
 		} else {
 			// Non-final interim transcript
 			ctxID := d.contextID()
@@ -145,9 +135,8 @@ func (d *deepgramSttCallback) Message(mr *msginterfaces.MessageResponse) error {
 					Interim:    true,
 				},
 				internal_type.ObservabilityEventRecordPacket{
-					ContextID:   ctxID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleUser,
+					ContextID: ctxID,
+					Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 					Record: observability.RecordEvent{
 						Component: observability.ComponentSTT,
 						Event:     observability.STTInterim,
@@ -190,14 +179,16 @@ func (d *deepgramSttCallback) Close(cr *msginterfaces.CloseResponse) error {
 // Handle errors from Deepgram
 func (d *deepgramSttCallback) Error(er *msginterfaces.ErrorResponse) error {
 	ctxID := d.contextID()
-	d.onPacket(internal_type.ObservabilityEventRecordPacket{
-		ContextID:   ctxID,
-		Scope:       internal_type.ObservabilityRecordScopeMessage,
-		MessageRole: observability.MessageRoleUser,
-		Record: observability.RecordEvent{
-			Component:  observability.ComponentSTT,
-			Event:      observability.STTError,
-			Attributes: observability.Attributes{"type": "error", "error": er.ErrMsg},
+	d.onPacket(internal_type.ObservabilityLogRecordPacket{
+		ContextID: ctxID,
+		Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+		Record: observability.RecordLog{
+			Level:   observability.LevelError,
+			Message: er.ErrMsg,
+			Attributes: observability.Attributes{
+				"component": observability.ComponentSTT.String(),
+				"error":     observability.AttributeValue(er),
+			},
 			OccurredAt: time.Now(),
 		},
 	})

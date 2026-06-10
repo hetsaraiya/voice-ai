@@ -57,6 +57,7 @@ type TenVAD struct {
 	// Thread-safety
 	mu           sync.RWMutex
 	isTerminated bool
+	vadStartedAt time.Time
 
 	// Frame-level state for segment tracking
 	currSample int
@@ -86,6 +87,21 @@ func NewTenVAD(
 
 	detector, err := NewDetector(hopSize, float32(threshold))
 	if err != nil {
+		if onPacket != nil {
+			_ = onPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: fmt.Sprintf("%s: error while initialization %s", vadName, err.Error()),
+					Attributes: observability.Attributes{
+						"component": observability.ComponentVAD.String(),
+						"provider":  vadName,
+						"options":   observability.AttributeValue(options),
+					},
+					OccurredAt: time.Now(),
+				},
+			})
+		}
 		return nil, fmt.Errorf("failed to create ten_vad detector: %w", err)
 	}
 
@@ -99,6 +115,7 @@ func NewTenVAD(
 		minSilenceDurationMs: resolveMinSilenceDurationMs(options),
 		speechPadMs:          resolveSpeechPadMs(options),
 		isTerminated:         false,
+		vadStartedAt:         time.Now(),
 	}
 
 	// Auto-close on context cancellation
@@ -109,28 +126,21 @@ func NewTenVAD(
 
 	if onPacket != nil {
 		_ = onPacket(ctx,
-			internal_type.ObservabilityEventRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentVAD,
-					Event:     observability.VADStarted,
-					Attributes: observability.Attributes{
-						"provider": vadName,
-						"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-					},
-				},
+			internal_type.ObservabilityMetricRecordPacket{
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricVADInitLatencyMs(time.Since(start), observability.Attributes{"provider": tv.Name()}),
 			},
 			internal_type.ObservabilityLogRecordPacket{
 				Scope: internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
-					Level:   observability.LevelDebug,
-					Message: "vad initialized",
+					Level:   observability.LevelInfo,
+					Message: fmt.Sprintf("%s: initialization completed", tv.Name()),
 					Attributes: observability.Attributes{
 						"component": observability.ComponentVAD.String(),
-						"operation": "initialize",
-						"provider":  vadName,
-						"init_ms":   fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+						"provider":  tv.Name(),
+						"options":   observability.AttributeValue(tv.Options()),
 					},
+					OccurredAt: time.Now(),
 				},
 			},
 		)
@@ -167,9 +177,8 @@ func (t *TenVAD) Execute(ctx context.Context, pkt internal_type.UserAudioReceive
 		if t.onPacket != nil {
 			_ = t.onPacket(ctx,
 				internal_type.ObservabilityEventRecordPacket{
-					ContextID:   pkt.ContextID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleUser,
+					ContextID: pkt.ContextID,
+					Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 					Record: observability.RecordEvent{
 						Component: observability.ComponentVAD,
 						Event:     observability.VADError,
@@ -178,15 +187,15 @@ func (t *TenVAD) Execute(ctx context.Context, pkt internal_type.UserAudioReceive
 							"context_id": pkt.ContextID,
 							"error":      "ten_vad process failed",
 						},
+						OccurredAt: time.Now(),
 					},
 				},
 				internal_type.ObservabilityLogRecordPacket{
-					ContextID:   pkt.ContextID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleUser,
+					ContextID: pkt.ContextID,
+					Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
-						Message: "vad detection failed",
+						Message: "ten_vad: detection failed",
 						Attributes: observability.Attributes{
 							"component":   observability.ComponentVAD.String(),
 							"operation":   "detect",
@@ -196,6 +205,7 @@ func (t *TenVAD) Execute(ctx context.Context, pkt internal_type.UserAudioReceive
 							"error":       err.Error(),
 							"error_type":  fmt.Sprintf("%T", err),
 						},
+						OccurredAt: time.Now(),
 					},
 				},
 			)
@@ -230,10 +240,10 @@ func (t *TenVAD) Execute(ctx context.Context, pkt internal_type.UserAudioReceive
 
 	// Emit explicit interruption lifecycle events from VAD transitions.
 	if hasSpeechStart {
-		t.notifyInterruption(ctx, internal_type.InterruptionEventStart, speechStartAt, len(segments))
+		t.notifyInterruption(ctx, pkt.ContextID, internal_type.InterruptionEventStart, speechStartAt, len(segments))
 	}
 	if hasSpeechEnd {
-		t.notifyInterruption(ctx, internal_type.InterruptionEventEnd, speechEndAt, len(segments))
+		t.notifyInterruption(ctx, pkt.ContextID, internal_type.InterruptionEventEnd, speechEndAt, len(segments))
 	}
 
 	return nil
@@ -247,6 +257,8 @@ func (t *TenVAD) Close(ctx context.Context) error {
 		return nil
 	}
 	t.isTerminated = true
+	vadStartedAt := t.vadStartedAt
+	t.vadStartedAt = time.Time{}
 
 	if t.detector != nil {
 		t.detector.Close()
@@ -255,30 +267,26 @@ func (t *TenVAD) Close(ctx context.Context) error {
 	t.mu.Unlock()
 
 	if t.onPacket != nil {
-		_ = t.onPacket(ctx,
-			internal_type.ObservabilityEventRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentVAD,
-					Event:     observability.VADClosed,
-					Attributes: observability.Attributes{
-						"provider": vadName,
-					},
+		packets := []internal_type.Packet{}
+		if !vadStartedAt.IsZero() {
+			duration := time.Since(vadStartedAt)
+			packets = append(packets, internal_type.ObservabilityUsageRecordPacket{
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewVADDurationUsageRecord(t.Name(), duration, observability.Attributes{}),
+			})
+		}
+		packets = append(packets, internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentVAD,
+				Event:     observability.VADClosed,
+				Attributes: observability.Attributes{
+					"provider": t.Name(),
 				},
+				OccurredAt: time.Now(),
 			},
-			internal_type.ObservabilityLogRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordLog{
-					Level:   observability.LevelDebug,
-					Message: "vad closed",
-					Attributes: observability.Attributes{
-						"component": observability.ComponentVAD.String(),
-						"operation": "close",
-						"provider":  vadName,
-					},
-				},
-			},
-		)
+		})
+		_ = t.onPacket(ctx, packets...)
 	}
 
 	return nil
@@ -389,7 +397,7 @@ func (t *TenVAD) processFrames(samples []int16) ([]segment, error) {
 	return segments, nil
 }
 
-func (t *TenVAD) notifyInterruption(ctx context.Context, event internal_type.InterruptionEvent, at float64, segmentCount int) {
+func (t *TenVAD) notifyInterruption(ctx context.Context, contextID string, event internal_type.InterruptionEvent, at float64, segmentCount int) {
 	if t.onPacket != nil {
 		eventName := observability.VADSpeechStarted
 		if event == internal_type.InterruptionEventEnd {
@@ -397,13 +405,15 @@ func (t *TenVAD) notifyInterruption(ctx context.Context, event internal_type.Int
 		}
 		_ = t.onPacket(ctx,
 			internal_type.InterruptionDetectedPacket{
-				Source:  internal_type.InterruptionSourceVad,
-				Event:   event,
-				StartAt: at,
-				EndAt:   at,
+				ContextID: contextID,
+				Source:    internal_type.InterruptionSourceVad,
+				Event:     event,
+				StartAt:   at,
+				EndAt:     at,
 			},
 			internal_type.ObservabilityEventRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
+				ContextID: contextID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 				Record: observability.RecordEvent{
 					Component: observability.ComponentVAD,
 					Event:     eventName,
@@ -414,6 +424,7 @@ func (t *TenVAD) notifyInterruption(ctx context.Context, event internal_type.Int
 						"end_at":        fmt.Sprintf("%f", at),
 						"segment_count": fmt.Sprintf("%d", segmentCount),
 					},
+					OccurredAt: time.Now(),
 				},
 			},
 		)

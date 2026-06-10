@@ -1,0 +1,265 @@
+// Copyright (c) 2023-2025 RapidaAI
+// Author: Prashant Srivastav <prashant@rapida.ai>
+//
+// Licensed under GPL-2.0 with Rapida Additional Terms.
+// See LICENSE.md or contact sales@rapida.ai for commercial usage.
+
+package observability
+
+import (
+	"testing"
+	"time"
+
+	"github.com/rapidaai/protos"
+)
+
+func TestMetricNames_MirrorCurrentImplementation(t *testing.T) {
+	tests := []struct {
+		actual   string
+		expected string
+	}{
+		{MetricConversationStatus, "status"},
+		{MetricConversationDuration, "duration"},
+		{MetricConversationSTTDuration, "stt_duration"},
+		{MetricConversationTTSDuration, "tts_duration"},
+		{MetricConversationComplete, "complete"},
+		{MetricConversationInProgress, "in_progress"},
+		{MetricCallDurationMs, "call.duration_ms"},
+		{MetricSetupDurationMs, "call.setup_duration_ms"},
+		{MetricRingDurationMs, "call.ring_duration_ms"},
+		{MetricCallStatus, "call.status"},
+		{MetricSIPRegisterFailure, "sip.register_failure"},
+		{MetricSIPRegistrationStatus, "sip.registration.status"},
+		{MetricTransferDurationMs, "transfer.bridge_duration_ms"},
+		{MetricRTPPacketsSent, "rtp.packets_sent"},
+		{MetricRTPPacketsReceived, "rtp.packets_received"},
+		{MetricRTPBytesSent, "rtp.bytes_sent"},
+		{MetricRTPBytesReceived, "rtp.bytes_received"},
+		{MetricICELatencyMs, "webrtc.ice_latency_ms"},
+		{MetricWebRTCOutputQueueDrops, "webrtc.output_queue_dropped_frames"},
+		{MetricTelephonyStatus, "telephony.status"},
+		{MetricTelephonyDuration, "telephony_duration"},
+		{MetricTelephonyPrice, "telephony.price"},
+		{MetricCallStatusComplete, "COMPLETE"},
+		{MetricCallStatusFailed, "FAILED"},
+		{MetricCallStatusInProgress, "INPROGRESS"},
+		{MetricUserTurn, "user_turn"},
+		{MetricAssistantTurn, "assistant_turn"},
+		{MetricSTTInitLatencyMs, "stt_init_ms"},
+		{MetricSTTLatencyMs, "stt_latency_ms"},
+		{MetricTTSInitLatencyMs, "tts_init_ms"},
+		{MetricTTSLatencyMs, "tts_latency_ms"},
+		{MetricVADInitLatencyMs, "vad_init_ms"},
+		{MetricEOSInitLatencyMs, "eos_init_ms"},
+		{MetricEOSLatencyMs, "eos_latency_ms"},
+		{MetricEOSTextToTriggerMs, "eos_text_to_trigger_ms"},
+		{MetricEOSWordCount, "eos_word_count"},
+		{MetricEOSCharCount, "eos_char_count"},
+		{MetricEOSConfidence, "eos_confidence"},
+		{MetricDenoiseInitLatencyMs, "denoise_init_ms"},
+		{MetricLLMInitLatencyMs, "llm_init_ms"},
+		{MetricKnowledgeLatencyMs, "knowledge_latency_ms"},
+		{MetricLLMError, "llm_error"},
+		{MetricSTTError, "stt_error"},
+		{MetricTTSError, "tts_error"},
+		{MetricDiscardedTTSChunk, "discarded_tts_chunk"},
+		{MetricDiscardedTTS, "discarded_tts"},
+		{MetricTimeTaken, "time_taken"},
+		{MetricStatus, "status"},
+		{MetricInputToken, "input_token"},
+		{MetricOutputToken, "output_token"},
+		{MetricTotalToken, "total_token"},
+		{MetricCachedContentToken, "cached_content_token"},
+		{MetricCost, "cost"},
+		{MetricInputCost, "input_cost"},
+		{MetricOutputCost, "output_cost"},
+		{MetricLLMRequestID, "llm_request_id"},
+		{MetricTokenPerSecond, "token_pre_second"},
+		{MetricTimeToFirstToken, "time_to_first_token"},
+		{MetricProviderTotalTime, "provider_total_time"},
+		{MetricProviderGenerateTime, "provider_generate_time"},
+	}
+
+	for _, test := range tests {
+		if test.actual != test.expected {
+			t.Fatalf("expected metric name %q, got %q", test.expected, test.actual)
+		}
+	}
+}
+
+func TestNewMetricSTTInitLatencyMs(t *testing.T) {
+	record := NewMetricSTTInitLatencyMs(123*time.Millisecond, Attributes{"provider": "deepgram"})
+	metric := singleMetric(t, record)
+
+	if metric.Name != MetricSTTInitLatencyMs {
+		t.Fatalf("expected metric name %q, got %q", MetricSTTInitLatencyMs, metric.Name)
+	}
+	if metric.Value != "123" {
+		t.Fatalf("expected metric value %q, got %q", "123", metric.Value)
+	}
+	if metric.Description != "STT initialization latency in milliseconds" {
+		t.Fatalf("expected metric description %q, got %q", "STT initialization latency in milliseconds", metric.Description)
+	}
+	assertRecordAttribute(t, record, "provider", "deepgram")
+}
+
+func TestNewMetricSTTLatencyMs(t *testing.T) {
+	record := NewMetricSTTLatencyMs(456*time.Millisecond, Attributes{"provider": "deepgram"})
+	metric := singleMetric(t, record)
+
+	if metric.Name != MetricSTTLatencyMs {
+		t.Fatalf("expected metric name %q, got %q", MetricSTTLatencyMs, metric.Name)
+	}
+	if metric.Value != "456" {
+		t.Fatalf("expected metric value %q, got %q", "456", metric.Value)
+	}
+	if metric.Description != "STT latency from speech start to final transcript in milliseconds" {
+		t.Fatalf("expected metric description %q, got %q", "STT latency from speech start to final transcript in milliseconds", metric.Description)
+	}
+	assertRecordAttribute(t, record, "provider", "deepgram")
+}
+
+func TestNewMetricTTSInitLatencyMs(t *testing.T) {
+	record := NewMetricTTSInitLatencyMs(123*time.Millisecond, Attributes{"provider": "deepgram"})
+	metric := singleMetric(t, record)
+
+	if metric.Name != MetricTTSInitLatencyMs {
+		t.Fatalf("expected metric name %q, got %q", MetricTTSInitLatencyMs, metric.Name)
+	}
+	if metric.Value != "123" {
+		t.Fatalf("expected metric value %q, got %q", "123", metric.Value)
+	}
+	if metric.Description != "TTS initialization latency in milliseconds" {
+		t.Fatalf("expected metric description %q, got %q", "TTS initialization latency in milliseconds", metric.Description)
+	}
+	assertRecordAttribute(t, record, "provider", "deepgram")
+}
+
+func TestNewMetricTTSLatencyMs(t *testing.T) {
+	record := NewMetricTTSLatencyMs(456*time.Millisecond, Attributes{"provider": "deepgram"})
+	metric := singleMetric(t, record)
+
+	if metric.Name != MetricTTSLatencyMs {
+		t.Fatalf("expected metric name %q, got %q", MetricTTSLatencyMs, metric.Name)
+	}
+	if metric.Value != "456" {
+		t.Fatalf("expected metric value %q, got %q", "456", metric.Value)
+	}
+	if metric.Description != "TTS latency from text input to first audio in milliseconds" {
+		t.Fatalf("expected metric description %q, got %q", "TTS latency from text input to first audio in milliseconds", metric.Description)
+	}
+	assertRecordAttribute(t, record, "provider", "deepgram")
+}
+
+func TestNewMetricVADInitLatencyMs(t *testing.T) {
+	record := NewMetricVADInitLatencyMs(123*time.Millisecond, Attributes{"provider": "silero_vad"})
+	metric := singleMetric(t, record)
+
+	if metric.Name != MetricVADInitLatencyMs {
+		t.Fatalf("expected metric name %q, got %q", MetricVADInitLatencyMs, metric.Name)
+	}
+	if metric.Value != "123" {
+		t.Fatalf("expected metric value %q, got %q", "123", metric.Value)
+	}
+	if metric.Description != "VAD initialization latency in milliseconds" {
+		t.Fatalf("expected metric description %q, got %q", "VAD initialization latency in milliseconds", metric.Description)
+	}
+	assertRecordAttribute(t, record, "provider", "silero_vad")
+}
+
+func TestNewMetricEOSInitLatencyMs(t *testing.T) {
+	record := NewMetricEOSInitLatencyMs(123*time.Millisecond, Attributes{"provider": "silenceBasedEndOfSpeech"})
+	metric := singleMetric(t, record)
+
+	if metric.Name != MetricEOSInitLatencyMs {
+		t.Fatalf("expected metric name %q, got %q", MetricEOSInitLatencyMs, metric.Name)
+	}
+	if metric.Value != "123" {
+		t.Fatalf("expected metric value %q, got %q", "123", metric.Value)
+	}
+	if metric.Description != "EOS initialization latency in milliseconds" {
+		t.Fatalf("expected metric description %q, got %q", "EOS initialization latency in milliseconds", metric.Description)
+	}
+	assertRecordAttribute(t, record, "provider", "silenceBasedEndOfSpeech")
+}
+
+func TestNewMetricDenoiseInitLatencyMs(t *testing.T) {
+	record := NewMetricDenoiseInitLatencyMs(123*time.Millisecond, Attributes{"provider": "rn_noise"})
+	metric := singleMetric(t, record)
+
+	if metric.Name != MetricDenoiseInitLatencyMs {
+		t.Fatalf("expected metric name %q, got %q", MetricDenoiseInitLatencyMs, metric.Name)
+	}
+	if metric.Value != "123" {
+		t.Fatalf("expected metric value %q, got %q", "123", metric.Value)
+	}
+	if metric.Description != "Denoise initialization latency in milliseconds" {
+		t.Fatalf("expected metric description %q, got %q", "Denoise initialization latency in milliseconds", metric.Description)
+	}
+	assertRecordAttribute(t, record, "provider", "rn_noise")
+}
+
+func TestNewMetricLLMInitLatencyMs(t *testing.T) {
+	record := NewMetricLLMInitLatencyMs(123*time.Millisecond, Attributes{"provider": "openai"})
+	metric := singleMetric(t, record)
+
+	if metric.Name != MetricLLMInitLatencyMs {
+		t.Fatalf("expected metric name %q, got %q", MetricLLMInitLatencyMs, metric.Name)
+	}
+	if metric.Value != "123" {
+		t.Fatalf("expected metric value %q, got %q", "123", metric.Value)
+	}
+	if metric.Description != "LLM initialization latency in milliseconds" {
+		t.Fatalf("expected metric description %q, got %q", "LLM initialization latency in milliseconds", metric.Description)
+	}
+	assertRecordAttribute(t, record, "provider", "openai")
+}
+
+func TestNewMetricSTTDuration(t *testing.T) {
+	record := NewMetricSTTDuration(789*time.Nanosecond, Attributes{"provider": "deepgram"})
+	metric := singleMetric(t, record)
+
+	if metric.Name != MetricConversationSTTDuration {
+		t.Fatalf("expected metric name %q, got %q", MetricConversationSTTDuration, metric.Name)
+	}
+	if metric.Value != "789" {
+		t.Fatalf("expected metric value %q, got %q", "789", metric.Value)
+	}
+	if metric.Description != "Total STT connection duration in nanoseconds" {
+		t.Fatalf("expected metric description %q, got %q", "Total STT connection duration in nanoseconds", metric.Description)
+	}
+	assertRecordAttribute(t, record, "provider", "deepgram")
+}
+
+func TestNewMetricTTSDuration(t *testing.T) {
+	record := NewMetricTTSDuration(987*time.Nanosecond, Attributes{"provider": "deepgram"})
+	metric := singleMetric(t, record)
+
+	if metric.Name != MetricConversationTTSDuration {
+		t.Fatalf("expected metric name %q, got %q", MetricConversationTTSDuration, metric.Name)
+	}
+	if metric.Value != "987" {
+		t.Fatalf("expected metric value %q, got %q", "987", metric.Value)
+	}
+	if metric.Description != "Total TTS connection duration in nanoseconds" {
+		t.Fatalf("expected metric description %q, got %q", "Total TTS connection duration in nanoseconds", metric.Description)
+	}
+	assertRecordAttribute(t, record, "provider", "deepgram")
+}
+
+func singleMetric(t *testing.T, record RecordMetric) *protos.Metric {
+	t.Helper()
+
+	if len(record.Metrics) != 1 {
+		t.Fatalf("expected 1 metric, got %d", len(record.Metrics))
+	}
+	return record.Metrics[0]
+}
+
+func assertRecordAttribute(t *testing.T, record RecordMetric, key string, want string) {
+	t.Helper()
+
+	if record.Attributes[key] != want {
+		t.Fatalf("expected record attribute %q=%q, got %q", key, want, record.Attributes[key])
+	}
+}

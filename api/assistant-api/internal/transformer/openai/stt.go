@@ -8,12 +8,11 @@ package internal_transformer_openai
 
 import (
 	"context"
-	"fmt"
-	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"time"
 
 	openai "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
@@ -26,27 +25,33 @@ type openaiSpeechToText struct {
 	cancel    context.CancelFunc
 	onPacket  func(pkt ...internal_type.Packet) error
 	contextId string
+
+	sttConnectedAt time.Time
 }
 
 func (o *openaiSpeechToText) Initialize() error {
 	start := time.Now()
 	o.ctx, o.cancel = context.WithCancel(context.Background())
 	o.client = openai.NewClient(option.WithAPIKey("YOUR_API_KEY"))
+	o.sttConnectedAt = time.Now()
 
-	o.onPacket(internal_type.ObservabilityEventRecordPacket{
-		ContextID: o.contextId,
-		Scope:     internal_type.ObservabilityRecordScopeConversation,
-		Record: observability.RecordEvent{
-			Component: observability.ComponentSTT,
-			Event:     observability.STTInitialized,
-			Attributes: observability.Attributes{
-				"type":     "initialized",
-				"provider": o.Name(),
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			},
-			OccurredAt: time.Now(),
+	o.onPacket(
+		internal_type.ObservabilityMetricRecordPacket{
+			Scope:  internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewMetricSTTInitLatencyMs(time.Since(start), observability.Attributes{"provider": o.Name()}),
 		},
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "openai-stt: initialization completed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentSTT.String(),
+					"provider":  o.Name(),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }
 
@@ -54,12 +59,39 @@ func (o *openaiSpeechToText) Close(ctx context.Context) error {
 	if o.cancel != nil {
 		o.cancel()
 	}
-	o.logger.Infof("OpenAI SpeechToText connection closed.")
+	connectedAt := o.sttConnectedAt
+	o.sttConnectedAt = time.Time{}
+	if !connectedAt.IsZero() {
+		duration := time.Since(connectedAt)
+		o.onPacket(
+			internal_type.ObservabilityMetricRecordPacket{
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricSTTDuration(duration, observability.Attributes{"provider": o.Name()}),
+			},
+			internal_type.ObservabilityUsageRecordPacket{
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewSTTDurationUsageRecord(o.Name(), duration, observability.Attributes{}),
+			},
+		)
+	}
+	o.onPacket(
+		internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentSTT,
+				Event:     observability.STTClosed,
+				Attributes: observability.Attributes{
+					"type":     "closed",
+					"provider": o.Name(),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }
 
 func (o *openaiSpeechToText) Name() string {
-	return "openai-speech-to-text"
+	return "openai-stt"
 }
 
 // Transform receives a stream of bytes (audioStream) and prints transcribed text in realtime.

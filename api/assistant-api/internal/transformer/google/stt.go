@@ -9,7 +9,6 @@ package internal_transformer_google
 import (
 	"context"
 	"fmt"
-	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"io"
 	"strings"
 	"sync"
@@ -17,9 +16,9 @@ import (
 
 	speech "cloud.google.com/go/speech/apiv2"
 	"cloud.google.com/go/speech/apiv2/speechpb"
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
@@ -47,7 +46,7 @@ type googleSpeechToText struct {
 
 // Name implements internal_transformer.SpeechToTextTransformer.
 func (g *googleSpeechToText) Name() string {
-	return "google-speech-to-text"
+	return "google-stt"
 }
 
 func NewGoogleSpeechToText(ctx context.Context, logger commons.Logger, credential *protos.VaultCredential,
@@ -111,9 +110,24 @@ func (google *googleSpeechToText) Transform(c context.Context, in internal_type.
 
 		if strm == nil {
 			google.logger.Infof("google-stt: stream not available, re-initializing")
+			start := time.Now()
 			google.mu.Lock()
 			if err := google.initializeStreamLocked(); err != nil {
 				google.mu.Unlock()
+				google.onPacket(internal_type.ObservabilityLogRecordPacket{
+					Scope: internal_type.ObservabilityRecordScopeConversation,
+					Record: observability.RecordLog{
+						Level:   observability.LevelError,
+						Message: fmt.Sprintf("google-stt: error while initialization %s", err.Error()),
+						Attributes: observability.Attributes{
+							"component":  observability.ComponentSTT.String(),
+							"provider":   google.Name(),
+							"recognizer": observability.AttributeValue(google.GetRecognizer()),
+							"options":    observability.AttributeValue(google.SpeechToTextOptions()),
+						},
+						OccurredAt: time.Now(),
+					},
+				})
 				google.onPacket(internal_type.SpeechToTextErrorPacket{
 					ContextID: google.contextId,
 					Error:     fmt.Errorf("google-stt: re-initialize failed: %w", err),
@@ -121,8 +135,30 @@ func (google *googleSpeechToText) Transform(c context.Context, in internal_type.
 				})
 				return nil
 			}
+			if google.sttConnectedAt.IsZero() {
+				google.sttConnectedAt = time.Now()
+			}
 			strm = google.stream
 			google.mu.Unlock()
+			google.onPacket(
+				internal_type.ObservabilityMetricRecordPacket{
+					Scope:  internal_type.ObservabilityRecordScopeConversation,
+					Record: observability.NewMetricSTTInitLatencyMs(time.Since(start), observability.Attributes{"provider": google.Name()}),
+				},
+				internal_type.ObservabilityLogRecordPacket{
+					Scope: internal_type.ObservabilityRecordScopeConversation,
+					Record: observability.RecordLog{
+						Level:   observability.LevelInfo,
+						Message: "google-stt: initialization completed",
+						Attributes: observability.Attributes{
+							"component":  observability.ComponentSTT.String(),
+							"provider":   google.Name(),
+							"recognizer": observability.AttributeValue(google.GetRecognizer()),
+							"options":    observability.AttributeValue(google.SpeechToTextOptions()),
+						},
+						OccurredAt: time.Now(),
+					},
+				})
 			if strm == nil {
 				return nil
 			}
@@ -164,12 +200,26 @@ func (g *googleSpeechToText) recvLoop(stream speechpb.Speech_StreamingRecognizeC
 			}
 			g.logger.Errorf("google-stt: recv error: %v", err)
 
-			// Acquire lock and reinitialize the stream immediately
+			start := time.Now()
 			g.mu.Lock()
 			g.stream = nil
 			if reinitErr := g.initializeStreamLocked(); reinitErr != nil {
 				g.mu.Unlock()
 				g.logger.Errorf("google-stt: re-initialize failed: %v", reinitErr)
+				g.onPacket(internal_type.ObservabilityLogRecordPacket{
+					Scope: internal_type.ObservabilityRecordScopeConversation,
+					Record: observability.RecordLog{
+						Level:   observability.LevelError,
+						Message: fmt.Sprintf("google-stt: error while initialization %s", reinitErr.Error()),
+						Attributes: observability.Attributes{
+							"component":  observability.ComponentSTT.String(),
+							"provider":   g.Name(),
+							"recognizer": observability.AttributeValue(g.GetRecognizer()),
+							"options":    observability.AttributeValue(g.SpeechToTextOptions()),
+						},
+						OccurredAt: time.Now(),
+					},
+				})
 				g.onPacket(internal_type.SpeechToTextErrorPacket{
 					ContextID: g.contextId,
 					Error:     fmt.Errorf("google-stt: stream error: %w", err),
@@ -177,7 +227,29 @@ func (g *googleSpeechToText) recvLoop(stream speechpb.Speech_StreamingRecognizeC
 				})
 				return
 			}
+			if g.sttConnectedAt.IsZero() {
+				g.sttConnectedAt = time.Now()
+			}
 			g.mu.Unlock()
+			g.onPacket(
+				internal_type.ObservabilityMetricRecordPacket{
+					Scope:  internal_type.ObservabilityRecordScopeConversation,
+					Record: observability.NewMetricSTTInitLatencyMs(time.Since(start), observability.Attributes{"provider": g.Name()}),
+				},
+				internal_type.ObservabilityLogRecordPacket{
+					Scope: internal_type.ObservabilityRecordScopeConversation,
+					Record: observability.RecordLog{
+						Level:   observability.LevelInfo,
+						Message: "google-stt: initialization completed",
+						Attributes: observability.Attributes{
+							"component":  observability.ComponentSTT.String(),
+							"provider":   g.Name(),
+							"recognizer": observability.AttributeValue(g.GetRecognizer()),
+							"options":    observability.AttributeValue(g.SpeechToTextOptions()),
+						},
+						OccurredAt: time.Now(),
+					},
+				})
 			g.logger.Infof("google-stt: stream re-initialized after error")
 			// New recvLoop was started by initializeStreamLocked, exit this one
 			return
@@ -205,9 +277,8 @@ func (g *googleSpeechToText) recvLoop(stream speechpb.Speech_StreamingRecognizeC
 					if alt.GetConfidence() < float32(v) {
 						g.onPacket(
 							internal_type.ObservabilityEventRecordPacket{
-								ContextID:   ctxID,
-								Scope:       internal_type.ObservabilityRecordScopeMessage,
-								MessageRole: observability.MessageRoleUser,
+								ContextID: ctxID,
+								Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 								Record: observability.RecordEvent{
 									Component: observability.ComponentSTT,
 									Event:     observability.STTLowConfidence,
@@ -225,14 +296,14 @@ func (g *googleSpeechToText) recvLoop(stream speechpb.Speech_StreamingRecognizeC
 					}
 				}
 				now := time.Now()
-				var latencyMs int64
+				var sttStartedAt time.Time
 				g.mu.Lock()
 				if !g.startedAt.IsZero() {
-					latencyMs = now.Sub(g.startedAt).Milliseconds()
+					sttStartedAt = g.startedAt
 					g.startedAt = time.Time{}
 				}
 				g.mu.Unlock()
-				g.onPacket(
+				packets := []internal_type.Packet{
 					internal_type.InterruptionDetectedPacket{ContextID: ctxID, Source: internal_type.InterruptionSourceWord},
 					internal_type.SpeechToTextPacket{
 						ContextID:  ctxID,
@@ -242,9 +313,8 @@ func (g *googleSpeechToText) recvLoop(stream speechpb.Speech_StreamingRecognizeC
 						Interim:    false,
 					},
 					internal_type.ObservabilityEventRecordPacket{
-						ContextID:   ctxID,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleUser,
+						ContextID: ctxID,
+						Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 						Record: observability.RecordEvent{
 							Component: observability.ComponentSTT,
 							Event:     observability.STTCompleted,
@@ -259,16 +329,15 @@ func (g *googleSpeechToText) recvLoop(stream speechpb.Speech_StreamingRecognizeC
 							OccurredAt: now,
 						},
 					},
-					internal_type.ObservabilityMetricRecordPacket{
-						ContextID:   ctxID,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleUser,
-						Record: observability.RecordMetric{
-							Metrics:    []*protos.Metric{{Name: "stt_latency_ms", Value: fmt.Sprintf("%d", latencyMs)}},
-							Attributes: observability.Attributes{"provider": g.Name()},
-						},
-					},
-				)
+				}
+				if !sttStartedAt.IsZero() {
+					packets = append(packets, internal_type.ObservabilityMetricRecordPacket{
+						ContextID: ctxID,
+						Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+						Record:    observability.NewMetricSTTLatencyMs(now.Sub(sttStartedAt), observability.Attributes{"provider": g.Name()}),
+					})
+				}
+				g.onPacket(packets...)
 			} else {
 				g.onPacket(
 					internal_type.InterruptionDetectedPacket{ContextID: ctxID, Source: internal_type.InterruptionSourceWord},
@@ -280,9 +349,8 @@ func (g *googleSpeechToText) recvLoop(stream speechpb.Speech_StreamingRecognizeC
 						Interim:    true,
 					},
 					internal_type.ObservabilityEventRecordPacket{
-						ContextID:   ctxID,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleUser,
+						ContextID: ctxID,
+						Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 						Record: observability.RecordEvent{
 							Component: observability.ComponentSTT,
 							Event:     observability.STTInterim,
@@ -303,26 +371,47 @@ func (g *googleSpeechToText) recvLoop(stream speechpb.Speech_StreamingRecognizeC
 func (google *googleSpeechToText) Initialize() error {
 	start := time.Now()
 	google.mu.Lock()
-	google.sttConnectedAt = time.Now()
 	err := google.initializeStreamLocked()
+	if err == nil {
+		google.sttConnectedAt = time.Now()
+	}
 	google.mu.Unlock()
 	if err != nil {
+		google.onPacket(internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: fmt.Sprintf("google-stt: error while initialization %s", err.Error()),
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentSTT.String(),
+					"provider":   google.Name(),
+					"recognizer": observability.AttributeValue(google.GetRecognizer()),
+					"options":    observability.AttributeValue(google.SpeechToTextOptions()),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 		return err
 	}
-	google.onPacket(internal_type.ObservabilityEventRecordPacket{
-		ContextID: google.contextId,
-		Scope:     internal_type.ObservabilityRecordScopeConversation,
-		Record: observability.RecordEvent{
-			Component: observability.ComponentSTT,
-			Event:     observability.STTInitialized,
-			Attributes: observability.Attributes{
-				"type":     "initialized",
-				"provider": google.Name(),
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			},
-			OccurredAt: time.Now(),
+	google.onPacket(
+		internal_type.ObservabilityMetricRecordPacket{
+			Scope:  internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewMetricSTTInitLatencyMs(time.Since(start), observability.Attributes{"provider": google.Name()}),
 		},
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "google-stt: initialization completed",
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentSTT.String(),
+					"provider":   google.Name(),
+					"recognizer": observability.AttributeValue(google.GetRecognizer()),
+					"options":    observability.AttributeValue(google.SpeechToTextOptions()),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }
 
@@ -360,7 +449,6 @@ func (g *googleSpeechToText) Close(ctx context.Context) error {
 	g.ctxCancel()
 
 	g.mu.Lock()
-	ctxID := g.contextId
 	connectedAt := g.sttConnectedAt
 	g.sttConnectedAt = time.Time{}
 
@@ -384,42 +472,28 @@ func (g *googleSpeechToText) Close(ctx context.Context) error {
 	if !connectedAt.IsZero() {
 		duration := time.Since(connectedAt)
 		g.onPacket(
-			internal_type.ObservabilityEventRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentSTT,
-					Event:     observability.STTClosed,
-					Attributes: observability.Attributes{
-						"type":     "closed",
-						"provider": g.Name(),
-					},
-					OccurredAt: time.Now(),
-				},
-			},
 			internal_type.ObservabilityMetricRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationMetricRecord([]*protos.Metric{{
-					Name:        type_enums.CONVERSATION_STT_DURATION.String(),
-					Value:       fmt.Sprintf("%d", duration.Nanoseconds()),
-					Description: "Total STT connection duration in nanoseconds",
-				}}),
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricSTTDuration(duration, observability.Attributes{"provider": g.Name()}),
 			},
 			internal_type.ObservabilityUsageRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordUsage{
-					Component: observability.ComponentSTT,
-					Provider:  g.Name(),
-					Duration:  duration,
-					Attributes: observability.Attributes{
-						"context_id": ctxID,
-						"provider":   g.Name(),
-						"metric":     type_enums.CONVERSATION_STT_DURATION.String(),
-					},
-				},
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewSTTDurationUsageRecord(g.Name(), duration, observability.Attributes{}),
 			},
 		)
 	}
+	g.onPacket(
+		internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentSTT,
+				Event:     observability.STTClosed,
+				Attributes: observability.Attributes{
+					"type":     "closed",
+					"provider": g.Name(),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return combinedErr
 }

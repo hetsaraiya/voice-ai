@@ -30,7 +30,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // TestGoogleTTSLifecycle verifies the full TTS flow:
-// create → initialize (event) → transform delta+done → audio output → end packet → events in order.
+// create → initialize (metric) → transform delta+done → audio output → end packet → events in order.
 func TestGoogleTTSLifecycle(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
 	pcfg := cfg.TTSProvider(t, "google-speech-service")
@@ -45,18 +45,12 @@ func TestGoogleTTSLifecycle(t *testing.T) {
 	tts, err := NewGoogleTextToSpeech(ctx, logger, cred, collector.OnPacket, opts)
 	require.NoError(t, err)
 	require.NotNil(t, tts)
-	assert.Equal(t, "google-text-to-speech", tts.Name())
+	assert.Equal(t, "google-tts", tts.Name())
 
 	require.NoError(t, tts.Initialize())
 	defer tts.Close(ctx)
 
-	// Verify "initialized" event was emitted
-	events := collector.EventPackets()
-	require.NotEmpty(t, events, "should emit initialized event")
-	assert.Equal(t, "tts", events[0].Record.Component.String())
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
-	_, err = strconv.Atoi(events[0].Record.Attributes["init_ms"])
-	assert.NoError(t, err, "init_ms should be a valid integer")
+	assertTTSInitMetric(t, collector)
 
 	// Send text delta + done
 	require.NoError(t, tts.Transform(ctx, internal_type.LLMResponseDeltaPacket{
@@ -87,10 +81,9 @@ func TestGoogleTTSLifecycle(t *testing.T) {
 	endPackets := collector.EndPackets()
 	require.NotEmpty(t, endPackets, "should emit TextToSpeechEndPacket")
 
-	// Flow: event sequence includes initialized → speaking → completed
+	// Flow: event sequence includes speaking → completed
 	allEvents := collector.EventPackets()
 	eventTypes := ttsEventTypes(allEvents)
-	assert.Contains(t, eventTypes, "initialized")
 	assert.Contains(t, eventTypes, "speaking")
 	assert.Contains(t, eventTypes, "completed")
 	t.Logf("tts_event_sequence=%v", eventTypes)
@@ -153,7 +146,7 @@ func TestGoogleTTSStreamingDeltas(t *testing.T) {
 }
 
 // TestGoogleTTSInterruption verifies the interruption flow:
-// send delta+done → audio starts → interrupt → "interrupted" event → reconnect → second "initialized" event.
+// send delta+done → audio starts → interrupt → "interrupted" event → reconnect → second init metric.
 func TestGoogleTTSInterruption(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
 	pcfg := cfg.TTSProvider(t, "google-speech-service")
@@ -183,9 +176,8 @@ func TestGoogleTTSInterruption(t *testing.T) {
 	collector.WaitForAudio(t, 15*time.Second)
 
 	// Send interruption mid-stream
-	require.NoError(t, tts.Transform(ctx, internal_type.InterruptionDetectedPacket{
+	require.NoError(t, tts.Transform(ctx, internal_type.TextToSpeechInterruptPacket{
 		ContextID: "google-tts-interrupt",
-		Source:    internal_type.InterruptionSourceVad,
 	}))
 
 	// Allow reconnect
@@ -195,15 +187,7 @@ func TestGoogleTTSInterruption(t *testing.T) {
 	eventTypes := ttsEventTypes(collector.EventPackets())
 	assert.Contains(t, eventTypes, "interrupted")
 
-	// Flow: reconnect produces a second "initialized" event
-	initCount := 0
-	for _, typ := range eventTypes {
-		if typ == "initialized" {
-			initCount++
-		}
-	}
-	assert.GreaterOrEqual(t, initCount, 2,
-		"should see at least 2 initialized events (original + reconnect)")
+	assertTTSInitMetricCountAtLeast(t, collector, 2)
 	t.Logf("event_sequence=%v", eventTypes)
 }
 
@@ -278,9 +262,8 @@ func TestGoogleTTSFlow_DeltaInterruptDeltaDone(t *testing.T) {
 	t.Logf("phase1: audio_packets=%d", len(collector.AudioPackets()))
 
 	// Phase 2: user interrupts mid-speech
-	require.NoError(t, tts.Transform(ctx, internal_type.InterruptionDetectedPacket{
+	require.NoError(t, tts.Transform(ctx, internal_type.TextToSpeechInterruptPacket{
 		ContextID: "ctx-1",
-		Source:    internal_type.InterruptionSourceVad,
 	}))
 	time.Sleep(500 * time.Millisecond) // allow reconnect
 
@@ -346,9 +329,8 @@ func TestGoogleTTSFlow_DeltaDoneInterrupt(t *testing.T) {
 	t.Logf("before_interrupt: events=%v", ttsEventTypes(collector.EventPackets()))
 
 	// Late interrupt after TTS already finished
-	err = tts.Transform(ctx, internal_type.InterruptionDetectedPacket{
+	err = tts.Transform(ctx, internal_type.TextToSpeechInterruptPacket{
 		ContextID: "ctx-late",
-		Source:    internal_type.InterruptionSourceVad,
 	})
 	require.NoError(t, err, "late interrupt should not error")
 
@@ -395,9 +377,8 @@ func TestGoogleTTSFlow_InterruptBeforeDelta(t *testing.T) {
 	defer tts.Close(ctx)
 
 	// Interrupt before any text — contextId is "" so this should be a no-op
-	err = tts.Transform(ctx, internal_type.InterruptionDetectedPacket{
+	err = tts.Transform(ctx, internal_type.TextToSpeechInterruptPacket{
 		ContextID: "ctx-early",
-		Source:    internal_type.InterruptionSourceVad,
 	})
 	require.NoError(t, err, "early interrupt should not error")
 
@@ -448,8 +429,8 @@ func TestGoogleTTSFlow_MultipleInterrupts(t *testing.T) {
 	require.NoError(t, tts.Transform(ctx, internal_type.LLMResponseDeltaPacket{
 		ContextID: "round-1", Text: "First attempt at speaking."}))
 	collector.WaitForAudio(t, 15*time.Second)
-	require.NoError(t, tts.Transform(ctx, internal_type.InterruptionDetectedPacket{
-		ContextID: "round-1", Source: internal_type.InterruptionSourceVad}))
+	require.NoError(t, tts.Transform(ctx, internal_type.TextToSpeechInterruptPacket{
+		ContextID: "round-1"}))
 	time.Sleep(500 * time.Millisecond)
 
 	// Round 2: delta → audio → interrupt
@@ -457,8 +438,8 @@ func TestGoogleTTSFlow_MultipleInterrupts(t *testing.T) {
 	require.NoError(t, tts.Transform(ctx, internal_type.LLMResponseDeltaPacket{
 		ContextID: "round-2", Text: "Second attempt, interrupted again."}))
 	collector.WaitForAudio(t, 15*time.Second)
-	require.NoError(t, tts.Transform(ctx, internal_type.InterruptionDetectedPacket{
-		ContextID: "round-2", Source: internal_type.InterruptionSourceVad}))
+	require.NoError(t, tts.Transform(ctx, internal_type.TextToSpeechInterruptPacket{
+		ContextID: "round-2"}))
 	time.Sleep(500 * time.Millisecond)
 
 	// Round 3: delta → done → end (finally completes)
@@ -508,9 +489,8 @@ func TestGoogleTTSFlow_DeltaInterruptNoComplete(t *testing.T) {
 	collector.WaitForAudio(t, 15*time.Second)
 
 	// Interrupt without ever sending done
-	require.NoError(t, tts.Transform(ctx, internal_type.InterruptionDetectedPacket{
+	require.NoError(t, tts.Transform(ctx, internal_type.TextToSpeechInterruptPacket{
 		ContextID: "ctx-no-done",
-		Source:    internal_type.InterruptionSourceVad,
 	}))
 	time.Sleep(1 * time.Second)
 
@@ -583,8 +563,8 @@ func TestGoogleTTSFlow_RapidDeltasDone(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestGoogleSTTLifecycle verifies the full STT flow:
-// create → initialize (event) → feed audio (no errors) → transcripts arrive →
-// event sequence includes initialized. If transcripts arrive, verify they carry
+// create → initialize (metric) → feed audio (no errors) → transcripts arrive.
+// If transcripts arrive, verify they carry
 // the expected metadata fields.
 func TestGoogleSTTLifecycle(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
@@ -601,19 +581,13 @@ func TestGoogleSTTLifecycle(t *testing.T) {
 	stt, err := NewGoogleSpeechToText(ctx, logger, cred, collector.OnPacket, opts)
 	require.NoError(t, err)
 	require.NotNil(t, stt)
-	assert.Equal(t, "google-speech-to-text", stt.Name())
+	assert.Equal(t, "google-stt", stt.Name())
 
-	// Flow: Initialize succeeds and emits "initialized" event
+	// Flow: Initialize succeeds and emits init metric
 	require.NoError(t, stt.Initialize())
 	defer stt.Close(ctx)
 
-	events := collector.EventPackets()
-	require.NotEmpty(t, events, "should emit initialized event")
-	assert.Equal(t, "stt", events[0].Record.Component.String())
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
-	assert.Equal(t, "google-speech-to-text", events[0].Record.Attributes["provider"])
-	_, err = strconv.Atoi(events[0].Record.Attributes["init_ms"])
-	assert.NoError(t, err, "init_ms should be a valid integer")
+	assertSTTInitMetric(t, collector)
 
 	// Flow: Feed audio without errors
 	feedDone := make(chan struct{})
@@ -771,10 +745,7 @@ func TestGoogleSTTReconnect(t *testing.T) {
 			t.Fatalf("attempt %d: context cancelled before audio feeding completed", attempt)
 		}
 
-		// Verify connection was established
-		events := collector.EventPackets()
-		require.NotEmpty(t, events, "attempt %d: should emit initialized event", attempt)
-		assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
+		assertSTTInitMetric(t, collector)
 		t.Logf("attempt=%d transcripts=%d", attempt, len(collector.TranscriptPackets()))
 
 		stt.Close(ctx)
@@ -824,10 +795,7 @@ func TestGoogleSTTCloseWhileStreaming(t *testing.T) {
 	err = stt.Close(ctx)
 	assert.NoError(t, err, "closing STT mid-stream should not error")
 
-	// Verify initialized event was emitted before close
-	events := collector.EventPackets()
-	require.NotEmpty(t, events)
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
+	assertSTTInitMetric(t, collector)
 }
 
 // TestGoogleSTTTranscriptContent verifies that real speech audio produces
@@ -903,6 +871,35 @@ func sttEventTypes(events []internal_type.ObservabilityEventRecordPacket) []stri
 	return out
 }
 
+func assertTTSInitMetric(t *testing.T, collector *testutil.PacketCollector) {
+	t.Helper()
+	for _, m := range collector.MetricPackets() {
+		for _, metric := range m.Record.Metrics {
+			if metric.Name == "tts_init_ms" {
+				ms, err := strconv.Atoi(metric.Value)
+				assert.NoError(t, err)
+				assert.GreaterOrEqual(t, ms, 0, "tts_init_ms should be non-negative")
+				t.Logf("tts_init_ms=%d", ms)
+				return
+			}
+		}
+	}
+	t.Error("should have tts_init_ms metric")
+}
+
+func assertTTSInitMetricCountAtLeast(t *testing.T, collector *testutil.PacketCollector, minimumCount int) {
+	t.Helper()
+	count := 0
+	for _, m := range collector.MetricPackets() {
+		for _, metric := range m.Record.Metrics {
+			if metric.Name == "tts_init_ms" {
+				count++
+			}
+		}
+	}
+	assert.GreaterOrEqual(t, count, minimumCount, "should have enough tts_init_ms metrics")
+}
+
 func assertTTSLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {
 	t.Helper()
 	for _, m := range collector.MetricPackets() {
@@ -917,6 +914,22 @@ func assertTTSLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {
 		}
 	}
 	t.Error("should have tts_latency_ms metric")
+}
+
+func assertSTTInitMetric(t *testing.T, collector *testutil.PacketCollector) {
+	t.Helper()
+	for _, m := range collector.MetricPackets() {
+		for _, metric := range m.Record.Metrics {
+			if metric.Name == "stt_init_ms" {
+				ms, err := strconv.Atoi(metric.Value)
+				assert.NoError(t, err)
+				assert.GreaterOrEqual(t, ms, 0, "stt_init_ms should be non-negative")
+				t.Logf("stt_init_ms=%d", ms)
+				return
+			}
+		}
+	}
+	t.Error("should have stt_init_ms metric")
 }
 
 func assertSTTLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {

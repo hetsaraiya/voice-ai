@@ -29,8 +29,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // TestSpeechmaticsSTTLifecycle verifies the full STT flow:
-// create → initialize (event) → feed audio (no errors) → transcripts arrive →
-// event sequence includes initialized.
+// create → initialize (metric/log) → feed audio (no errors) → transcripts arrive.
 func TestSpeechmaticsSTTLifecycle(t *testing.T) {
 	cfg := testutil.LoadConfig(t)
 	pcfg := cfg.STTProvider(t, "speechmatics")
@@ -46,19 +45,12 @@ func TestSpeechmaticsSTTLifecycle(t *testing.T) {
 	stt, err := NewSpeechmaticsSpeechToText(ctx, logger, cred, collector.OnPacket, opts)
 	require.NoError(t, err)
 	require.NotNil(t, stt)
-	assert.Equal(t, "speechmatics-speech-to-text", stt.Name())
+	assert.Equal(t, "speechmatics-stt", stt.Name())
 
-	// Flow: Initialize succeeds and emits "initialized" event
 	require.NoError(t, stt.Initialize())
 	defer stt.Close(ctx)
 
-	events := collector.EventPackets()
-	require.NotEmpty(t, events, "should emit initialized event")
-	assert.Equal(t, "stt", events[0].Record.Component.String())
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
-	assert.Equal(t, "speechmatics-speech-to-text", events[0].Record.Attributes["provider"])
-	_, err = strconv.Atoi(events[0].Record.Attributes["init_ms"])
-	assert.NoError(t, err, "init_ms should be a valid integer")
+	assertSTTInitMetric(t, collector)
 
 	// Flow: Feed audio without errors
 	feedDone := make(chan struct{})
@@ -190,9 +182,7 @@ func TestSpeechmaticsSTTReconnect(t *testing.T) {
 			t.Fatalf("attempt %d: context cancelled before audio feeding completed", attempt)
 		}
 
-		events := collector.EventPackets()
-		require.NotEmpty(t, events, "attempt %d: should emit initialized event", attempt)
-		assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
+		assertSTTInitMetric(t, collector)
 		t.Logf("attempt=%d transcripts=%d", attempt, len(collector.TranscriptPackets()))
 
 		stt.Close(ctx)
@@ -236,9 +226,7 @@ func TestSpeechmaticsSTTCloseWhileStreaming(t *testing.T) {
 	err = stt.Close(ctx)
 	assert.NoError(t, err, "closing STT mid-stream should not error")
 
-	events := collector.EventPackets()
-	require.NotEmpty(t, events)
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
+	assertSTTInitMetric(t, collector)
 }
 
 // TestSpeechmaticsSTTTranscriptContent verifies that real speech audio produces
@@ -329,7 +317,6 @@ func TestSpeechmaticsSTTInterimAndFinal(t *testing.T) {
 
 	// Verify event types emitted alongside transcripts
 	eventTypes := sttEventTypes(collector.EventPackets())
-	assert.Contains(t, eventTypes, "initialized")
 	if len(interims) > 0 {
 		assert.Contains(t, eventTypes, "interim")
 	}
@@ -367,4 +354,19 @@ func assertSTTLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {
 		}
 	}
 	t.Error("should have stt_latency_ms metric")
+}
+
+func assertSTTInitMetric(t *testing.T, collector *testutil.PacketCollector) {
+	t.Helper()
+	for _, m := range collector.MetricPackets() {
+		for _, metric := range m.Record.Metrics {
+			if metric.Name == "stt_init_latency_ms" {
+				ms, err := strconv.Atoi(metric.Value)
+				assert.NoError(t, err)
+				assert.GreaterOrEqual(t, ms, 0, "stt_init_latency_ms should be non-negative")
+				return
+			}
+		}
+	}
+	t.Error("should have stt_init_latency_ms metric")
 }

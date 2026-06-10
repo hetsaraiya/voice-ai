@@ -20,7 +20,6 @@ import (
 
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
@@ -67,24 +66,30 @@ func (ct *speechmaticsTTS) Initialize() error {
 		ct.ttsConnectedAt = time.Now()
 	}
 	ct.mu.Unlock()
-	ct.onPacket(internal_type.ObservabilityEventRecordPacket{
-		Scope: internal_type.ObservabilityRecordScopeConversation,
-		Record: observability.RecordEvent{
-			Component: observability.ComponentTTS,
-			Event:     observability.TTSInitialized,
-			Attributes: observability.Attributes{
-				"type":     "initialized",
-				"provider": ct.Name(),
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			},
-			OccurredAt: time.Now(),
+
+	ct.onPacket(
+		internal_type.ObservabilityMetricRecordPacket{
+			Scope:  internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewMetricTTSInitLatencyMs(time.Since(start), observability.Attributes{"provider": ct.Name()}),
 		},
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "speechmatics-tts: initialization completed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentTTS.String(),
+					"provider":  ct.Name(),
+					"path":      observability.AttributeValue(SPEECHMATICS_TTS_URL),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }
 
 func (*speechmaticsTTS) Name() string {
-	return "speechmatics-text-to-speech"
+	return "speechmatics-tts"
 }
 
 func (t *speechmaticsTTS) flush() {
@@ -170,25 +175,19 @@ func (t *speechmaticsTTS) streamHTTPTTS(text string, ctxId string) {
 
 			if firstChunk {
 				firstChunk = false
+				var shouldEmitFirstAudioLatencyMetric bool
 				t.mu.Lock()
-				startedAt := t.ttsStartedAt
-				metricSent := t.ttsMetricSent
-				if !metricSent && !startedAt.IsZero() {
+				ttsStartedAt := t.ttsStartedAt
+				if !t.ttsMetricSent && !ttsStartedAt.IsZero() {
 					t.ttsMetricSent = true
+					shouldEmitFirstAudioLatencyMetric = true
 				}
 				t.mu.Unlock()
-				if !metricSent && !startedAt.IsZero() {
+				if shouldEmitFirstAudioLatencyMetric {
 					t.onPacket(internal_type.ObservabilityMetricRecordPacket{
-						ContextID:   ctxId,
-						Scope:       internal_type.ObservabilityRecordScopeMessage,
-						MessageRole: observability.MessageRoleAssistant,
-						Record: observability.RecordMetric{
-							Metrics: []*protos.Metric{{
-								Name:  "tts_latency_ms",
-								Value: fmt.Sprintf("%d", time.Since(startedAt).Milliseconds()),
-							}},
-							Attributes: observability.Attributes{"provider": t.Name()},
-						},
+						ContextID: ctxId,
+						Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
+						Record:    observability.NewMetricTTSLatencyMs(time.Since(ttsStartedAt), observability.Attributes{"provider": t.Name()}),
 					})
 				}
 			}
@@ -211,9 +210,8 @@ func (t *speechmaticsTTS) streamHTTPTTS(text string, ctxId string) {
 	t.onPacket(
 		internal_type.TextToSpeechEndPacket{ContextID: ctxId},
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   ctxId,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: ctxId,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordEvent{
 				Component:  observability.ComponentTTS,
 				Event:      observability.TTSCompleted,
@@ -244,9 +242,8 @@ func (t *speechmaticsTTS) Transform(ctx context.Context, in internal_type.Packet
 			t.textBuffer.Reset()
 			t.mu.Unlock()
 			t.onPacket(internal_type.ObservabilityEventRecordPacket{
-				ContextID:   input.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: input.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.RecordEvent{
 					Component:  observability.ComponentTTS,
 					Event:      observability.TTSInterrupted,
@@ -264,9 +261,8 @@ func (t *speechmaticsTTS) Transform(ctx context.Context, in internal_type.Packet
 		t.textBuffer.WriteString(input.Text)
 		t.mu.Unlock()
 		t.onPacket(internal_type.ObservabilityEventRecordPacket{
-			ContextID:   input.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: input.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordEvent{
 				Component: observability.ComponentTTS,
 				Event:     observability.TTSSpeaking,
@@ -289,7 +285,6 @@ func (t *speechmaticsTTS) Transform(ctx context.Context, in internal_type.Packet
 func (t *speechmaticsTTS) Close(ctx context.Context) error {
 	t.ctxCancel()
 	t.mu.Lock()
-	ctxID := t.contextId
 	connectedAt := t.ttsConnectedAt
 	t.ttsConnectedAt = time.Time{}
 	t.mu.Unlock()
@@ -297,42 +292,28 @@ func (t *speechmaticsTTS) Close(ctx context.Context) error {
 	if !connectedAt.IsZero() {
 		duration := time.Since(connectedAt)
 		t.onPacket(
-			internal_type.ObservabilityEventRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentTTS,
-					Event:     observability.TTSClosed,
-					Attributes: observability.Attributes{
-						"type":     "closed",
-						"provider": t.Name(),
-					},
-					OccurredAt: time.Now(),
-				},
-			},
 			internal_type.ObservabilityMetricRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationMetricRecord([]*protos.Metric{{
-					Name:        type_enums.CONVERSATION_TTS_DURATION.String(),
-					Value:       fmt.Sprintf("%d", duration.Nanoseconds()),
-					Description: "Total TTS connection duration in nanoseconds",
-				}}),
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricTTSDuration(duration, observability.Attributes{"provider": t.Name()}),
 			},
 			internal_type.ObservabilityUsageRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordUsage{
-					Component: observability.ComponentTTS,
-					Provider:  t.Name(),
-					Duration:  duration,
-					Attributes: observability.Attributes{
-						"context_id": ctxID,
-						"provider":   t.Name(),
-						"metric":     type_enums.CONVERSATION_TTS_DURATION.String(),
-					},
-				},
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewTTSDurationUsageRecord(t.Name(), duration, observability.Attributes{}),
 			},
 		)
 	}
+	t.onPacket(
+		internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentTTS,
+				Event:     observability.TTSClosed,
+				Attributes: observability.Attributes{
+					"type":     "closed",
+					"provider": t.Name(),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }

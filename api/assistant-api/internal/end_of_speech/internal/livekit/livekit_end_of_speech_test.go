@@ -468,8 +468,7 @@ func TestLivekitEndOfSpeech_ObservabilityEventShape(t *testing.T) {
 				continue
 			}
 			assert.Equal(t, "ctx-events", event.ContextID)
-			assert.Equal(t, internal_type.ObservabilityRecordScopeMessage, event.Scope)
-			assert.Equal(t, observability.MessageRoleUser, event.MessageRole)
+			assert.Equal(t, internal_type.ObservabilityRecordScopeUserMessage, event.Scope)
 			assert.Equal(t, observability.ComponentEOS, event.Record.Component)
 			assert.Equal(t, eosName, event.Record.Attributes["provider"])
 			assert.Equal(t, "ctx-events", event.Record.Attributes["context_id"])
@@ -488,6 +487,8 @@ func TestLivekitEndOfSpeech_ObservabilityEventShape(t *testing.T) {
 			if metric.Record.Metrics[0].Name != observability.MetricEOSLatencyMs {
 				continue
 			}
+			assert.Equal(t, internal_type.ObservabilityRecordScopeUserMessage, metric.Scope)
+			assert.Equal(t, eosName, metric.Record.Attributes["provider"])
 			_, parseErr := strconv.Atoi(metric.Record.Metrics[0].Value)
 			assert.NoError(t, parseErr)
 			sawMetric = true
@@ -500,11 +501,32 @@ func TestLivekitEndOfSpeech_ObservabilityEventShape(t *testing.T) {
 func TestLivekitEndOfSpeech_ObservabilityLifecycleEvents(t *testing.T) {
 	logger, _ := commons.NewApplicationLogger()
 	events := make(chan internal_type.ObservabilityEventRecordPacket, 8)
+	metrics := make(chan internal_type.ObservabilityMetricRecordPacket, 8)
+	logs := make(chan internal_type.ObservabilityLogRecordPacket, 8)
+	usages := make(chan internal_type.ObservabilityUsageRecordPacket, 2)
 	callback := func(ctx context.Context, packets ...internal_type.Packet) error {
 		for _, packet := range packets {
 			if event, ok := packet.(internal_type.ObservabilityEventRecordPacket); ok {
 				select {
 				case events <- event:
+				default:
+				}
+			}
+			if metric, ok := packet.(internal_type.ObservabilityMetricRecordPacket); ok {
+				select {
+				case metrics <- metric:
+				default:
+				}
+			}
+			if log, ok := packet.(internal_type.ObservabilityLogRecordPacket); ok {
+				select {
+				case logs <- log:
+				default:
+				}
+			}
+			if usage, ok := packet.(internal_type.ObservabilityUsageRecordPacket); ok {
+				select {
+				case usages <- usage:
 				default:
 				}
 			}
@@ -520,19 +542,27 @@ func TestLivekitEndOfSpeech_ObservabilityLifecycleEvents(t *testing.T) {
 		Text:      "hello",
 	}))
 
-	sawInitialized := false
+	sawInitMetric := false
+	sawInitLog := false
 	sawDetected := false
 	timeout := time.After(500 * time.Millisecond)
-	for !sawInitialized || !sawDetected {
+	for !sawInitMetric || !sawInitLog || !sawDetected {
 		select {
 		case event := <-events:
-			switch event.Record.Event {
-			case observability.EOSStarted:
-				sawInitialized = true
-			case observability.EOSCompleted:
+			if event.Record.Event == observability.EOSCompleted {
 				sawDetected = true
-			default:
-				t.Fatalf("unexpected eos event: %+v", event)
+				continue
+			}
+			t.Fatalf("unexpected eos event: %+v", event)
+		case metric := <-metrics:
+			if len(metric.Record.Metrics) > 0 && metric.Record.Metrics[0].Name == observability.MetricEOSInitLatencyMs {
+				sawInitMetric = true
+			}
+		case log := <-logs:
+			if log.Record.Level == observability.LevelInfo &&
+				log.Record.Attributes["provider"] == eosName &&
+				log.Record.Attributes["options"] != "" {
+				sawInitLog = true
 			}
 		case <-timeout:
 			t.Fatal("timeout waiting for eos lifecycle events")
@@ -542,13 +572,18 @@ func TestLivekitEndOfSpeech_ObservabilityLifecycleEvents(t *testing.T) {
 	require.NoError(t, executor.Close(context.Background()))
 
 	timeout = time.After(500 * time.Millisecond)
-	for {
+	sawClosed := false
+	sawUsage := false
+	for !sawClosed || !sawUsage {
 		select {
 		case event := <-events:
-			if event.Record.Event != observability.EOSClosed {
-				continue
+			if event.Record.Event == observability.EOSClosed {
+				sawClosed = true
 			}
-			return
+		case usage := <-usages:
+			if usage.Record.Component == observability.ComponentName(observability.UsageConversationEOSDuration) {
+				sawUsage = true
+			}
 		case <-timeout:
 			t.Fatal("timeout waiting for closed eos event")
 		}

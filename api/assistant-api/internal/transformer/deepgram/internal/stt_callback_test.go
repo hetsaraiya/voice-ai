@@ -58,9 +58,13 @@ func (pc *packetCollector) Clear() {
 // =============================================================================
 
 func createTestCallback(opts utils.Option) (*packetCollector, commons.Logger, msginterfaces.LiveMessageCallback) {
+	return createTestCallbackWithStartTime(opts, time.Now().Add(-100*time.Millisecond))
+}
+
+func createTestCallbackWithStartTime(opts utils.Option, startedAt time.Time) (*packetCollector, commons.Logger, msginterfaces.LiveMessageCallback) {
 	logger, _ := commons.NewApplicationLogger()
 	collector := newPacketCollector()
-	callback := NewDeepgramSttCallback(logger, collector.OnPacket, opts, func() time.Time { return time.Time{} }, func() string { return "ctx-test" }, "deepgram-speech-to-text")
+	callback := NewDeepgramSttCallback(logger, collector.OnPacket, opts, func() time.Time { return startedAt }, func() string { return "ctx-test" }, "deepgram-stt")
 	return collector, logger, callback
 }
 
@@ -166,6 +170,21 @@ func TestMessage(t *testing.T) {
 		assert.True(t, ok, "fourth packet should be ObservabilityMetricRecordPacket")
 		assert.Len(t, metric.Record.Metrics, 1)
 		assert.Equal(t, "stt_latency_ms", metric.Record.Metrics[0].Name)
+	})
+
+	t.Run("omits latency metric when start time is missing", func(t *testing.T) {
+		collector, _, callback := createTestCallbackWithStartTime(utils.Option{}, time.Time{})
+
+		mr := createMessageResponse("hello world", 0.95, true, []string{"en"})
+		err := callback.Message(mr)
+
+		require.NoError(t, err)
+		packets := collector.GetPackets()
+		// Final without a start timestamp: InterruptionDetectedPacket + SpeechToTextPacket + ObservabilityEventRecordPacket
+		require.Len(t, packets, 3)
+
+		_, ok := packets[2].(internal_type.ObservabilityEventRecordPacket)
+		assert.True(t, ok, "third packet should be ObservabilityEventRecordPacket")
 	})
 
 	t.Run("sets interim true when IsFinal is false", func(t *testing.T) {

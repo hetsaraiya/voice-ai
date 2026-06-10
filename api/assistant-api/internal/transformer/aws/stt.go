@@ -14,15 +14,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
@@ -61,7 +61,7 @@ func NewAWSSpeechToText(ctx context.Context, logger commons.Logger, vaultCredent
 }
 
 func (*awsSTT) Name() string {
-	return "aws-speech-to-text"
+	return "aws-stt"
 }
 
 func (st *awsSTT) Initialize() error {
@@ -70,20 +70,27 @@ func (st *awsSTT) Initialize() error {
 	st.sttConnectedAt = time.Now()
 	ctxID := st.contextId
 	st.mu.Unlock()
-	st.onPacket(internal_type.ObservabilityEventRecordPacket{
-		ContextID: ctxID,
-		Scope:     internal_type.ObservabilityRecordScopeConversation,
-		Record: observability.RecordEvent{
-			Component: observability.ComponentSTT,
-			Event:     observability.STTInitialized,
-			Attributes: observability.Attributes{
-				"type":     "initialized",
-				"provider": st.Name(),
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			},
-			OccurredAt: time.Now(),
+	st.onPacket(
+		internal_type.ObservabilityMetricRecordPacket{
+			ContextID: ctxID,
+			Scope:     internal_type.ObservabilityRecordScopeConversation,
+			Record:    observability.NewMetricSTTInitLatencyMs(time.Since(start), observability.Attributes{"provider": st.Name()}),
 		},
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			ContextID: ctxID,
+			Scope:     internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "aws-stt: initialization completed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentSTT.String(),
+					"provider":  st.Name(),
+					"region":    st.GetRegion(),
+				},
+				OccurredAt: time.Now(),
+			},
+		},
+	)
 	return nil
 }
 
@@ -106,24 +113,25 @@ func (st *awsSTT) Transform(ctx context.Context, in internal_type.Packet) error 
 		if st.startedAt.IsZero() {
 			st.startedAt = time.Now()
 		}
-		st.mu.Unlock()
-		st.mu.Lock()
+		startedAt := st.startedAt
+		st.startedAt = time.Time{}
 		st.audioBuffer.Write(pkt.Audio)
 		audioData := make([]byte, st.audioBuffer.Len())
 		copy(audioData, st.audioBuffer.Bytes())
 		st.audioBuffer.Reset()
-		ctxId := st.contextId
+		ctxID := st.contextId
 		st.mu.Unlock()
 
-		go st.transcribe(audioData, ctxId)
+		go st.transcribe(audioData, ctxID, startedAt)
 		return nil
 	default:
 		return nil
 	}
 }
 
-func (st *awsSTT) transcribe(audioData []byte, ctxID string) {
+func (st *awsSTT) transcribe(audioData []byte, ctxID string, startedAt time.Time) {
 	region := st.GetRegion()
+	language := st.GetLanguage()
 	endpoint := fmt.Sprintf("https://transcribe.%s.amazonaws.com", region)
 
 	payload := map[string]interface{}{
@@ -132,7 +140,7 @@ func (st *awsSTT) transcribe(audioData []byte, ctxID string) {
 				"AudioChunk": audioData,
 			},
 		},
-		"LanguageCode":         st.GetLanguage(),
+		"LanguageCode":         language,
 		"MediaEncoding":        "pcm",
 		"MediaSampleRateHertz": 16000,
 	}
@@ -140,26 +148,77 @@ func (st *awsSTT) transcribe(audioData []byte, ctxID string) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		st.logger.Errorf("aws-stt: error marshalling request: %v", err)
-		st.onPacket(internal_type.SpeechToTextErrorPacket{ContextID: ctxID, Error: fmt.Errorf("aws-stt: marshal failed: %w", err), Type: internal_type.STTNetworkTimeout})
+		transcribeErr := fmt.Errorf("aws-stt: marshal failed: %w", err)
+		st.onPacket(
+			internal_type.SpeechToTextErrorPacket{ContextID: ctxID, Error: transcribeErr, Type: internal_type.STTNetworkTimeout},
+			internal_type.ObservabilityLogRecordPacket{
+				ContextID: ctxID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "aws-stt: error while transcribing",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentSTT.String(),
+						"provider":  st.Name(),
+						"error":     observability.AttributeValue(transcribeErr.Error()),
+					},
+					OccurredAt: time.Now(),
+				},
+			},
+		)
 		return
 	}
 
-	now := time.Now().UTC()
+	requestTime := time.Now().UTC()
 	req, err := http.NewRequestWithContext(st.ctx, "POST", endpoint, bytes.NewReader(body))
 	if err != nil {
 		st.logger.Errorf("aws-stt: error creating request: %v", err)
-		st.onPacket(internal_type.SpeechToTextErrorPacket{ContextID: ctxID, Error: fmt.Errorf("aws-stt: request creation failed: %w", err), Type: internal_type.STTNetworkTimeout})
+		transcribeErr := fmt.Errorf("aws-stt: request creation failed: %w", err)
+		st.onPacket(
+			internal_type.SpeechToTextErrorPacket{ContextID: ctxID, Error: transcribeErr, Type: internal_type.STTNetworkTimeout},
+			internal_type.ObservabilityLogRecordPacket{
+				ContextID: ctxID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "aws-stt: error while transcribing",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentSTT.String(),
+						"provider":  st.Name(),
+						"error":     observability.AttributeValue(transcribeErr.Error()),
+					},
+					OccurredAt: time.Now(),
+				},
+			},
+		)
 		return
 	}
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	req.Header.Set("X-Amz-Target", "com.amazonaws.transcribe.Transcribe.StartTranscriptionJob")
 
-	st.signRequest(req, body, now, region, "transcribe")
+	st.signRequest(req, body, requestTime, region, "transcribe")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		st.logger.Errorf("aws-stt: error sending request: %v", err)
-		st.onPacket(internal_type.SpeechToTextErrorPacket{ContextID: ctxID, Error: fmt.Errorf("aws-stt: request failed: %w", err), Type: internal_type.STTNetworkTimeout})
+		transcribeErr := fmt.Errorf("aws-stt: request failed: %w", err)
+		st.onPacket(
+			internal_type.SpeechToTextErrorPacket{ContextID: ctxID, Error: transcribeErr, Type: internal_type.STTNetworkTimeout},
+			internal_type.ObservabilityLogRecordPacket{
+				ContextID: ctxID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "aws-stt: error while transcribing",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentSTT.String(),
+						"provider":  st.Name(),
+						"error":     observability.AttributeValue(transcribeErr.Error()),
+					},
+					OccurredAt: time.Now(),
+				},
+			},
+		)
 		return
 	}
 	defer resp.Body.Close()
@@ -167,7 +226,25 @@ func (st *awsSTT) transcribe(audioData []byte, ctxID string) {
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
 		st.logger.Errorf("aws-stt: unexpected status code: %d, body: %s", resp.StatusCode, string(respBody))
-		st.onPacket(internal_type.SpeechToTextErrorPacket{ContextID: ctxID, Error: fmt.Errorf("aws-stt: status %d", resp.StatusCode), Type: internal_type.STTNetworkTimeout})
+		transcribeErr := fmt.Errorf("aws-stt: status %d", resp.StatusCode)
+		st.onPacket(
+			internal_type.SpeechToTextErrorPacket{ContextID: ctxID, Error: transcribeErr, Type: internal_type.STTNetworkTimeout},
+			internal_type.ObservabilityLogRecordPacket{
+				ContextID: ctxID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "aws-stt: error while transcribing",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentSTT.String(),
+						"provider":  st.Name(),
+						"error":     observability.AttributeValue(transcribeErr.Error()),
+						"response":  observability.AttributeValue(string(respBody)),
+					},
+					OccurredAt: time.Now(),
+				},
+			},
+		)
 		return
 	}
 
@@ -180,7 +257,24 @@ func (st *awsSTT) transcribe(audioData []byte, ctxID string) {
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		st.logger.Errorf("aws-stt: error decoding response: %v", err)
-		st.onPacket(internal_type.SpeechToTextErrorPacket{ContextID: ctxID, Error: fmt.Errorf("aws-stt: decode failed: %w", err), Type: internal_type.STTNetworkTimeout})
+		transcribeErr := fmt.Errorf("aws-stt: decode failed: %w", err)
+		st.onPacket(
+			internal_type.SpeechToTextErrorPacket{ContextID: ctxID, Error: transcribeErr, Type: internal_type.STTNetworkTimeout},
+			internal_type.ObservabilityLogRecordPacket{
+				ContextID: ctxID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "aws-stt: error while transcribing",
+					Attributes: observability.Attributes{
+						"component": observability.ComponentSTT.String(),
+						"provider":  st.Name(),
+						"error":     observability.AttributeValue(transcribeErr.Error()),
+					},
+					OccurredAt: time.Now(),
+				},
+			},
+		)
 		return
 	}
 
@@ -189,44 +283,42 @@ func (st *awsSTT) transcribe(audioData []byte, ctxID string) {
 		transcript = result.Results.Transcripts[0].Transcript
 	}
 
-	//
-	var latencyMs int64
 	if transcript != "" {
-		st.mu.Lock()
-		if !st.startedAt.IsZero() {
-			latencyMs = now.Sub(st.startedAt).Milliseconds()
-			st.startedAt = time.Time{}
-		}
-		st.mu.Unlock()
-
+		completedAt := time.Now()
 		st.onPacket(
-			internal_type.InterruptionDetectedPacket{ContextID: ctxID, Source: "word"},
+			internal_type.InterruptionDetectedPacket{ContextID: ctxID, Source: internal_type.InterruptionSourceWord},
 			internal_type.SpeechToTextPacket{
 				ContextID: ctxID,
 				Script:    transcript,
+				Language:  language,
 				Interim:   false,
 			},
 			internal_type.ObservabilityEventRecordPacket{
-				ContextID:   ctxID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleUser,
+				ContextID: ctxID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 				Record: observability.RecordEvent{
-					Component:  observability.ComponentSTT,
-					Event:      observability.STTCompleted,
-					Attributes: observability.Attributes{"type": "completed"},
-					OccurredAt: time.Now(),
-				},
-			},
-			internal_type.ObservabilityMetricRecordPacket{
-				ContextID:   ctxID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleUser,
-				Record: observability.RecordMetric{
-					Metrics:    []*protos.Metric{{Name: "stt_latency_ms", Value: fmt.Sprintf("%d", latencyMs)}},
-					Attributes: observability.Attributes{"provider": st.Name()},
+					Component: observability.ComponentSTT,
+					Event:     observability.STTCompleted,
+					Attributes: observability.Attributes{
+						"type":       "completed",
+						"script":     transcript,
+						"language":   language,
+						"word_count": fmt.Sprintf("%d", len(strings.Fields(transcript))),
+						"char_count": fmt.Sprintf("%d", len(transcript)),
+					},
+					OccurredAt: completedAt,
 				},
 			},
 		)
+		if !startedAt.IsZero() {
+			st.onPacket(
+				internal_type.ObservabilityMetricRecordPacket{
+					ContextID: ctxID,
+					Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+					Record:    observability.NewMetricSTTLatencyMs(completedAt.Sub(startedAt), observability.Attributes{"provider": st.Name()}),
+				},
+			)
+		}
 	}
 }
 
@@ -286,42 +378,29 @@ func (st *awsSTT) Close(ctx context.Context) error {
 	if !connectedAt.IsZero() {
 		duration := time.Since(connectedAt)
 		st.onPacket(
-			internal_type.ObservabilityEventRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentSTT,
-					Event:     observability.STTClosed,
-					Attributes: observability.Attributes{
-						"type":     "closed",
-						"provider": st.Name(),
-					},
-					OccurredAt: time.Now(),
-				},
-			},
 			internal_type.ObservabilityMetricRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationMetricRecord([]*protos.Metric{{
-					Name:        type_enums.CONVERSATION_STT_DURATION.String(),
-					Value:       fmt.Sprintf("%d", duration.Nanoseconds()),
-					Description: "Total STT connection duration in nanoseconds",
-				}}),
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricSTTDuration(duration, observability.Attributes{"provider": st.Name()}),
 			},
 			internal_type.ObservabilityUsageRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordUsage{
-					Component: observability.ComponentSTT,
-					Provider:  st.Name(),
-					Duration:  duration,
-					Attributes: observability.Attributes{
-						"context_id": ctxID,
-						"provider":   st.Name(),
-						"metric":     type_enums.CONVERSATION_STT_DURATION.String(),
-					},
-				},
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewSTTDurationUsageRecord(st.Name(), duration, observability.Attributes{}),
 			},
 		)
 	}
+	st.onPacket(
+		internal_type.ObservabilityEventRecordPacket{
+			ContextID: ctxID,
+			Scope:     internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentSTT,
+				Event:     observability.STTClosed,
+				Attributes: observability.Attributes{
+					"type":     "closed",
+					"provider": st.Name(),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }

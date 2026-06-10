@@ -7,6 +7,8 @@
 package internal_llm_agentkit
 
 import (
+	"time"
+
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/protos"
@@ -39,11 +41,12 @@ type ResponsePipeline struct {
 }
 
 type agentkitExecutor struct {
-	logger          commons.Logger
-	transport       agentkitTransport
-	stateMu         sync.RWMutex
-	activeContextID string
-	closing         bool
+	logger           commons.Logger
+	transport        agentkitTransport
+	stateMu          sync.RWMutex
+	activeContextID  string
+	requestStartedAt time.Time
+	closing          bool
 }
 
 type agentkitTransport struct {

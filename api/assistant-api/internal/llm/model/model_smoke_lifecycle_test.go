@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/pkg/utils"
@@ -80,7 +81,11 @@ func TestModel_Listen_RecvError_EmitsSystemPanic(t *testing.T) {
 		stream:        errStream,
 		currentPacket: &internal_type.UserInputPacket{ContextID: "ctx-1"},
 	}
-	comm := &testComm{}
+	comm := &testComm{
+		assistant: &internal_assistant_entity.Assistant{
+			AssistantProviderModel: &internal_assistant_entity.AssistantProviderModel{ModelProviderName: "openai"},
+		},
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

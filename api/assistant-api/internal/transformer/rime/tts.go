@@ -11,17 +11,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/rapidaai/api/assistant-api/internal/observability"
 
 	"github.com/gorilla/websocket"
 
 	rime_internal "github.com/rapidaai/api/assistant-api/internal/transformer/rime/internal"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
@@ -65,7 +65,7 @@ func NewRimeTextToSpeech(
 }
 
 func (*rimeTTS) Name() string {
-	return "rime-text-to-speech"
+	return "rime-tts"
 }
 
 // Initialize opens a fresh WebSocket connection to Rime and starts the read
@@ -75,9 +75,23 @@ func (rt *rimeTTS) Initialize() error {
 	start := time.Now()
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+rt.GetKey())
-	conn, _, err := websocket.DefaultDialer.Dial(rt.GetTextToSpeechConnectionString(), header)
+	connectionString := rt.GetTextToSpeechConnectionString()
+	conn, _, err := websocket.DefaultDialer.Dial(connectionString, header)
 	if err != nil {
 		rt.logger.Errorf("rime-tts: dial failed: %v", err)
+		rt.onPacket(internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "rime-tts: error while performing connect",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentTTS.String(),
+					"provider":  rt.Name(),
+					"path":      observability.AttributeValue(connectionString),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 		return err
 	}
 
@@ -87,22 +101,26 @@ func (rt *rimeTTS) Initialize() error {
 		rt.ttsConnectedAt = time.Now()
 	}
 	rt.mu.Unlock()
-
 	go rt.readLoop(conn)
 
-	rt.onPacket(internal_type.ObservabilityEventRecordPacket{
-		Scope: internal_type.ObservabilityRecordScopeConversation,
-		Record: observability.RecordEvent{
-			Component: observability.ComponentTTS,
-			Event:     observability.TTSInitialized,
-			Attributes: observability.Attributes{
-				"type":     "initialized",
-				"provider": rt.Name(),
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			},
-			OccurredAt: time.Now(),
+	rt.onPacket(
+		internal_type.ObservabilityMetricRecordPacket{
+			Scope:  internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewMetricTTSInitLatencyMs(time.Since(start), observability.Attributes{"provider": rt.Name()}),
 		},
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "rime-tts: initialization completed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentTTS.String(),
+					"provider":  rt.Name(),
+					"path":      observability.AttributeValue(connectionString),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }
 
@@ -120,14 +138,14 @@ func (rt *rimeTTS) readLoop(conn *websocket.Conn) {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			rt.mu.Lock()
-			intentional := rt.connection == nil // set to nil before conn.Close() on intentional paths
-			if !intentional {
-				rt.connection = nil // unintentional drop: next delta will reconnect
+			if rt.connection != conn {
+				rt.mu.Unlock()
+				return
 			}
+			// Active connection dropped; next text packet reconnects.
+			rt.connection = nil
 			rt.mu.Unlock()
-			if !intentional {
-				rt.logger.Errorf("rime-tts: connection lost: %v", err)
-			}
+			rt.logger.Errorf("rime-tts: connection lost: %v", err)
 			return
 		}
 
@@ -165,9 +183,9 @@ func (rt *rimeTTS) handleAudio(response rime_internal.RimeTextToSpeechResponse) 
 
 	rt.mu.Lock()
 	contextId := rt.contextId
-	startedAt := rt.ttsStartedAt
-	metricSent := rt.ttsMetricSent
-	if !metricSent && !startedAt.IsZero() {
+	ttsStartedAt := rt.ttsStartedAt
+	shouldEmitFirstAudioLatencyMetric := !rt.ttsMetricSent && !ttsStartedAt.IsZero()
+	if shouldEmitFirstAudioLatencyMetric {
 		rt.ttsMetricSent = true
 	}
 	rt.mu.Unlock()
@@ -177,18 +195,11 @@ func (rt *rimeTTS) handleAudio(response rime_internal.RimeTextToSpeechResponse) 
 		return
 	}
 
-	if !metricSent && !startedAt.IsZero() {
+	if shouldEmitFirstAudioLatencyMetric {
 		rt.onPacket(internal_type.ObservabilityMetricRecordPacket{
-			ContextID:   contextId,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
-			Record: observability.RecordMetric{
-				Metrics: []*protos.Metric{{
-					Name:  "tts_latency_ms",
-					Value: fmt.Sprintf("%d", time.Since(startedAt).Milliseconds()),
-				}},
-				Attributes: observability.Attributes{"provider": rt.Name()},
-			},
+			ContextID: contextId,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
+			Record:    observability.NewMetricTTSLatencyMs(time.Since(ttsStartedAt), observability.Attributes{"provider": rt.Name()}),
 		})
 	}
 	rt.onPacket(internal_type.TextToSpeechAudioPacket{ContextID: contextId, AudioChunk: raw})
@@ -207,9 +218,8 @@ func (rt *rimeTTS) handleFlushComplete(conn *websocket.Conn) {
 	rt.onPacket(
 		internal_type.TextToSpeechEndPacket{ContextID: contextId},
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   contextId,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: contextId,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordEvent{
 				Component:  observability.ComponentTTS,
 				Event:      observability.TTSCompleted,
@@ -229,9 +239,8 @@ func (rt *rimeTTS) handleServerError(conn *websocket.Conn, response rime_interna
 	rt.connection = nil
 	rt.mu.Unlock()
 	rt.onPacket(internal_type.ObservabilityEventRecordPacket{
-		ContextID:   response.ContextId,
-		Scope:       internal_type.ObservabilityRecordScopeMessage,
-		MessageRole: observability.MessageRoleAssistant,
+		ContextID: response.ContextId,
+		Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 		Record: observability.RecordEvent{
 			Component:  observability.ComponentTTS,
 			Event:      observability.TTSError,
@@ -267,11 +276,9 @@ func (rt *rimeTTS) Transform(ctx context.Context, in internal_type.Packet) error
 		if conn != nil {
 			conn.Close()
 		}
-		// Emit before Initialize so downstream sees the interrupt immediately.
 		rt.onPacket(internal_type.ObservabilityEventRecordPacket{
-			ContextID:   input.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: input.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordEvent{
 				Component:  observability.ComponentTTS,
 				Event:      observability.TTSInterrupted,
@@ -319,9 +326,8 @@ func (rt *rimeTTS) Transform(ctx context.Context, in internal_type.Packet) error
 			return nil
 		}
 		rt.onPacket(internal_type.ObservabilityEventRecordPacket{
-			ContextID:   input.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: input.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordEvent{
 				Component:  observability.ComponentTTS,
 				Event:      observability.TTSSpeaking,
@@ -356,7 +362,6 @@ func (rt *rimeTTS) Transform(ctx context.Context, in internal_type.Packet) error
 func (rt *rimeTTS) Close(ctx context.Context) error {
 	rt.ctxCancel()
 	rt.mu.Lock()
-	ctxID := rt.contextId
 	connectedAt := rt.ttsConnectedAt
 	rt.ttsConnectedAt = time.Time{}
 	if rt.connection != nil {
@@ -369,42 +374,28 @@ func (rt *rimeTTS) Close(ctx context.Context) error {
 	if !connectedAt.IsZero() {
 		duration := time.Since(connectedAt)
 		rt.onPacket(
-			internal_type.ObservabilityEventRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentTTS,
-					Event:     observability.TTSClosed,
-					Attributes: observability.Attributes{
-						"type":     "closed",
-						"provider": rt.Name(),
-					},
-					OccurredAt: time.Now(),
-				},
-			},
 			internal_type.ObservabilityMetricRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationMetricRecord([]*protos.Metric{{
-					Name:        type_enums.CONVERSATION_TTS_DURATION.String(),
-					Value:       fmt.Sprintf("%d", duration.Nanoseconds()),
-					Description: "Total TTS connection duration in nanoseconds",
-				}}),
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricTTSDuration(duration, observability.Attributes{"provider": rt.Name()}),
 			},
 			internal_type.ObservabilityUsageRecordPacket{
-				ContextID: ctxID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordUsage{
-					Component: observability.ComponentTTS,
-					Provider:  rt.Name(),
-					Duration:  duration,
-					Attributes: observability.Attributes{
-						"context_id": ctxID,
-						"provider":   rt.Name(),
-						"metric":     type_enums.CONVERSATION_TTS_DURATION.String(),
-					},
-				},
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewTTSDurationUsageRecord(rt.Name(), duration, observability.Attributes{}),
 			},
 		)
 	}
+	rt.onPacket(
+		internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentTTS,
+				Event:     observability.TTSClosed,
+				Attributes: observability.Attributes{
+					"type":     "closed",
+					"provider": rt.Name(),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 	return nil
 }

@@ -9,6 +9,7 @@ package internal_llm_agentkit
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
@@ -60,46 +61,46 @@ func (e *agentkitExecutor) handleUserTurn(ctx context.Context, comm internal_typ
 	}
 	e.stateMu.Lock()
 	e.activeContextID = contextID
+	e.requestStartedAt = time.Now()
 	e.stateMu.Unlock()
 
 	comm.OnPacket(ctx,
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   contextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: contextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.NewMessageRecord(contextID, observability.ComponentLLM, observability.LLMStarted, observability.MessageRoleAssistant, observability.Attributes{
-				"provider":         "agentkit",
+				"provider":         e.Name(),
 				"context_id":       contextID,
-				"message_role":     string(observability.MessageRoleAssistant),
 				"input_char_count": fmt.Sprintf("%d", len(text)),
 			}),
 		},
 		internal_type.ObservabilityLogRecordPacket{
-			ContextID:   contextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: contextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordLog{
 				Level:   observability.LevelDebug,
 				Message: "agentkit request started",
 				Attributes: observability.Attributes{
 					"component":        observability.ComponentLLM.String(),
 					"operation":        "execute",
-					"provider":         "agentkit",
+					"provider":         e.Name(),
 					"context_id":       contextID,
-					"message_role":     string(observability.MessageRoleAssistant),
 					"input_char_count": fmt.Sprintf("%d", len(text)),
 				},
+				OccurredAt: time.Now(),
 			},
 		},
 		internal_type.ObservabilityMetricRecordPacket{
-			ContextID:   contextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
-			Record: observability.NewMessageMetricRecord(contextID, observability.MessageRoleAssistant, []*protos.Metric{{
-				Name:        "llm_input_char_count",
-				Value:       fmt.Sprintf("%d", len(text)),
-				Description: "Input character count sent to AgentKit",
-			}}),
+			ContextID: contextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
+			Record: observability.RecordMetric{
+				Attributes: observability.Attributes{"provider": e.Name()},
+				Metrics: []*protos.Metric{{
+					Name:        "llm_input_char_count",
+					Value:       fmt.Sprintf("%d", len(text)),
+					Description: "Input character count sent to AgentKit",
+				}},
+			},
 		},
 	)
 	if err := e.send(&protos.TalkInput{

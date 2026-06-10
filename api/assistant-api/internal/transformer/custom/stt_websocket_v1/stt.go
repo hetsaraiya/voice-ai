@@ -23,7 +23,6 @@ import (
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
-	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
@@ -118,20 +117,27 @@ func (transformer *speechToText) Initialize() error {
 		return fmt.Errorf("custom-stt websocket_v1: failed to connect: %w", err)
 	}
 
-	transformer.onPacket(internal_type.ObservabilityEventRecordPacket{
-		ContextID: transformer.currentContextID(),
-		Scope:     internal_type.ObservabilityRecordScopeConversation,
-		Record: observability.RecordEvent{
-			Component: observability.ComponentSTT,
-			Event:     observability.STTInitialized,
-			Attributes: observability.Attributes{
-				"type":     "initialized",
-				"provider": transformer.Name(),
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			},
-			OccurredAt: time.Now(),
+	transformer.onPacket(
+		internal_type.ObservabilityMetricRecordPacket{
+			ContextID: transformer.currentContextID(),
+			Scope:     internal_type.ObservabilityRecordScopeConversation,
+			Record:    observability.NewMetricSTTInitLatencyMs(time.Since(start), observability.Attributes{"provider": transformer.Name()}),
 		},
-	})
+		internal_type.ObservabilityLogRecordPacket{
+			ContextID: transformer.currentContextID(),
+			Scope:     internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "custom-stt websocket_v1: initialization completed",
+				Attributes: observability.Attributes{
+					"component": observability.ComponentSTT.String(),
+					"provider":  transformer.Name(),
+					"path":      observability.AttributeValue(transformer.config.BaseURL),
+				},
+				OccurredAt: time.Now(),
+			},
+		},
+	)
 	return nil
 }
 
@@ -151,9 +157,7 @@ func (transformer *speechToText) Transform(_ context.Context, in internal_type.P
 		return nil
 	case internal_type.SpeechToTextStartPacket:
 		transformer.mu.Lock()
-		if transformer.interruptionStartedAt.IsZero() {
-			transformer.interruptionStartedAt = time.Now()
-		}
+		transformer.interruptionStartedAt = time.Now()
 		if input.ContextID != "" {
 			transformer.contextID = input.ContextID
 		}
@@ -205,43 +209,31 @@ func (transformer *speechToText) Close(_ context.Context) error {
 	if !connectedAt.IsZero() {
 		duration := time.Since(connectedAt)
 		transformer.onPacket(
-			internal_type.ObservabilityEventRecordPacket{
+			internal_type.ObservabilityMetricRecordPacket{
 				ContextID: contextID,
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentSTT,
-					Event:     observability.STTClosed,
-					Attributes: observability.Attributes{
-						"type":     "closed",
-						"provider": transformer.Name(),
-					},
-					OccurredAt: time.Now(),
-				},
-			},
-			internal_type.ObservabilityMetricRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationMetricRecord([]*protos.Metric{{
-					Name:        type_enums.CONVERSATION_STT_DURATION.String(),
-					Value:       fmt.Sprintf("%d", duration.Nanoseconds()),
-					Description: "Total STT connection duration in nanoseconds",
-				}}),
+				Record:    observability.NewMetricSTTDuration(duration, observability.Attributes{"provider": transformer.Name()}),
 			},
 			internal_type.ObservabilityUsageRecordPacket{
 				ContextID: contextID,
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordUsage{
-					Component: observability.ComponentSTT,
-					Provider:  transformer.Name(),
-					Duration:  duration,
-					Attributes: observability.Attributes{
-						"context_id": contextID,
-						"provider":   transformer.Name(),
-						"metric":     type_enums.CONVERSATION_STT_DURATION.String(),
-					},
-				},
+				Record:    observability.NewSTTDurationUsageRecord(transformer.Name(), duration, observability.Attributes{}),
 			},
 		)
 	}
+	transformer.onPacket(internal_type.ObservabilityEventRecordPacket{
+		ContextID: contextID,
+		Scope:     internal_type.ObservabilityRecordScopeConversation,
+		Record: observability.RecordEvent{
+			Component: observability.ComponentSTT,
+			Event:     observability.STTClosed,
+			Attributes: observability.Attributes{
+				"type":     "closed",
+				"provider": transformer.Name(),
+			},
+			OccurredAt: time.Now(),
+		},
+	})
 
 	return nil
 }
@@ -430,8 +422,10 @@ func (transformer *speechToText) emitTranscript(outcome responseOutcome) {
 	confidenceValue := outcome.Confidence
 	confidenceText := fmt.Sprintf("%.4f", confidenceValue)
 	eventType := "completed"
+	eventName := observability.STTCompleted
 	if outcome.Interim {
 		eventType = "interim"
+		eventName = observability.STTInterim
 	}
 
 	eventData := map[string]string{
@@ -460,38 +454,32 @@ func (transformer *speechToText) emitTranscript(outcome responseOutcome) {
 			Interim:    outcome.Interim,
 		},
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   contextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
+			ContextID: contextID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 			Record: observability.RecordEvent{
 				Component:  observability.ComponentSTT,
-				Event:      observability.STTEvent,
+				Event:      eventName,
 				Attributes: eventData,
 				OccurredAt: now,
 			},
 		})
 
-	var interruptionStartedAt time.Time
-	transformer.mu.Lock()
-	if !transformer.interruptionStartedAt.IsZero() {
-		interruptionStartedAt = transformer.interruptionStartedAt
-		transformer.interruptionStartedAt = time.Time{}
-	}
-	transformer.mu.Unlock()
+	if !outcome.Interim {
+		var interruptionStartedAt time.Time
+		transformer.mu.Lock()
+		if !transformer.interruptionStartedAt.IsZero() {
+			interruptionStartedAt = transformer.interruptionStartedAt
+			transformer.interruptionStartedAt = time.Time{}
+		}
+		transformer.mu.Unlock()
 
-	if !interruptionStartedAt.IsZero() {
-		transformer.onPacket(internal_type.ObservabilityMetricRecordPacket{
-			ContextID:   contextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
-			Record: observability.RecordMetric{
-				Metrics: []*protos.Metric{{
-					Name:  "stt_latency_ms",
-					Value: fmt.Sprintf("%d", now.Sub(interruptionStartedAt).Milliseconds()),
-				}},
-				Attributes: observability.Attributes{"provider": transformer.Name()},
-			},
-		})
+		if !interruptionStartedAt.IsZero() {
+			transformer.onPacket(internal_type.ObservabilityMetricRecordPacket{
+				ContextID: contextID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+				Record:    observability.NewMetricSTTLatencyMs(now.Sub(interruptionStartedAt), observability.Attributes{"provider": transformer.Name()}),
+			})
+		}
 	}
 }
 

@@ -113,6 +113,32 @@ func findEventPacketByType(pkts []internal_type.Packet, eventType observability.
 	return internal_type.ObservabilityEventRecordPacket{}, false
 }
 
+func findMetricPacketByName(pkts []internal_type.Packet, metricName string) (internal_type.ObservabilityMetricRecordPacket, bool) {
+	for _, pkt := range pkts {
+		metric, ok := pkt.(internal_type.ObservabilityMetricRecordPacket)
+		if !ok || len(metric.Record.Metrics) == 0 {
+			continue
+		}
+		if metric.Record.Metrics[0].Name == metricName {
+			return metric, true
+		}
+	}
+	return internal_type.ObservabilityMetricRecordPacket{}, false
+}
+
+func findInfoLogPacket(pkts []internal_type.Packet) (internal_type.ObservabilityLogRecordPacket, bool) {
+	for _, pkt := range pkts {
+		log, ok := pkt.(internal_type.ObservabilityLogRecordPacket)
+		if !ok {
+			continue
+		}
+		if log.Record.Level == observability.LevelInfo {
+			return log, true
+		}
+	}
+	return internal_type.ObservabilityLogRecordPacket{}, false
+}
+
 func TestInitialize_ReturnsErrorWhenConnectionFails(t *testing.T) {
 	e := newTestExecutor()
 	e.stateMu.Lock()
@@ -199,10 +225,19 @@ func TestInitialize_SendsInitializationAndEmitsInitializedEvent(t *testing.T) {
 	}
 
 	pkts := collector.all()
-	event, found := findEventPacketByType(pkts, observability.LLMStarted)
-	require.True(t, found, "expected agentkit_initialized event")
-	assert.Equal(t, "agentkit", event.Record.Attributes["provider"])
-	assert.Equal(t, addr, event.Record.Attributes["url"])
+	_, found := findEventPacketByType(pkts, observability.LLMStarted)
+	require.False(t, found, "init should not emit llm.started")
+
+	metric, found := findMetricPacketByName(pkts, observability.MetricLLMInitLatencyMs)
+	require.True(t, found, "expected llm init metric")
+	assert.Equal(t, internal_type.ObservabilityRecordScopeConversation, metric.Scope)
+	assert.Equal(t, "agentkit", metric.Record.Attributes["provider"])
+
+	log, found := findInfoLogPacket(pkts)
+	require.True(t, found, "expected llm init log")
+	assert.Equal(t, internal_type.ObservabilityRecordScopeConversation, log.Scope)
+	assert.Equal(t, "agentkit", log.Record.Attributes["provider"])
+	assert.Equal(t, addr, log.Record.Attributes["url"])
 
 	e.stateMu.RLock()
 	defer e.stateMu.RUnlock()

@@ -55,6 +55,8 @@ type silenceBasedEndOfSpeech struct {
 
 	mu    sync.RWMutex
 	state *endOfSpeechState
+
+	eosStartedAt time.Time
 }
 
 func NewSilenceBasedEndOfSpeech(
@@ -75,35 +77,27 @@ func NewSilenceBasedEndOfSpeech(
 		commandCh:      make(chan workerCommand, 32),
 		stopCh:         make(chan struct{}),
 		state:          &endOfSpeechState{segment: speechSegment{}},
+		eosStartedAt:   time.Now(),
 	}
 
 	go endOfSpeech.worker()
 	if endOfSpeech.onPacket != nil {
 		_ = endOfSpeech.onPacket(context.Background(),
-			internal_type.ObservabilityEventRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentEOS,
-					Event:     observability.EOSStarted,
-					Attributes: observability.Attributes{
-						"provider":           endOfSpeech.Name(),
-						"init_ms":            fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-						"silence_timeout_ms": fmt.Sprintf("%d", silenceTimeout.Milliseconds()),
-					},
-				},
+			internal_type.ObservabilityMetricRecordPacket{
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewMetricEOSInitLatencyMs(time.Since(start), observability.Attributes{"provider": endOfSpeech.Name()}),
 			},
 			internal_type.ObservabilityLogRecordPacket{
 				Scope: internal_type.ObservabilityRecordScopeConversation,
 				Record: observability.RecordLog{
-					Level:   observability.LevelDebug,
-					Message: "eos initialized",
+					Level:   observability.LevelInfo,
+					Message: fmt.Sprintf("%s: initialization completed", endOfSpeech.Name()),
 					Attributes: observability.Attributes{
-						"component":          observability.ComponentEOS.String(),
-						"operation":          "initialize",
-						"provider":           endOfSpeech.Name(),
-						"init_ms":            fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-						"silence_timeout_ms": fmt.Sprintf("%d", silenceTimeout.Milliseconds()),
+						"component": observability.ComponentEOS.String(),
+						"provider":  endOfSpeech.Name(),
+						"options":   observability.AttributeValue(endOfSpeech.Options()),
 					},
+					OccurredAt: time.Now(),
 				},
 			},
 		)
@@ -362,9 +356,8 @@ func (endOfSpeech *silenceBasedEndOfSpeech) emitEndOfSpeech(command workerComman
 			Speechs:   append([]internal_type.SpeechToTextPacket(nil), segment.Chunks...),
 		},
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   segment.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
+			ContextID: segment.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 			Record: observability.RecordEvent{
 				Component:  observability.ComponentEOS,
 				Event:      observability.EOSCompleted,
@@ -382,11 +375,13 @@ func (endOfSpeech *silenceBasedEndOfSpeech) emitEndOfSpeech(command workerComman
 			},
 		},
 		internal_type.ObservabilityMetricRecordPacket{
-			ContextID:   segment.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
+			ContextID: segment.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 			Record: observability.RecordMetric{
 				OccurredAt: triggerAt,
+				Attributes: observability.Attributes{
+					"provider": endOfSpeech.Name(),
+				},
 				Metrics: []*protos.Metric{
 					{Name: observability.MetricEOSLatencyMs, Value: fmt.Sprintf("%d", waitToTriggerMs)},
 					{Name: observability.MetricEOSTextToTriggerMs, Value: fmt.Sprintf("%d", textToTriggerMs)},
@@ -400,31 +395,31 @@ func (endOfSpeech *silenceBasedEndOfSpeech) emitEndOfSpeech(command workerComman
 }
 
 func (endOfSpeech *silenceBasedEndOfSpeech) Close(ctx context.Context) error {
+	endOfSpeech.mu.Lock()
+	eosStartedAt := endOfSpeech.eosStartedAt
+	endOfSpeech.eosStartedAt = time.Time{}
+	endOfSpeech.mu.Unlock()
+
 	if endOfSpeech.onPacket != nil {
-		_ = endOfSpeech.onPacket(ctx,
-			internal_type.ObservabilityEventRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordEvent{
-					Component: observability.ComponentEOS,
-					Event:     observability.EOSClosed,
-					Attributes: observability.Attributes{
-						"provider": endOfSpeech.Name(),
-					},
+		packets := []internal_type.Packet{}
+		if !eosStartedAt.IsZero() {
+			packets = append(packets, internal_type.ObservabilityUsageRecordPacket{
+				Scope:  internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.NewEOSDurationUsageRecord(endOfSpeech.Name(), time.Since(eosStartedAt), observability.Attributes{}),
+			})
+		}
+		packets = append(packets, internal_type.ObservabilityEventRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordEvent{
+				Component: observability.ComponentEOS,
+				Event:     observability.EOSClosed,
+				Attributes: observability.Attributes{
+					"provider": endOfSpeech.Name(),
 				},
+				OccurredAt: time.Now(),
 			},
-			internal_type.ObservabilityLogRecordPacket{
-				Scope: internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordLog{
-					Level:   observability.LevelDebug,
-					Message: "eos closed",
-					Attributes: observability.Attributes{
-						"component": observability.ComponentEOS.String(),
-						"operation": "close",
-						"provider":  endOfSpeech.Name(),
-					},
-				},
-			},
-		)
+		})
+		_ = endOfSpeech.onPacket(ctx, packets...)
 	}
 	close(endOfSpeech.stopCh)
 	return nil

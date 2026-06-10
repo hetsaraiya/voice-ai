@@ -51,6 +51,21 @@ func (e *agentkitExecutor) Initialize(ctx context.Context, comm internal_type.Co
 		} else {
 			pool := x509.NewCertPool()
 			if !pool.AppendCertsFromPEM([]byte(provider.Certificate)) {
+				comm.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+					Scope: internal_type.ObservabilityRecordScopeConversation,
+					Record: observability.RecordLog{
+						Level:   observability.LevelError,
+						Message: fmt.Sprintf("%s: error while initialization %s", e.Name(), "invalid certificate"),
+						Attributes: observability.Attributes{
+							"component": observability.ComponentLLM.String(),
+							"provider":  e.Name(),
+							"options":   observability.AttributeValue(cfg.GetOptions()),
+							"url":       provider.Url,
+							"error":     "invalid certificate",
+						},
+						OccurredAt: time.Now(),
+					},
+				})
 				return fmt.Errorf("TLS credentials failed: invalid certificate: failed to parse PEM")
 			}
 			opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
@@ -64,6 +79,22 @@ func (e *agentkitExecutor) Initialize(ctx context.Context, comm internal_type.Co
 
 	conn, err := grpc.NewClient(provider.Url, opts...)
 	if err != nil {
+		comm.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: fmt.Sprintf("%s: error while initialization %s", e.Name(), err.Error()),
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentLLM.String(),
+					"provider":   e.Name(),
+					"options":    observability.AttributeValue(cfg.GetOptions()),
+					"url":        provider.Url,
+					"error":      err.Error(),
+					"error_type": fmt.Sprintf("%T", err),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 		return fmt.Errorf("connect failed: %w", err)
 	}
 
@@ -74,6 +105,22 @@ func (e *agentkitExecutor) Initialize(ctx context.Context, comm internal_type.Co
 	talkStream, err := protos.NewAgentKitClient(conn).Talk(streamCtx)
 	if err != nil {
 		_ = conn.Close()
+		comm.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: fmt.Sprintf("%s: error while initialization %s", e.Name(), err.Error()),
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentLLM.String(),
+					"provider":   e.Name(),
+					"options":    observability.AttributeValue(cfg.GetOptions()),
+					"url":        provider.Url,
+					"error":      err.Error(),
+					"error_type": fmt.Sprintf("%T", err),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 		return fmt.Errorf("stream start failed: %w", err)
 	}
 
@@ -108,6 +155,22 @@ func (e *agentkitExecutor) Initialize(ctx context.Context, comm internal_type.Co
 		if transport.conn != nil {
 			_ = transport.conn.Close()
 		}
+		comm.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+			Scope: internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: fmt.Sprintf("%s: error while initialization %s", e.Name(), err.Error()),
+				Attributes: observability.Attributes{
+					"component":  observability.ComponentLLM.String(),
+					"provider":   e.Name(),
+					"options":    observability.AttributeValue(cfg.GetOptions()),
+					"url":        provider.Url,
+					"error":      err.Error(),
+					"error_type": fmt.Sprintf("%T", err),
+				},
+				OccurredAt: time.Now(),
+			},
+		})
 		return fmt.Errorf("failed to send initialization: %w", err)
 	}
 
@@ -121,27 +184,22 @@ func (e *agentkitExecutor) Initialize(ctx context.Context, comm internal_type.Co
 	})
 
 	comm.OnPacket(ctx,
-		internal_type.ObservabilityEventRecordPacket{
-			Scope: internal_type.ObservabilityRecordScopeConversation,
-			Record: observability.NewConversationEventRecord(observability.LLMStarted, observability.Attributes{
-				"type":     "agentkit_initialized",
-				"provider": "agentkit",
-				"url":      provider.Url,
-				"init_ms":  fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-			}),
+		internal_type.ObservabilityMetricRecordPacket{
+			Scope:  internal_type.ObservabilityRecordScopeConversation,
+			Record: observability.NewMetricLLMInitLatencyMs(time.Since(start), observability.Attributes{"provider": e.Name()}),
 		},
 		internal_type.ObservabilityLogRecordPacket{
 			Scope: internal_type.ObservabilityRecordScopeConversation,
 			Record: observability.RecordLog{
-				Level:   observability.LevelDebug,
-				Message: "agentkit initialized",
+				Level:   observability.LevelInfo,
+				Message: fmt.Sprintf("%s: initialization completed", e.Name()),
 				Attributes: observability.Attributes{
 					"component": observability.ComponentLLM.String(),
-					"operation": "initialize",
-					"provider":  "agentkit",
+					"provider":  e.Name(),
 					"url":       provider.Url,
-					"init_ms":   fmt.Sprintf("%d", time.Since(start).Milliseconds()),
+					"options":   observability.AttributeValue(cfg.GetOptions()),
 				},
+				OccurredAt: time.Now(),
 			},
 		},
 	)
@@ -155,6 +213,7 @@ func (e *agentkitExecutor) Close(ctx context.Context) error {
 	e.closing = true
 	transport := e.clearTransportLocked()
 	e.activeContextID = ""
+	e.requestStartedAt = time.Time{}
 	e.stateMu.Unlock()
 
 	if transport.stream != nil {

@@ -24,7 +24,6 @@ import (
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	transformer_testutil "github.com/rapidaai/api/assistant-api/internal/transformer/internal/testutil"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
-	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
@@ -753,15 +752,14 @@ func TestTextToSpeech_CloseEmitsConversationDurationAfterDone(t *testing.T) {
 		switch typed := packet.(type) {
 		case internal_type.ObservabilityMetricRecordPacket:
 			for _, metric := range typed.Record.Metrics {
-				if metric.GetName() == type_enums.CONVERSATION_TTS_DURATION.String() && strings.TrimSpace(metric.GetValue()) != "" {
+				if metric.GetName() == observability.MetricConversationTTSDuration && strings.TrimSpace(metric.GetValue()) != "" {
 					hasDurationMetric = true
 				}
 			}
 		case internal_type.ObservabilityUsageRecordPacket:
-			if typed.Record.Component == observability.ComponentTTS &&
+			if typed.Record.Component == observability.ComponentName(observability.UsageConversationTTSDuration) &&
 				typed.Record.Provider == "custom-tts-websocket-v1" &&
-				typed.Record.Duration > 0 &&
-				typed.Record.Attributes["metric"] == type_enums.CONVERSATION_TTS_DURATION.String() {
+				typed.Record.Duration > 0 {
 				hasDurationUsage = true
 			}
 		}

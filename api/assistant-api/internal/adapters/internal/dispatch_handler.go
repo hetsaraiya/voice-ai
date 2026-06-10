@@ -56,16 +56,14 @@ func (h requestorDispatchHandler) HandleUserText(ctx context.Context, vl interna
 	h.r.OnPacket(ctx,
 		internal_type.InterimEndOfSpeechPacket{Speech: vl.Text, ContextID: vl.ContextID},
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   vl.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
-			Record:      observability.NewMessageRecord(vl.ContextID, observability.ComponentEOS, observability.EOSStarted, observability.MessageRoleUser, observability.Attributes{"speech": vl.Text}),
+			ContextID: vl.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
+			Record:    observability.NewMessageRecord(vl.ContextID, observability.ComponentEOS, observability.EOSStarted, observability.MessageRoleUser, observability.Attributes{"speech": vl.Text}),
 		},
 		internal_type.EndOfSpeechPacket{Speech: vl.Text, ContextID: vl.ContextID},
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   vl.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
+			ContextID: vl.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 			Record: observability.NewMessageRecord(vl.ContextID, observability.ComponentEOS, observability.EOSCompleted, observability.MessageRoleUser, observability.Attributes{
 				"provider":   "text_input",
 				"context_id": vl.ContextID,
@@ -169,9 +167,8 @@ func (h requestorDispatchHandler) HandleUserInput(ctx context.Context, p interna
 
 	if err := h.r.Transition(LLMGenerating); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID:   h.r.GetID(),
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
+			ContextID: h.r.GetID(),
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
 				Message: "Message state transition failed; check target_state and current turn state",
@@ -202,9 +199,8 @@ func (h requestorDispatchHandler) HandleUserInput(ctx context.Context, p interna
 	h.r.OnPacket(ctx,
 		internal_type.MessageCreatePacket{ContextID: contextID, MessageRole: "user", Text: p.Text},
 		internal_type.ObservabilityMetadataRecordPacket{
-			ContextID:   contextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
+			ContextID: contextID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 			Record: observability.NewMessageMetadataRecord(
 				contextID,
 				observability.MessageRoleUser,
@@ -221,9 +217,8 @@ func (h requestorDispatchHandler) HandleUserInput(ctx context.Context, p interna
 			),
 		},
 		internal_type.ObservabilityMetricRecordPacket{
-			ContextID:   contextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
+			ContextID: contextID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 			Record: observability.NewMessageMetricRecord(
 				contextID,
 				observability.MessageRoleUser,
@@ -294,9 +289,8 @@ func (h requestorDispatchHandler) HandleEndOfSpeechInterruption(ctx context.Cont
 	if h.r.endOfSpeechExecutor != nil {
 		if err := h.r.endOfSpeechExecutor.Execute(ctx, p); err != nil {
 			h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-				ContextID:   p.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleUser,
+				ContextID: p.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
 					Message: "End-of-speech analysis failed; user turn completion may be delayed",
@@ -320,9 +314,8 @@ func (h requestorDispatchHandler) HandleTextToSpeechInterrupt(ctx context.Contex
 	if h.r.textToSpeechTransformer != nil {
 		if err := h.r.textToSpeechTransformer.Transform(ctx, p); err != nil {
 			h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-				ContextID:   p.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: p.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
 					Message: "TTS interrupt failed; assistant audio may continue after interruption",
@@ -344,9 +337,8 @@ func (h requestorDispatchHandler) HandleLLMInterrupt(ctx context.Context, p inte
 	if h.r.assistantExecutor != nil {
 		if err := h.r.assistantExecutor.Execute(ctx, h.r, p); err != nil {
 			h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-				ContextID:   p.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: p.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
 					Message: "LLM interrupt failed; generation may continue after user interruption",
@@ -369,9 +361,8 @@ func (h requestorDispatchHandler) HandleSpeechToTextStart(ctx context.Context, p
 	if h.r.speechToTextTransformer != nil {
 		if err := h.r.speechToTextTransformer.Transform(ctx, p); err != nil {
 			h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-				ContextID:   p.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleUser,
+				ContextID: p.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
 					Message: "STT start notification failed; provider may miss the speech boundary",
@@ -394,9 +385,8 @@ func (h requestorDispatchHandler) HandleSpeechToTextEnd(ctx context.Context, p i
 	if h.r.speechToTextTransformer != nil {
 		if err := h.r.speechToTextTransformer.Transform(ctx, p); err != nil {
 			h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-				ContextID:   p.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleUser,
+				ContextID: p.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
 					Message: "STT end notification failed; buffered speech may not flush",
@@ -482,9 +472,8 @@ func (h requestorDispatchHandler) HandleTurnChange(ctx context.Context, p intern
 func (h requestorDispatchHandler) HandleLLMResponseDelta(ctx context.Context, p internal_type.LLMResponseDeltaPacket) {
 	if p.ContextID != h.r.GetID() {
 		h.r.OnPacket(ctx, internal_type.ObservabilityEventRecordPacket{
-			ContextID:   p.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: p.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.NewMessageRecord(p.ContextID, observability.ComponentLLM, observability.LLMDiscarded, observability.MessageRoleAssistant, observability.Attributes{
 				"reason":          "stale_context",
 				"current_context": h.r.GetID(),
@@ -495,9 +484,8 @@ func (h requestorDispatchHandler) HandleLLMResponseDelta(ctx context.Context, p 
 	}
 	if err := h.r.Transition(LLMGenerating); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID:   p.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: p.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
 				Message: "Message state transition failed; check target_state and current turn state",
@@ -523,9 +511,8 @@ func (h requestorDispatchHandler) HandleLLMResponseDelta(ctx context.Context, p 
 func (h requestorDispatchHandler) HandleLLMResponseDone(ctx context.Context, p internal_type.LLMResponseDonePacket) {
 	if p.ContextID != h.r.GetID() {
 		h.r.OnPacket(ctx, internal_type.ObservabilityEventRecordPacket{
-			ContextID:   p.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: p.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.NewMessageRecord(p.ContextID, observability.ComponentLLM, observability.LLMDiscarded, observability.MessageRoleAssistant, observability.Attributes{
 				"reason":          "stale_context",
 				"packet":          "done",
@@ -538,9 +525,8 @@ func (h requestorDispatchHandler) HandleLLMResponseDone(ctx context.Context, p i
 	if h.r.endOfSpeechExecutor != nil {
 		if err := h.r.endOfSpeechExecutor.Execute(ctx, p); err != nil {
 			h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-				ContextID:   p.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleUser,
+				ContextID: p.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
 					Message: "End-of-speech analysis failed; user turn completion may be delayed",
@@ -560,9 +546,8 @@ func (h requestorDispatchHandler) HandleLLMResponseDone(ctx context.Context, p i
 	h.r.OnPacket(ctx, internal_type.StartIdleTimeoutPacket{ContextID: p.ContextID})
 	if err := h.r.Transition(LLMGenerated); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID:   p.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: p.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
 				Message: "Message state transition failed; check target_state and current turn state",
@@ -582,9 +567,8 @@ func (h requestorDispatchHandler) HandleLLMResponseDone(ctx context.Context, p i
 	h.r.OnPacket(ctx,
 		internal_type.MessageCreatePacket{ContextID: p.ContextID, MessageRole: "assistant", Text: p.Text},
 		internal_type.ObservabilityMetricRecordPacket{
-			ContextID:   p.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: p.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.NewMessageMetricRecord(
 				p.ContextID,
 				observability.MessageRoleAssistant,
@@ -615,9 +599,8 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 	case internal_type.LLMErrorPacket:
 		h.r.OnPacket(ctx,
 			internal_type.ObservabilityMetricRecordPacket{
-				ContextID:   p.ContextId(),
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: p.ContextId(),
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.NewMessageMetricRecord(
 					p.ContextId(),
 					observability.MessageRoleAssistant,
@@ -628,9 +611,8 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 				),
 			},
 			internal_type.ObservabilityEventRecordPacket{
-				ContextID:   p.ContextId(),
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: p.ContextId(),
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.NewMessageRecord(p.ContextId(), observability.ComponentLLM, observability.LLMError, observability.MessageRoleAssistant, observability.Attributes{
 					"message": p.ErrMessage(),
 				}),
@@ -639,9 +621,8 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 	case internal_type.SpeechToTextErrorPacket:
 		h.r.OnPacket(ctx,
 			internal_type.ObservabilityMetricRecordPacket{
-				ContextID:   p.ContextId(),
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleUser,
+				ContextID: p.ContextId(),
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 				Record: observability.NewMessageMetricRecord(
 					p.ContextId(),
 					observability.MessageRoleUser,
@@ -652,9 +633,8 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 				),
 			},
 			internal_type.ObservabilityEventRecordPacket{
-				ContextID:   p.ContextId(),
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleUser,
+				ContextID: p.ContextId(),
+				Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 				Record: observability.NewMessageRecord(p.ContextId(), observability.ComponentSTT, observability.STTError, observability.MessageRoleUser, observability.Attributes{
 					"message": p.ErrMessage(),
 				}),
@@ -662,9 +642,8 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 	case internal_type.TextToSpeechErrorPacket:
 		h.r.OnPacket(ctx,
 			internal_type.ObservabilityMetricRecordPacket{
-				ContextID:   p.ContextId(),
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: p.ContextId(),
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.NewMessageMetricRecord(
 					p.ContextId(),
 					observability.MessageRoleAssistant,
@@ -675,9 +654,8 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 				),
 			},
 			internal_type.ObservabilityEventRecordPacket{
-				ContextID:   p.ContextId(),
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: p.ContextId(),
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.NewMessageRecord(p.ContextId(), observability.ComponentTTS, observability.TTSError, observability.MessageRoleAssistant, observability.Attributes{
 					"message": p.ErrMessage(),
 				}),
@@ -749,9 +727,8 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 func (h requestorDispatchHandler) HandleInjectMessage(ctx context.Context, p internal_type.InjectMessagePacket) {
 	if err := h.r.Transition(LLMGenerating); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID:   h.r.GetID(),
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: h.r.GetID(),
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
 				Message: "Message state transition failed; check target_state and current turn state",
@@ -773,9 +750,8 @@ func (h requestorDispatchHandler) HandleInjectMessage(ctx context.Context, p int
 		utils.Go(ctx, func() {
 			if err := h.r.assistantExecutor.Execute(ctx, h.r, p); err != nil {
 				h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-					ContextID:   h.r.GetID(),
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleAssistant,
+					ContextID: h.r.GetID(),
+					Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
 						Message: "Assistant executor failed during response generation",
@@ -800,9 +776,8 @@ func (h requestorDispatchHandler) HandleInjectMessage(ctx context.Context, p int
 		h.r.OnPacket(ctx,
 			internal_type.MessageCreatePacket{ContextID: contextID, MessageRole: "assistant", Text: p.Text},
 			internal_type.ObservabilityMetricRecordPacket{
-				ContextID:   contextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: contextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.NewMessageMetricRecord(
 					contextID,
 					observability.MessageRoleAssistant,
@@ -813,9 +788,8 @@ func (h requestorDispatchHandler) HandleInjectMessage(ctx context.Context, p int
 		h.r.outputNormalizer.Normalize(ctx, internal_type.InjectMessagePacket{ContextID: contextID, Text: p.Text})
 		if err := h.r.Transition(LLMGenerated); err != nil {
 			h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-				ContextID:   contextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: contextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
 					Message: "Message state transition failed; check target_state and current turn state",
@@ -889,9 +863,8 @@ func (h requestorDispatchHandler) HandleStopIdleTimeout(ctx context.Context, p i
 func (h requestorDispatchHandler) HandleTextToSpeechText(ctx context.Context, p internal_type.TextToSpeechTextPacket) {
 	if p.ContextID != h.r.GetID() {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID:   p.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: p.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
 				Message: "Skipped TTS for stale context; assistant text belongs to an older turn",
@@ -912,9 +885,8 @@ func (h requestorDispatchHandler) HandleTextToSpeechText(ctx context.Context, p 
 	if h.r.textToSpeechTransformer != nil && h.r.GetMode().Audio() {
 		if err := h.r.textToSpeechTransformer.Transform(ctx, p); err != nil {
 			h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-				ContextID:   p.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: p.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
 					Message: "TTS transform failed; assistant audio was not generated",
@@ -945,9 +917,8 @@ func (h requestorDispatchHandler) HandleTextToSpeechDone(ctx context.Context, p 
 	if h.r.textToSpeechTransformer != nil && h.r.GetMode().Audio() {
 		if err := h.r.textToSpeechTransformer.Transform(ctx, p); err != nil {
 			h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-				ContextID:   p.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: p.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.RecordLog{
 					Level:   observability.LevelError,
 					Message: "TTS transform failed; assistant audio was not generated",
@@ -978,9 +949,8 @@ func (h requestorDispatchHandler) HandleTextToSpeechAudio(ctx context.Context, p
 	if p.ContextID != h.r.GetID() {
 		h.r.OnPacket(ctx,
 			internal_type.ObservabilityEventRecordPacket{
-				ContextID:   p.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: p.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.NewMessageRecord(p.ContextID, observability.ComponentTTS, observability.TTSDiscarded, observability.MessageRoleAssistant, observability.Attributes{
 					"reason":          "stale_context",
 					"packet":          "tts_audio",
@@ -988,9 +958,8 @@ func (h requestorDispatchHandler) HandleTextToSpeechAudio(ctx context.Context, p
 				}),
 			},
 			internal_type.ObservabilityMetricRecordPacket{
-				ContextID:   p.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: p.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.NewMessageMetricRecord(
 					p.ContextID,
 					observability.MessageRoleAssistant,
@@ -1012,9 +981,8 @@ func (h requestorDispatchHandler) HandleTextToSpeechEnd(ctx context.Context, p i
 	if p.ContextID != h.r.GetID() {
 		h.r.OnPacket(ctx,
 			internal_type.ObservabilityEventRecordPacket{
-				ContextID:   p.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: p.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.NewMessageRecord(p.ContextID, observability.ComponentTTS, observability.TTSDiscarded, observability.MessageRoleAssistant, observability.Attributes{
 					"reason":          "stale_context",
 					"packet":          "tts_end",
@@ -1022,9 +990,8 @@ func (h requestorDispatchHandler) HandleTextToSpeechEnd(ctx context.Context, p i
 				}),
 			},
 			internal_type.ObservabilityMetricRecordPacket{
-				ContextID:   p.ContextID,
-				Scope:       internal_type.ObservabilityRecordScopeMessage,
-				MessageRole: observability.MessageRoleAssistant,
+				ContextID: p.ContextID,
+				Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 				Record: observability.NewMessageMetricRecord(
 					p.ContextID,
 					observability.MessageRoleAssistant,
@@ -1046,9 +1013,8 @@ func (h requestorDispatchHandler) HandleLLMToolCall(ctx context.Context, p inter
 	h.r.OnPacket(
 		ctx,
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   p.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: p.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.NewMessageRecord(p.ContextID, observability.ComponentTool, observability.ToolCallStarted, observability.MessageRoleAssistant, observability.Attributes{
 				"name":   p.Name,
 				"id":     p.ToolID,
@@ -1095,9 +1061,8 @@ func (h requestorDispatchHandler) HandleLLMToolCall(ctx context.Context, p inter
 		utils.Go(ctx, func() {
 			if err := h.r.assistantExecutor.Execute(ctx, h.r, p); err != nil {
 				h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-					ContextID:   p.ContextID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleAssistant,
+					ContextID: p.ContextID,
+					Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
 						Message: "Tool call execution failed; tool result will be marked failed",
@@ -1181,9 +1146,8 @@ func (h requestorDispatchHandler) HandleLLMToolResult(ctx context.Context, p int
 		internal_type.TextToSpeechInterruptPacket{ContextID: p.ContextID},
 		internal_type.StartIdleTimeoutPacket{ContextID: p.ContextID},
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID:   p.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: p.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.NewMessageRecord(p.ContextID, observability.ComponentTool, observability.ToolCallCompleted, observability.MessageRoleAssistant, observability.Attributes{
 				"name": p.Name,
 				"id":   p.ToolID,
@@ -1194,9 +1158,8 @@ func (h requestorDispatchHandler) HandleLLMToolResult(ctx context.Context, p int
 		utils.Go(ctx, func() {
 			if err := h.r.assistantExecutor.Execute(ctx, h.r, p); err != nil {
 				h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-					ContextID:   p.ContextID,
-					Scope:       internal_type.ObservabilityRecordScopeMessage,
-					MessageRole: observability.MessageRoleAssistant,
+					ContextID: p.ContextID,
+					Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 					Record: observability.RecordLog{
 						Level:   observability.LevelError,
 						Message: "Tool result processing failed; assistant context may miss tool output",
@@ -1337,7 +1300,7 @@ func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Co
 			}, p.GetRecord()); err != nil {
 				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
-		case internal_type.ObservabilityRecordScopeMessage:
+		case internal_type.ObservabilityRecordScopeUserMessage:
 			if h.r.Assistant() == nil || h.r.Conversation() == nil {
 				h.r.logger.Errorw("observability message scope failed to resolve", "record", p)
 				return
@@ -1350,7 +1313,24 @@ func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Co
 					ConversationID: h.r.Conversation().Id,
 				},
 				MessageID: p.ContextId(),
-				Role:      p.GetMessageRole(),
+				Role:      observability.MessageRoleUser,
+			}, p.GetRecord()); err != nil {
+				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
+			}
+		case internal_type.ObservabilityRecordScopeAssistantMessage:
+			if h.r.Assistant() == nil || h.r.Conversation() == nil {
+				h.r.logger.Errorw("observability message scope failed to resolve", "record", p)
+				return
+			}
+			if err := h.r.observabilityRecorder.Record(ctx, observability.MessageScope{
+				ConversationScope: observability.ConversationScope{
+					AssistantScope: observability.AssistantScope{
+						AssistantID: h.r.Assistant().Id,
+					},
+					ConversationID: h.r.Conversation().Id,
+				},
+				MessageID: p.ContextId(),
+				Role:      observability.MessageRoleAssistant,
 			}, p.GetRecord()); err != nil {
 				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
@@ -1365,9 +1345,8 @@ func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Co
 func (h requestorDispatchHandler) HandleToolLogCreate(ctx context.Context, p internal_type.ToolLogCreatePacket) {
 	if !validator.NotBlank(p.ToolID) {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID:   p.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: p.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
 				Message: "Skipped tool log creation because tool_id is empty",
@@ -1386,9 +1365,8 @@ func (h requestorDispatchHandler) HandleToolLogCreate(ctx context.Context, p int
 	}
 	if err := h.r.CreateToolLog(ctx, p.ContextID, p.ToolID, p.Name, type_enums.RECORD_IN_PROGRESS, p.Request); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID:   p.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: p.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
 				Message: "Tool log creation failed; tool execution trace may be incomplete",
@@ -1410,9 +1388,8 @@ func (h requestorDispatchHandler) HandleToolLogCreate(ctx context.Context, p int
 func (h requestorDispatchHandler) HandleToolLogUpdate(ctx context.Context, p internal_type.ToolLogUpdatePacket) {
 	if !validator.NotBlank(p.ToolID) {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID:   p.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: p.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
 				Message: "Skipped tool log update because tool_id is empty",
@@ -1430,9 +1407,8 @@ func (h requestorDispatchHandler) HandleToolLogUpdate(ctx context.Context, p int
 	}
 	if err := h.r.UpdateToolLog(ctx, p.ToolID, type_enums.RECORD_COMPLETE, p.Response); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID:   p.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleAssistant,
+			ContextID: p.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
 				Message: "Tool log update failed; tool execution trace may be stale",
@@ -2164,7 +2140,7 @@ func (h requestorDispatchHandler) HandleModeSwitchInitializeTextToSpeech(ctx con
 		})
 		return
 	}
-	speakerOpts := utils.MergeMaps(outputTransformer.GetOptions())
+	speakerOpts := utils.MergeMaps(h.r.options, outputTransformer.GetOptions())
 	credentialId, err := speakerOpts.GetUint64("rapida.credential_id")
 	if err != nil {
 		h.r.OnPacket(ctx, internal_type.ModeSwitchErrorPacket{
@@ -2872,9 +2848,8 @@ func (h requestorDispatchHandler) callInputNormalizer(ctx context.Context, vl in
 	}
 	if err := h.r.inputNormalizer.Normalize(ctx, vl); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID:   vl.ContextID,
-			Scope:       internal_type.ObservabilityRecordScopeMessage,
-			MessageRole: observability.MessageRoleUser,
+			ContextID: vl.ContextID,
+			Scope:     internal_type.ObservabilityRecordScopeUserMessage,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
 				Message: "Input normalization failed; raw user text will be used",

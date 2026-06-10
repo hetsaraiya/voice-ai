@@ -204,11 +204,8 @@ func TestSilenceBasedEndOfSpeech_ObservabilityEventShape(t *testing.T) {
 			if event.ContextID != "ctx-events" {
 				t.Fatalf("unexpected detected context: %+v", event)
 			}
-			if event.Scope != internal_type.ObservabilityRecordScopeMessage {
+			if event.Scope != internal_type.ObservabilityRecordScopeUserMessage {
 				t.Fatalf("unexpected detected scope: %+v", event)
-			}
-			if event.MessageRole != observability.MessageRoleUser {
-				t.Fatalf("unexpected detected role: %+v", event)
 			}
 			if event.Record.Component != observability.ComponentEOS {
 				t.Fatalf("unexpected detected component: %+v", event)
@@ -239,11 +236,11 @@ func TestSilenceBasedEndOfSpeech_ObservabilityEventShape(t *testing.T) {
 			if metric.Record.Metrics[0].Name != observability.MetricEOSLatencyMs {
 				continue
 			}
-			if metric.Scope != internal_type.ObservabilityRecordScopeMessage {
+			if metric.Scope != internal_type.ObservabilityRecordScopeUserMessage {
 				t.Fatalf("unexpected metric scope: %+v", metric)
 			}
-			if metric.MessageRole != observability.MessageRoleUser {
-				t.Fatalf("unexpected metric role: %+v", metric)
+			if metric.Record.Attributes["provider"] != silenceBasedEndOfSpeechName {
+				t.Fatalf("unexpected metric provider: %+v", metric)
 			}
 			if _, parseErr := strconv.Atoi(metric.Record.Metrics[0].Value); parseErr != nil {
 				t.Fatalf("invalid eos metric: %+v", metric)
@@ -258,11 +255,32 @@ func TestSilenceBasedEndOfSpeech_ObservabilityEventShape(t *testing.T) {
 func TestSilenceBasedEndOfSpeech_ObservabilityLifecycleEvents(t *testing.T) {
 	logger, _ := commons.NewApplicationLogger()
 	events := make(chan internal_type.ObservabilityEventRecordPacket, 8)
+	metrics := make(chan internal_type.ObservabilityMetricRecordPacket, 8)
+	logs := make(chan internal_type.ObservabilityLogRecordPacket, 8)
+	usages := make(chan internal_type.ObservabilityUsageRecordPacket, 2)
 	callback := func(ctx context.Context, packets ...internal_type.Packet) error {
 		for _, packet := range packets {
 			if event, ok := packet.(internal_type.ObservabilityEventRecordPacket); ok {
 				select {
 				case events <- event:
+				default:
+				}
+			}
+			if metric, ok := packet.(internal_type.ObservabilityMetricRecordPacket); ok {
+				select {
+				case metrics <- metric:
+				default:
+				}
+			}
+			if log, ok := packet.(internal_type.ObservabilityLogRecordPacket); ok {
+				select {
+				case logs <- log:
+				default:
+				}
+			}
+			if usage, ok := packet.(internal_type.ObservabilityUsageRecordPacket); ok {
+				select {
+				case usages <- usage:
 				default:
 				}
 			}
@@ -282,19 +300,27 @@ func TestSilenceBasedEndOfSpeech_ObservabilityLifecycleEvents(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 
-	sawInitialized := false
+	sawInitMetric := false
+	sawInitLog := false
 	sawDetected := false
 	timeout := time.After(500 * time.Millisecond)
-	for !sawInitialized || !sawDetected {
+	for !sawInitMetric || !sawInitLog || !sawDetected {
 		select {
 		case event := <-events:
-			switch event.Record.Event {
-			case observability.EOSStarted:
-				sawInitialized = true
-			case observability.EOSCompleted:
+			if event.Record.Event == observability.EOSCompleted {
 				sawDetected = true
-			default:
-				t.Fatalf("unexpected eos event: %+v", event)
+				continue
+			}
+			t.Fatalf("unexpected eos event: %+v", event)
+		case metric := <-metrics:
+			if len(metric.Record.Metrics) > 0 && metric.Record.Metrics[0].Name == observability.MetricEOSInitLatencyMs {
+				sawInitMetric = true
+			}
+		case log := <-logs:
+			if log.Record.Level == observability.LevelInfo &&
+				log.Record.Attributes["provider"] == silenceBasedEndOfSpeechName &&
+				log.Record.Attributes["options"] != "" {
+				sawInitLog = true
 			}
 		case <-timeout:
 			t.Fatal("timeout waiting for eos lifecycle events")
@@ -306,13 +332,18 @@ func TestSilenceBasedEndOfSpeech_ObservabilityLifecycleEvents(t *testing.T) {
 	}
 
 	timeout = time.After(500 * time.Millisecond)
-	for {
+	sawClosed := false
+	sawUsage := false
+	for !sawClosed || !sawUsage {
 		select {
 		case event := <-events:
-			if event.Record.Event != observability.EOSClosed {
-				continue
+			if event.Record.Event == observability.EOSClosed {
+				sawClosed = true
 			}
-			return
+		case usage := <-usages:
+			if usage.Record.Component == observability.ComponentName(observability.UsageConversationEOSDuration) {
+				sawUsage = true
+			}
 		case <-timeout:
 			t.Fatal("timeout waiting for closed eos event")
 		}
@@ -347,13 +378,20 @@ func TestSilenceBasedEndOfSpeech_KeepsMetrics(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 
-	select {
-	case metric := <-metrics:
-		if len(metric.Record.Metrics) == 0 || metric.Record.Metrics[0].Name != observability.MetricEOSLatencyMs {
-			t.Fatalf("unexpected metric packet: %+v", metric)
+	timeout := time.After(500 * time.Millisecond)
+	for {
+		select {
+		case metric := <-metrics:
+			if len(metric.Record.Metrics) > 0 && metric.Record.Metrics[0].Name != observability.MetricEOSLatencyMs {
+				continue
+			}
+			if len(metric.Record.Metrics) == 0 || metric.Record.Metrics[0].Name != observability.MetricEOSLatencyMs {
+				t.Fatalf("unexpected metric packet: %+v", metric)
+			}
+			return
+		case <-timeout:
+			t.Fatal("timeout waiting for eos metric")
 		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timeout waiting for eos metric")
 	}
 }
 
@@ -373,6 +411,9 @@ func TestSilenceBasedEndOfSpeech_MetricUsesLastTimerArm(t *testing.T) {
 				default:
 				}
 			case internal_type.ObservabilityMetricRecordPacket:
+				if len(typed.Record.Metrics) == 0 || typed.Record.Metrics[0].Name != observability.MetricEOSLatencyMs {
+					continue
+				}
 				select {
 				case metrics <- typed:
 				default:

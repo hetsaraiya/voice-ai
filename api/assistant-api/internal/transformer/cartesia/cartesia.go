@@ -94,9 +94,9 @@ func (co *cartesiaOption) GetTextToSpeechInput(
 	if ok {
 		opts.Continue = v.(bool)
 	}
-	ctxId, ok := overriddenOpts["context_id"]
+	contextID, ok := overriddenOpts["context_id"]
 	if ok {
-		opts.ContextID = ctxId.(string)
+		opts.ContextID = contextID.(string)
 	}
 
 	return opts

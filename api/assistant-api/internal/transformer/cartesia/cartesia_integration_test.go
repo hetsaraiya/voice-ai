@@ -43,17 +43,12 @@ func TestCartesiaTTSLifecycle(t *testing.T) {
 	tts, err := NewCartesiaTextToSpeech(ctx, logger, cred, collector.OnPacket, opts)
 	require.NoError(t, err)
 	require.NotNil(t, tts)
-	assert.Equal(t, "cartesia-text-to-speech", tts.Name())
+	assert.Equal(t, "cartesia-tts", tts.Name())
 
 	require.NoError(t, tts.Initialize())
 	defer tts.Close(ctx)
 
-	events := collector.EventPackets()
-	require.NotEmpty(t, events, "should emit initialized event")
-	assert.Equal(t, "tts", events[0].Record.Component.String())
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
-	_, err = strconv.Atoi(events[0].Record.Attributes["init_ms"])
-	assert.NoError(t, err, "init_ms should be a valid integer")
+	assertMetricValue(t, collector, "tts_init_ms", 0)
 
 	// Send delta + done (done sends continue:false, flush:true → Cartesia responds with done:true)
 	require.NoError(t, tts.Transform(ctx, internal_type.LLMResponseDeltaPacket{
@@ -80,7 +75,6 @@ func TestCartesiaTTSLifecycle(t *testing.T) {
 
 	allEvents := collector.EventPackets()
 	eventTypes := ttsEventTypes(allEvents)
-	assert.Contains(t, eventTypes, "initialized")
 	assert.Contains(t, eventTypes, "speaking")
 	assert.Contains(t, eventTypes, "completed")
 	t.Logf("tts_event_sequence=%v", eventTypes)
@@ -160,15 +154,6 @@ func TestCartesiaTTSInterruption(t *testing.T) {
 
 	eventTypes := ttsEventTypes(collector.EventPackets())
 	assert.Contains(t, eventTypes, "interrupted")
-
-	initCount := 0
-	for _, typ := range eventTypes {
-		if typ == "initialized" {
-			initCount++
-		}
-	}
-	assert.GreaterOrEqual(t, initCount, 2,
-		"should see at least 2 initialized events (original + reconnect)")
 	t.Logf("event_sequence=%v", eventTypes)
 }
 
@@ -378,18 +363,12 @@ func TestCartesiaSTTLifecycle(t *testing.T) {
 		testutil.BuildOptions(pcfg.Options))
 	require.NoError(t, err)
 	require.NotNil(t, stt)
-	assert.Equal(t, "cartesia-speech-to-text", stt.Name())
+	assert.Equal(t, "cartesia-stt", stt.Name())
 
 	require.NoError(t, stt.Initialize())
 	defer stt.Close(ctx)
 
-	events := collector.EventPackets()
-	require.NotEmpty(t, events, "should emit initialized event")
-	assert.Equal(t, "stt", events[0].Record.Component.String())
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
-	assert.Equal(t, "cartesia-speech-to-text", events[0].Record.Attributes["provider"])
-	_, err = strconv.Atoi(events[0].Record.Attributes["init_ms"])
-	assert.NoError(t, err, "init_ms should be a valid integer")
+	assertMetricValue(t, collector, "stt_init_ms", 0)
 
 	feedDone := make(chan struct{})
 	go func() {
@@ -503,9 +482,8 @@ func TestCartesiaSTTReconnect(t *testing.T) {
 			t.Fatalf("attempt %d: context cancelled", attempt)
 		}
 
-		events := collector.EventPackets()
-		require.NotEmpty(t, events, "attempt %d: should emit initialized event", attempt)
-		assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
+		assertMetricValue(t, collector, "stt_init_ms", 0)
+		t.Logf("attempt=%d transcripts=%d", attempt, len(collector.TranscriptPackets()))
 
 		stt.Close(ctx)
 		cancel()
@@ -547,7 +525,7 @@ func TestCartesiaSTTCloseWhileStreaming(t *testing.T) {
 
 	events := collector.EventPackets()
 	require.NotEmpty(t, events)
-	assert.Equal(t, "initialized", events[0].Record.Attributes["type"])
+	assert.Contains(t, sttEventTypes(events), "closed")
 }
 
 func TestCartesiaSTTTranscriptContent(t *testing.T) {
@@ -619,32 +597,26 @@ func sttEventTypes(events []internal_type.ObservabilityEventRecordPacket) []stri
 
 func assertTTSLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {
 	t.Helper()
-	for _, m := range collector.MetricPackets() {
-		for _, metric := range m.Record.Metrics {
-			if metric.Name == "tts_latency_ms" {
-				ms, err := strconv.Atoi(metric.Value)
-				assert.NoError(t, err)
-				assert.Greater(t, ms, 0, "tts_latency_ms should be positive")
-				t.Logf("tts_latency_ms=%d", ms)
-				return
-			}
-		}
-	}
-	t.Error("should have tts_latency_ms metric")
+	assertMetricValue(t, collector, "tts_latency_ms", 1)
 }
 
 func assertSTTLatencyMetric(t *testing.T, collector *testutil.PacketCollector) {
 	t.Helper()
+	assertMetricValue(t, collector, "stt_latency_ms", 0)
+}
+
+func assertMetricValue(t *testing.T, collector *testutil.PacketCollector, metricName string, minValue int) {
+	t.Helper()
 	for _, m := range collector.MetricPackets() {
 		for _, metric := range m.Record.Metrics {
-			if metric.Name == "stt_latency_ms" {
+			if metric.Name == metricName {
 				ms, err := strconv.Atoi(metric.Value)
 				assert.NoError(t, err)
-				assert.GreaterOrEqual(t, ms, 0, "stt_latency_ms should be non-negative")
-				t.Logf("stt_latency_ms=%d", ms)
+				assert.GreaterOrEqual(t, ms, minValue, "%s should be >= %d", metricName, minValue)
+				t.Logf("%s=%d", metricName, ms)
 				return
 			}
 		}
 	}
-	t.Error("should have stt_latency_ms metric")
+	t.Errorf("should have %s metric", metricName)
 }
