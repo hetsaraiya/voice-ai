@@ -8,7 +8,11 @@ import (
 
 	adapter_channel "github.com/rapidaai/api/assistant-api/internal/adapters/channel"
 	adapter_lifecycle "github.com/rapidaai/api/assistant-api/internal/adapters/lifecycle"
+	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
+	internal_conversation_entity "github.com/rapidaai/api/assistant-api/internal/entity/conversations"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
+	gorm_model "github.com/rapidaai/pkg/models/gorm"
+	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -159,4 +163,49 @@ func TestNotify_ForwardsAllActionData(t *testing.T) {
 	require.Len(t, streamer.sent, 2)
 	assert.Same(t, a, streamer.sent[0])
 	assert.Same(t, b, streamer.sent[1])
+}
+
+func TestOnNotifyAssistantConfiguration_ForwardsAmbientOptions(t *testing.T) {
+	streamer := &streamTestStreamer{}
+	sessionCtx, cancelSession := context.WithCancel(context.Background())
+	t.Cleanup(cancelSession)
+	r := &genericRequestor{
+		source:   utils.SDK,
+		streamer: streamer,
+		assistant: &internal_assistant_entity.Assistant{
+			AssistantApiDeployment: &internal_assistant_entity.AssistantApiDeployment{
+				OutputAudio: &internal_assistant_entity.AssistantDeploymentAudio{
+					AudioOptions: []*internal_assistant_entity.AssistantDeploymentAudioOption{
+						{Metadata: gorm_model.Metadata{Key: "speaker.ambient", Value: "cafe"}},
+						{Metadata: gorm_model.Metadata{Key: "speaker.ambient_volume", Value: "34"}},
+					},
+				},
+			},
+		},
+		options:          map[string]interface{}{"existing": "kept"},
+		args:             map[string]interface{}{},
+		metadata:         map[string]interface{}{},
+		messageLifecycle: adapter_lifecycle.NewMessageLifecycle(),
+		sessionLifecycle: adapter_lifecycle.NewSessionLifecycle(),
+		sessionCtx:       sessionCtx,
+		cancelSession:    cancelSession,
+		channels:         adapter_channel.NewRequestorChannels(),
+	}
+	r.assistant.Id = 11
+	r.assistant.AssistantProviderId = 22
+	conversation := &internal_conversation_entity.AssistantConversation{}
+	conversation.Id = 33
+
+	r.OnNotifyAssistantConfiguration(context.Background(), &protos.ConversationInitialization{
+		StreamMode: protos.StreamMode_STREAM_MODE_AUDIO,
+	}, conversation)
+
+	require.Len(t, streamer.sent, 1)
+	init, ok := streamer.sent[0].(*protos.ConversationInitialization)
+	require.True(t, ok)
+	options, err := utils.AnyMapToInterfaceMap(init.GetOptions())
+	require.NoError(t, err)
+	assert.Equal(t, "cafe", options["speaker.ambient"])
+	assert.Equal(t, "34", options["speaker.ambient_volume"])
+	assert.Equal(t, "kept", options["existing"])
 }

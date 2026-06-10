@@ -2896,6 +2896,9 @@ func (r *genericRequestor) OnNotifyAssistantConfiguration(ctx context.Context, c
 	if anyMetaMap, err := utils.InterfaceMapToAnyMap(r.GetMetadata()); err == nil {
 		conversationConfigurationObj.Metadata = anyMetaMap
 	}
+	if anyOptionMap, err := utils.InterfaceMapToAnyMap(options); err == nil {
+		conversationConfigurationObj.Options = anyOptionMap
+	}
 	if err := r.Notify(ctx, conversationConfigurationObj); err != nil {
 		r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
 			ContextID: r.GetID(),
