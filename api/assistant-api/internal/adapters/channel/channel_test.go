@@ -135,6 +135,58 @@ func TestRequestorChannels_FlushAll(t *testing.T) {
 	}
 }
 
+func TestRequestorChannels_RunIngressWaitsWhileInputDisabled(t *testing.T) {
+	chs := NewRequestorChannels()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	chs.DisableInput()
+	chs.OnIngress(Envelope{Ctx: context.Background(), Pkt: internal_type.UserTextReceivedPacket{ContextID: "held"}})
+
+	delivered := make(chan Envelope, 1)
+	go chs.RunIngress(ctx, func(e Envelope) {
+		delivered <- e
+	})
+
+	select {
+	case got := <-delivered:
+		t.Fatalf("expected ingress to hold packet while disabled, got %s", got.Pkt.ContextId())
+	case <-time.After(50 * time.Millisecond):
+		// expected
+	}
+
+	chs.EnableInput()
+
+	select {
+	case got := <-delivered:
+		if got.Pkt.ContextId() != "held" {
+			t.Fatalf("expected held packet after enable, got %s", got.Pkt.ContextId())
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for held ingress packet after enable")
+	}
+}
+
+func TestRequestorChannels_RunIngressReturnsWhenContextCanceledWhileDisabled(t *testing.T) {
+	chs := NewRequestorChannels()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	chs.DisableInput()
+	done := make(chan struct{})
+	go func() {
+		chs.RunIngress(ctx, func(Envelope) {})
+		close(done)
+	}()
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatalf("RunIngress did not return after context cancellation")
+	}
+}
+
 func TestRequestorChannels_OnIngressWhenFull_FlushesOldQueueAndKeepsLatest(t *testing.T) {
 	chs := &RequestorChannels{
 		controlChannel: make(chan Envelope, 1),

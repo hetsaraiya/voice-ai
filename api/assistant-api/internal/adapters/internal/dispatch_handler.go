@@ -358,6 +358,14 @@ func (h requestorDispatchHandler) HandleLLMInterrupt(ctx context.Context, p inte
 	}
 }
 
+func (h requestorDispatchHandler) HandleDisableInput(ctx context.Context, p internal_type.DisableInputPacket) {
+	h.r.channels.DisableInput()
+}
+
+func (h requestorDispatchHandler) HandleEnableInput(ctx context.Context, p internal_type.EnableInputPacket) {
+	h.r.channels.EnableInput()
+}
+
 func (h requestorDispatchHandler) HandleSpeechToTextStart(ctx context.Context, p internal_type.SpeechToTextStartPacket) {
 	if h.r.speechToTextTransformer != nil {
 		if err := h.r.speechToTextTransformer.Transform(ctx, p); err != nil {
@@ -661,6 +669,9 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 					"message": p.ErrMessage(),
 				}),
 			})
+		if h.r.channels.InputBlocked() {
+			h.r.OnPacket(ctx, internal_type.EnableInputPacket{ContextID: p.ContextId()})
+		}
 	case internal_type.ModeSwitchErrorPacket:
 		if errPkt.IsRecoverable() {
 			_ = h.r.sessionLifecycle.Transition(adapter_lifecycle.EventSwitchFailedRecoverable)
@@ -1007,6 +1018,9 @@ func (h requestorDispatchHandler) HandleTextToSpeechEnd(ctx context.Context, p i
 		Completed: true,
 	}); err != nil {
 		return
+	}
+	if h.r.channels.InputBlocked() {
+		h.r.OnPacket(ctx, internal_type.EnableInputPacket{ContextID: p.ContextID})
 	}
 }
 func (h requestorDispatchHandler) HandleLLMToolCall(ctx context.Context, p internal_type.LLMToolCallPacket) {
@@ -2733,6 +2747,7 @@ func (h requestorDispatchHandler) HandleFinalizeAssistant(ctx context.Context, p
 }
 
 func (h requestorDispatchHandler) HandleFinalizationCompleted(ctx context.Context, p internal_type.FinalizationCompletedPacket) {
+	h.r.channels.EnableInput()
 	_ = h.r.sessionLifecycle.Transition(adapter_lifecycle.EventDisconnectCompleted)
 	h.r.cancelSession()
 }

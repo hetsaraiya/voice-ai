@@ -289,6 +289,21 @@ type LLMInterruptPacket struct {
 
 func (f LLMInterruptPacket) ContextId() string { return f.ContextID }
 
+// DisableInputPacket pauses ingress processing. Packets already queued on the
+// input channel remain queued until EnableInputPacket is handled.
+type DisableInputPacket struct {
+	ContextID string
+}
+
+func (f DisableInputPacket) ContextId() string { return f.ContextID }
+
+// EnableInputPacket resumes ingress processing after DisableInputPacket.
+type EnableInputPacket struct {
+	ContextID string
+}
+
+func (f EnableInputPacket) ContextId() string { return f.ContextID }
+
 // TurnChangePacket notifies components that active context changed to a new turn.
 type TurnChangePacket struct {
 	ContextID         string

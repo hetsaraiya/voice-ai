@@ -29,6 +29,8 @@ func Classify(p internal_type.Packet) Route {
 	case internal_type.InterruptionDetectedPacket,
 		internal_type.TextToSpeechInterruptPacket,
 		internal_type.LLMInterruptPacket,
+		internal_type.DisableInputPacket,
+		internal_type.EnableInputPacket,
 		internal_type.SpeechToTextEndPacket,
 		internal_type.EndOfSpeechInterruptionPacket,
 		internal_type.TurnChangePacket:
@@ -124,5 +126,20 @@ func Classify(p internal_type.Packet) Route {
 		return RouteBackground
 	default:
 		return RouteBackground
+	}
+}
+
+// IsInputOriginatedControl reports whether a control packet was produced by
+// user input processing and should be held behind the ingress gate when input is
+// disabled.
+func IsInputOriginatedControl(p internal_type.Packet) bool {
+	switch p.(type) {
+	case internal_type.InterruptionDetectedPacket,
+		internal_type.EndOfSpeechInterruptionPacket,
+		internal_type.SpeechToTextStartPacket,
+		internal_type.SpeechToTextEndPacket:
+		return true
+	default:
+		return false
 	}
 }

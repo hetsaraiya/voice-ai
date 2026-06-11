@@ -7,6 +7,7 @@ package channel
 
 import (
 	"context"
+	"sync"
 
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 )
@@ -54,12 +55,19 @@ type ChannelRunner interface {
 	RunBackground(context.Context, func(Envelope))
 }
 
+type InputGate interface {
+	DisableInput()
+	EnableInput()
+	InputBlocked() bool
+}
+
 // RequestorChannelBus is the unified channel interface used by the requestor.
 type RequestorChannelBus interface {
 	ChannelWriter
 	ChannelReader
 	ChannelFlusher
 	ChannelRunner
+	InputGate
 }
 
 // RequestorChannels groups all dispatcher channels used by one requestor.
@@ -88,10 +96,15 @@ type RequestorChannels struct {
 	// backgroundCh is for observer-touching telemetry (events, metrics).
 	// Drained by the dispatcher started after telemetry init completes.
 	backgroundCh chan Envelope
+
+	inputGateOnce sync.Once
+	inputGateMu   sync.RWMutex
+	inputBlocked  bool
+	inputChanged  chan struct{}
 }
 
 func NewRequestorChannels() *RequestorChannels {
-	return &RequestorChannels{
+	channels := &RequestorChannels{
 		controlChannel: make(chan Envelope, 256),
 		bootstrapCh:    make(chan Envelope, 512),
 		ingressCh:      make(chan Envelope, 4096),
@@ -99,6 +112,8 @@ func NewRequestorChannels() *RequestorChannels {
 		dataCh:         make(chan Envelope, 2048),
 		backgroundCh:   make(chan Envelope, 2048),
 	}
+	channels.ensureInputGate()
+	return channels
 }
 
 func (c *RequestorChannels) ControlChannel() chan Envelope    { return c.controlChannel }
@@ -122,7 +137,12 @@ func (c *RequestorChannels) OnBootstrap(e Envelope) {
 
 // OnIngress routes an envelope to the ingress channel.
 func (c *RequestorChannels) OnIngress(e Envelope) {
-	c.ingressCh <- e
+	select {
+	case c.ingressCh <- e:
+	default:
+		c.FlushIngress()
+		c.ingressCh <- e
+	}
 }
 
 // OnEgress routes an envelope to the egress channel.
@@ -138,6 +158,55 @@ func (c *RequestorChannels) OnData(e Envelope) {
 // OnBackground routes an envelope to the background channel.
 func (c *RequestorChannels) OnBackground(e Envelope) {
 	c.backgroundCh <- e
+}
+
+func (c *RequestorChannels) ensureInputGate() {
+	c.inputGateOnce.Do(func() {
+		c.inputChanged = make(chan struct{})
+	})
+}
+
+func (c *RequestorChannels) DisableInput() {
+	c.ensureInputGate()
+	c.inputGateMu.Lock()
+	c.inputBlocked = true
+	c.inputGateMu.Unlock()
+}
+
+func (c *RequestorChannels) EnableInput() {
+	c.ensureInputGate()
+	c.inputGateMu.Lock()
+	if c.inputBlocked {
+		c.inputBlocked = false
+		close(c.inputChanged)
+		c.inputChanged = make(chan struct{})
+	}
+	c.inputGateMu.Unlock()
+}
+
+func (c *RequestorChannels) InputBlocked() bool {
+	c.ensureInputGate()
+	c.inputGateMu.RLock()
+	defer c.inputGateMu.RUnlock()
+	return c.inputBlocked
+}
+
+func (c *RequestorChannels) waitInputEnabled(ctx context.Context) bool {
+	c.ensureInputGate()
+	for {
+		c.inputGateMu.RLock()
+		blocked := c.inputBlocked
+		changed := c.inputChanged
+		c.inputGateMu.RUnlock()
+		if !blocked {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-changed:
+		}
+	}
 }
 
 func run(ctx context.Context, ch <-chan Envelope, onEnvelope func(Envelope)) {
@@ -160,7 +229,20 @@ func (c *RequestorChannels) RunBootstrap(ctx context.Context, onEnvelope func(En
 }
 
 func (c *RequestorChannels) RunIngress(ctx context.Context, onEnvelope func(Envelope)) {
-	run(ctx, c.ingressCh, onEnvelope)
+	for {
+		if !c.waitInputEnabled(ctx) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case e := <-c.ingressCh:
+			if !c.waitInputEnabled(ctx) {
+				return
+			}
+			onEnvelope(e)
+		}
+	}
 }
 
 func (c *RequestorChannels) RunEgress(ctx context.Context, onEnvelope func(Envelope)) {
@@ -175,7 +257,7 @@ func (c *RequestorChannels) RunBackground(ctx context.Context, onEnvelope func(E
 	run(ctx, c.backgroundCh, onEnvelope)
 }
 
-func flushChannel(ch chan Envelope) int {
+func (c *RequestorChannels) flushChannel(ch chan Envelope) int {
 	dropped := 0
 	for {
 		select {
@@ -189,32 +271,32 @@ func flushChannel(ch chan Envelope) int {
 
 // FlushControl drains queued control packets and returns dropped count.
 func (c *RequestorChannels) FlushControl() int {
-	return flushChannel(c.controlChannel)
+	return c.flushChannel(c.controlChannel)
 }
 
 // FlushBootstrap drains queued bootstrap packets and returns dropped count.
 func (c *RequestorChannels) FlushBootstrap() int {
-	return flushChannel(c.bootstrapCh)
+	return c.flushChannel(c.bootstrapCh)
 }
 
 // FlushIngress drains queued ingress packets and returns dropped count.
 func (c *RequestorChannels) FlushIngress() int {
-	return flushChannel(c.ingressCh)
+	return c.flushChannel(c.ingressCh)
 }
 
 // FlushEgress drains queued egress packets and returns dropped count.
 func (c *RequestorChannels) FlushEgress() int {
-	return flushChannel(c.egressCh)
+	return c.flushChannel(c.egressCh)
 }
 
 // FlushData drains queued data packets and returns dropped count.
 func (c *RequestorChannels) FlushData() int {
-	return flushChannel(c.dataCh)
+	return c.flushChannel(c.dataCh)
 }
 
 // FlushBackground drains queued background packets and returns dropped count.
 func (c *RequestorChannels) FlushBackground() int {
-	return flushChannel(c.backgroundCh)
+	return c.flushChannel(c.backgroundCh)
 }
 
 // FlushAll drains all channels and returns total dropped packets.

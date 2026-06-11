@@ -22,7 +22,15 @@ import (
 
 func (r *genericRequestor) OnPacket(ctx context.Context, pkts ...internal_type.Packet) error {
 	for _, p := range pkts {
+		if _, ok := p.(internal_type.DisableInputPacket); ok {
+			r.channels.DisableInput()
+		}
 		route := adapter_router.Classify(p)
+		if route == adapter_router.RouteControl &&
+			r.channels.InputBlocked() &&
+			adapter_router.IsInputOriginatedControl(p) {
+			route = adapter_router.RouteIngress
+		}
 		switch route {
 		case adapter_router.RouteControl:
 			r.channels.OnControl(adapter_channel.Envelope{Ctx: ctx, Pkt: p})

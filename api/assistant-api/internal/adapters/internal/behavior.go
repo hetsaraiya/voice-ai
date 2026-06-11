@@ -59,17 +59,21 @@ func (r *genericRequestor) initializeGreeting(ctx context.Context, behavior *int
 	if strings.TrimSpace(greetingContent) == "" {
 		return
 	}
+	contextID := r.GetID()
+	if r.GetMode().Audio() && behavior.GreetingInterruptible != nil && !*behavior.GreetingInterruptible {
+		_ = r.OnPacket(ctx, internal_type.DisableInputPacket{ContextID: contextID})
+	}
 	_ = r.OnPacket(ctx,
-		internal_type.InjectMessagePacket{ContextID: r.GetID(), Text: greetingContent},
+		internal_type.InjectMessagePacket{ContextID: contextID, Text: greetingContent},
 		internal_type.ObservabilityEventRecordPacket{
-			ContextID: r.GetID(),
+			ContextID: contextID,
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
 			Record: observability.NewConversationEventRecord(observability.ConversationAgentStateChanged, observability.Attributes{
 				"type":       "greeting",
 				"text_chars": fmt.Sprintf("%d", len(greetingContent)),
 			}),
 		},
-		internal_type.StartIdleTimeoutPacket{ContextID: r.GetID()},
+		internal_type.StartIdleTimeoutPacket{ContextID: contextID},
 	)
 }
 

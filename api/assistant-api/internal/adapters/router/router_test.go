@@ -28,6 +28,18 @@ func TestClassify(t *testing.T) {
 			wantOK:    true,
 		},
 		{
+			name:      "disable-input-control",
+			pkt:       internal_type.DisableInputPacket{ContextID: "c"},
+			wantRoute: RouteControl,
+			wantOK:    true,
+		},
+		{
+			name:      "enable-input-control",
+			pkt:       internal_type.EnableInputPacket{ContextID: "c"},
+			wantRoute: RouteControl,
+			wantOK:    true,
+		},
+		{
 			name:      "bootstrap",
 			pkt:       internal_type.InitializeAssistantPacket{ContextID: "c"},
 			wantRoute: RouteBootstrap,

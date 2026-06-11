@@ -16,6 +16,7 @@ import (
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	gorm_model "github.com/rapidaai/pkg/models/gorm"
+	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
@@ -432,6 +433,65 @@ func TestBehavior_InitializeGreeting(t *testing.T) {
 		assert.Equal(t, "greeting", event.Record.Attributes["type"])
 		assert.Equal(t, "8", event.Record.Attributes["text_chars"])
 	})
+
+	t.Run("non-interruptible audio greeting disables input before inject", func(t *testing.T) {
+		r := newBehaviorDisconnectTestRequestor(t, &behaviorCapturingStreamer{})
+		r.messageLifecycle.SetContextID("ctx-greeting")
+		r.messageLifecycle.SetMode(type_enums.AudioMode)
+		interruptible := false
+
+		r.initializeGreeting(context.Background(), &internal_assistant_entity.AssistantDeploymentBehavior{
+			Greeting:              behaviorStr("Welcome!"),
+			GreetingInterruptible: &interruptible,
+		})
+
+		disable := requireBehaviorPacketEventually[internal_type.DisableInputPacket](
+			t, r.channels.ControlChannel(), time.Second,
+		)
+		assert.Equal(t, "ctx-greeting", disable.ContextID)
+
+		inject := requireBehaviorPacketEventually[internal_type.InjectMessagePacket](
+			t, r.channels.EgressChannel(), time.Second,
+		)
+		assert.Equal(t, "ctx-greeting", inject.ContextID)
+		assert.Equal(t, "Welcome!", inject.Text)
+	})
+}
+
+func TestHandleTextToSpeechEnd_EnablesBlockedInput(t *testing.T) {
+	r := newBehaviorDisconnectTestRequestor(t, &behaviorCapturingStreamer{})
+	r.messageLifecycle.SetContextID("ctx-tts-end")
+	r.channels.DisableInput()
+	h := requestorDispatchHandler{r: r}
+
+	h.HandleTextToSpeechEnd(context.Background(), internal_type.TextToSpeechEndPacket{ContextID: "ctx-tts-end"})
+
+	enable := requireBehaviorPacketEventually[internal_type.EnableInputPacket](
+		t, r.channels.ControlChannel(), time.Second,
+	)
+	assert.Equal(t, "ctx-tts-end", enable.ContextID)
+}
+
+func TestOnPacket_HoldsInputOriginatedControlWhileInputBlocked(t *testing.T) {
+	r := newBehaviorDisconnectTestRequestor(t, &behaviorCapturingStreamer{})
+	r.channels.DisableInput()
+
+	err := r.OnPacket(context.Background(), internal_type.InterruptionDetectedPacket{
+		ContextID: "ctx-interrupt",
+		Source:    internal_type.InterruptionSourceWord,
+	})
+	require.NoError(t, err)
+
+	select {
+	case env := <-r.channels.ControlChannel():
+		t.Fatalf("expected interruption to be held on ingress, got control packet %T", env.Pkt)
+	default:
+	}
+
+	pkt := requireBehaviorPacketEventually[internal_type.InterruptionDetectedPacket](
+		t, r.channels.IngressChannel(), time.Second,
+	)
+	assert.Equal(t, "ctx-interrupt", pkt.ContextID)
 }
 
 // Idle timeout initialization should only enqueue a timer start when configured.
