@@ -45,9 +45,6 @@ type requestorDispatchHandler struct {
 }
 
 func (h requestorDispatchHandler) HandleUserText(ctx context.Context, vl internal_type.UserTextReceivedPacket) {
-	if !h.r.canAcceptInput() {
-		return
-	}
 	h.HandleInterruptionDetected(ctx, internal_type.InterruptionDetectedPacket{
 		ContextID: h.r.GetID(),
 		Source:    internal_type.InterruptionSourceWord,
@@ -75,9 +72,6 @@ func (h requestorDispatchHandler) HandleUserText(ctx context.Context, vl interna
 }
 
 func (h requestorDispatchHandler) HandleUserAudio(ctx context.Context, vl internal_type.UserAudioReceivedPacket) {
-	if !h.r.canAcceptInput() {
-		return
-	}
 	if h.r.denoiserExecutor != nil {
 		h.r.OnPacket(ctx,
 			internal_type.DenoiseAudioPacket{ContextID: vl.ContextID, Audio: vl.Audio},
@@ -358,12 +352,8 @@ func (h requestorDispatchHandler) HandleLLMInterrupt(ctx context.Context, p inte
 	}
 }
 
-func (h requestorDispatchHandler) HandleDisableInput(ctx context.Context, p internal_type.DisableInputPacket) {
-	h.r.channels.DisableInput()
-}
-
-func (h requestorDispatchHandler) HandleEnableInput(ctx context.Context, p internal_type.EnableInputPacket) {
-	h.r.channels.EnableInput()
+func (h requestorDispatchHandler) HandleDispatchPolicy(ctx context.Context, p internal_type.DispatchPolicyPacket) {
+	h.r.dispatchRoute.ApplyPolicy(p.Policy)
 }
 
 func (h requestorDispatchHandler) HandleSpeechToTextStart(ctx context.Context, p internal_type.SpeechToTextStartPacket) {
@@ -669,9 +659,22 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 					"message": p.ErrMessage(),
 				}),
 			})
-		if h.r.channels.InputBlocked() {
-			h.r.OnPacket(ctx, internal_type.EnableInputPacket{ContextID: p.ContextId()})
-		}
+		h.r.OnPacket(ctx,
+			internal_type.DispatchPolicyPacket{
+				ContextID: p.ContextId(),
+				Policy: internal_type.DispatchPolicy{
+					Target: internal_type.PacketNameUserAudioReceived,
+					Action: internal_type.DispatchActionPassthrough,
+				},
+			},
+			internal_type.DispatchPolicyPacket{
+				ContextID: p.ContextId(),
+				Policy: internal_type.DispatchPolicy{
+					Target: internal_type.PacketNameInterruptionDetected,
+					Action: internal_type.DispatchActionPassthrough,
+				},
+			},
+		)
 	case internal_type.ModeSwitchErrorPacket:
 		if errPkt.IsRecoverable() {
 			_ = h.r.sessionLifecycle.Transition(adapter_lifecycle.EventSwitchFailedRecoverable)
@@ -1019,9 +1022,22 @@ func (h requestorDispatchHandler) HandleTextToSpeechEnd(ctx context.Context, p i
 	}); err != nil {
 		return
 	}
-	if h.r.channels.InputBlocked() {
-		h.r.OnPacket(ctx, internal_type.EnableInputPacket{ContextID: p.ContextID})
-	}
+	h.r.OnPacket(ctx,
+		internal_type.DispatchPolicyPacket{
+			ContextID: p.ContextID,
+			Policy: internal_type.DispatchPolicy{
+				Target: internal_type.PacketNameUserAudioReceived,
+				Action: internal_type.DispatchActionPassthrough,
+			},
+		},
+		internal_type.DispatchPolicyPacket{
+			ContextID: p.ContextID,
+			Policy: internal_type.DispatchPolicy{
+				Target: internal_type.PacketNameInterruptionDetected,
+				Action: internal_type.DispatchActionPassthrough,
+			},
+		},
+	)
 }
 func (h requestorDispatchHandler) HandleLLMToolCall(ctx context.Context, p internal_type.LLMToolCallPacket) {
 	req, _ := json.Marshal(p)
@@ -1844,6 +1860,7 @@ func (h requestorDispatchHandler) HandleInitializeSpeechToText(ctx context.Conte
 		return
 	}
 	h.r.speechToTextTransformer = atransformer
+
 }
 
 func (h requestorDispatchHandler) HandleInitializeDenoise(ctx context.Context, p internal_type.InitializeDenoisePacket) {
@@ -2482,9 +2499,7 @@ func (h requestorDispatchHandler) HandleInitializeTelemetry(ctx context.Context,
 }
 
 func (h requestorDispatchHandler) HandleInitializeInboundDispatcher(ctx context.Context, p internal_type.InitializeInboundDispatcherPacket) {
-	h.r.inputStart.Do(func() {
-		go h.r.runInputDispatcher(h.r.sessionCtx)
-	})
+	go h.r.runInputDispatcher(h.r.sessionCtx)
 }
 
 func (h requestorDispatchHandler) HandleFinalizeBehavior(ctx context.Context, p internal_type.FinalizeBehaviorPacket) {
@@ -2747,7 +2762,6 @@ func (h requestorDispatchHandler) HandleFinalizeAssistant(ctx context.Context, p
 }
 
 func (h requestorDispatchHandler) HandleFinalizationCompleted(ctx context.Context, p internal_type.FinalizationCompletedPacket) {
-	h.r.channels.EnableInput()
 	_ = h.r.sessionLifecycle.Transition(adapter_lifecycle.EventDisconnectCompleted)
 	h.r.cancelSession()
 }

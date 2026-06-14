@@ -29,7 +29,132 @@ import (
 //   - Events  (something happened): past-tense/noun — LLMResponseDelta, DenoisedAudio, SpeechToText, EndOfSpeech, TextToSpeechAudio
 type Packet interface {
 	ContextId() string
+	PacketName() PacketName
 }
+
+type PacketName string
+
+const (
+	PacketNameDispatchPolicy                             PacketName = "DispatchPolicyPacket"
+	PacketNameUserTextReceived                           PacketName = "UserTextReceivedPacket"
+	PacketNameUserAudioReceived                          PacketName = "UserAudioReceivedPacket"
+	PacketNameSpeechToTextAudio                          PacketName = "SpeechToTextAudioPacket"
+	PacketNameDenoiseAudio                               PacketName = "DenoiseAudioPacket"
+	PacketNameDenoisedAudio                              PacketName = "DenoisedAudioPacket"
+	PacketNameVadAudio                                   PacketName = "VadAudioPacket"
+	PacketNameVadSpeechActivity                          PacketName = "VadSpeechActivityPacket"
+	PacketNameSpeechToText                               PacketName = "SpeechToTextPacket"
+	PacketNameEndOfSpeechAudio                           PacketName = "EndOfSpeechAudioPacket"
+	PacketNameEndOfSpeechInterruption                    PacketName = "EndOfSpeechInterruptionPacket"
+	PacketNameEndOfSpeech                                PacketName = "EndOfSpeechPacket"
+	PacketNameInterimEndOfSpeech                         PacketName = "InterimEndOfSpeechPacket"
+	PacketNameUserInput                                  PacketName = "UserInputPacket"
+	PacketNameInterruptionDetected                       PacketName = "InterruptionDetectedPacket"
+	PacketNameTextToSpeechInterrupt                      PacketName = "TextToSpeechInterruptPacket"
+	PacketNameSpeechToTextError                          PacketName = "SpeechToTextErrorPacket"
+	PacketNameSpeechToTextEnd                            PacketName = "SpeechToTextEndPacket"
+	PacketNameSpeechToTextStart                          PacketName = "SpeechToTextStartPacket"
+	PacketNameLLMInterrupt                               PacketName = "LLMInterruptPacket"
+	PacketNameTurnChange                                 PacketName = "TurnChangePacket"
+	PacketNameInjectMessage                              PacketName = "InjectMessagePacket"
+	PacketNameInitializeAssistant                        PacketName = "InitializeAssistantPacket"
+	PacketNameInitializeConversation                     PacketName = "InitializeConversationPacket"
+	PacketNameInitializeSessionRuntime                   PacketName = "InitializeSessionRuntimePacket"
+	PacketNameInitializeAuthentication                   PacketName = "InitializeAuthenticationPacket"
+	PacketNameExecuteSessionAuthentication               PacketName = "ExecuteSessionAuthenticationPacket"
+	PacketNameSessionAuthenticationSucceeded             PacketName = "SessionAuthenticationSucceededPacket"
+	PacketNameSessionAuthenticationFailed                PacketName = "SessionAuthenticationFailedPacket"
+	PacketNameInitializeSpeechToText                     PacketName = "InitializeSpeechToTextPacket"
+	PacketNameInitializeAssistantExecutor                PacketName = "InitializeAssistantExecutorPacket"
+	PacketNameInitializeTextToSpeech                     PacketName = "InitializeTextToSpeechPacket"
+	PacketNameInitializeVoiceActivityDetection           PacketName = "InitializeVoiceActivityDetectionPacket"
+	PacketNameInitializeEndOfSpeech                      PacketName = "InitializeEndOfSpeechPacket"
+	PacketNameInitializeDenoise                          PacketName = "InitializeDenoisePacket"
+	PacketNameInitializeBehavior                         PacketName = "InitializeBehaviorPacket"
+	PacketNameInitializationCompleted                    PacketName = "InitializationCompletedPacket"
+	PacketNameInitializeTelemetry                        PacketName = "InitializeTelemetryPacket"
+	PacketNameInitializeInboundDispatcher                PacketName = "InitializeInboundDispatcherPacket"
+	PacketNameInitializationFailed                       PacketName = "InitializationFailedPacket"
+	PacketNameModeSwitchRequested                        PacketName = "ModeSwitchRequestedPacket"
+	PacketNameModeSwitchCompleted                        PacketName = "ModeSwitchCompletedPacket"
+	PacketNameModeSwitchError                            PacketName = "ModeSwitchErrorPacket"
+	PacketNameModeSwitchInitializeSpeechToText           PacketName = "ModeSwitchInitializeSpeechToTextPacket"
+	PacketNameModeSwitchInitializeTextToSpeech           PacketName = "ModeSwitchInitializeTextToSpeechPacket"
+	PacketNameModeSwitchInitializeVoiceActivityDetection PacketName = "ModeSwitchInitializeVoiceActivityDetectionPacket"
+	PacketNameModeSwitchInitializeEndOfSpeech            PacketName = "ModeSwitchInitializeEndOfSpeechPacket"
+	PacketNameModeSwitchInitializeDenoise                PacketName = "ModeSwitchInitializeDenoisePacket"
+	PacketNameModeSwitchFinalizeSpeechToText             PacketName = "ModeSwitchFinalizeSpeechToTextPacket"
+	PacketNameModeSwitchFinalizeTextToSpeech             PacketName = "ModeSwitchFinalizeTextToSpeechPacket"
+	PacketNameModeSwitchFinalizeVoiceActivityDetection   PacketName = "ModeSwitchFinalizeVoiceActivityDetectionPacket"
+	PacketNameModeSwitchFinalizeEndOfSpeech              PacketName = "ModeSwitchFinalizeEndOfSpeechPacket"
+	PacketNameModeSwitchFinalizeDenoise                  PacketName = "ModeSwitchFinalizeDenoisePacket"
+	PacketNameFinalizeBehavior                           PacketName = "FinalizeBehaviorPacket"
+	PacketNameFinalizeEndOfSpeech                        PacketName = "FinalizeEndOfSpeechPacket"
+	PacketNameFinalizeVoiceActivityDetection             PacketName = "FinalizeVoiceActivityDetectionPacket"
+	PacketNameFinalizeTextToSpeech                       PacketName = "FinalizeTextToSpeechPacket"
+	PacketNameFinalizeSpeechToText                       PacketName = "FinalizeSpeechToTextPacket"
+	PacketNameFinalizeAuthentication                     PacketName = "FinalizeAuthenticationPacket"
+	PacketNameFinalizeSessionRuntime                     PacketName = "FinalizeSessionRuntimePacket"
+	PacketNameFinalizeConversation                       PacketName = "FinalizeConversationPacket"
+	PacketNameFinalizeAssistant                          PacketName = "FinalizeAssistantPacket"
+	PacketNameFinalizationCompleted                      PacketName = "FinalizationCompletedPacket"
+	PacketNameExecuteAnalysis                            PacketName = "ExecuteAnalysisPacket"
+	PacketNameExecuteWebhook                             PacketName = "ExecuteWebhookPacket"
+	PacketNameStartIdleTimeout                           PacketName = "StartIdleTimeoutPacket"
+	PacketNameStopIdleTimeout                            PacketName = "StopIdleTimeoutPacket"
+	PacketNameLLMResponseDelta                           PacketName = "LLMResponseDeltaPacket"
+	PacketNameLLMResponseDone                            PacketName = "LLMResponseDonePacket"
+	PacketNameLLMError                                   PacketName = "LLMErrorPacket"
+	PacketNameLLMToolCall                                PacketName = "LLMToolCallPacket"
+	PacketNameLLMToolResult                              PacketName = "LLMToolResultPacket"
+	PacketNameTextToSpeechError                          PacketName = "TextToSpeechErrorPacket"
+	PacketNameTextToSpeechText                           PacketName = "TextToSpeechTextPacket"
+	PacketNameTextToSpeechDone                           PacketName = "TextToSpeechDonePacket"
+	PacketNameTextToSpeechAudio                          PacketName = "TextToSpeechAudioPacket"
+	PacketNameTextToSpeechEnd                            PacketName = "TextToSpeechEndPacket"
+	PacketNameRecordUserAudio                            PacketName = "RecordUserAudioPacket"
+	PacketNameRecordAssistantAudio                       PacketName = "RecordAssistantAudioPacket"
+	PacketNameConversationRecordingCompleted             PacketName = "ConversationRecordingCompletedPacket"
+	PacketNameMessageCreate                              PacketName = "MessageCreatePacket"
+	PacketNameToolLogCreate                              PacketName = "ToolLogCreatePacket"
+	PacketNameToolLogUpdate                              PacketName = "ToolLogUpdatePacket"
+	PacketNameHTTPLogCreate                              PacketName = "HTTPLogCreatePacket"
+	PacketNameObservabilityLogRecord                     PacketName = "ObservabilityLogRecordPacket"
+	PacketNameObservabilityEventRecord                   PacketName = "ObservabilityEventRecordPacket"
+	PacketNameObservabilityMetricRecord                  PacketName = "ObservabilityMetricRecordPacket"
+	PacketNameObservabilityMetadataRecord                PacketName = "ObservabilityMetadataRecordPacket"
+	PacketNameObservabilityUsageRecord                   PacketName = "ObservabilityUsageRecordPacket"
+	PacketNameObservabilityWebhookRecord                 PacketName = "ObservabilityWebhookRecordPacket"
+)
+
+// DispatchAction defines what the dispatcher should do with packets matching a
+// dispatch policy target.
+type DispatchAction string
+
+const (
+	// DispatchActionPassthrough is the default behavior. Matching packets are
+	// dispatched to their handlers normally. Setting passthrough removes any
+	// stored policy for the target.
+	DispatchActionPassthrough DispatchAction = "passthrough"
+
+	// DispatchActionIgnore drops matching packets before handler execution.
+	DispatchActionIgnore DispatchAction = "ignore"
+)
+
+// DispatchPolicy defines dispatcher behavior for packets matching Target.
+type DispatchPolicy struct {
+	Target PacketName
+	Action DispatchAction
+}
+
+// DispatchPolicyPacket sets the active dispatch policy for its target.
+type DispatchPolicyPacket struct {
+	ContextID string
+	Policy    DispatchPolicy
+}
+
+func (p DispatchPolicyPacket) ContextId() string      { return p.ContextID }
+func (p DispatchPolicyPacket) PacketName() PacketName { return PacketNameDispatchPolicy }
 
 // MessagePacket wraps a Packet with role and text content.
 type MessagePacket interface {
@@ -80,9 +205,10 @@ type UserTextReceivedPacket struct {
 	Language string
 }
 
-func (f UserTextReceivedPacket) ContextId() string { return f.ContextID }
-func (f UserTextReceivedPacket) Content() string   { return f.Text }
-func (f UserTextReceivedPacket) Role() string      { return "user" }
+func (f UserTextReceivedPacket) ContextId() string      { return f.ContextID }
+func (f UserTextReceivedPacket) PacketName() PacketName { return PacketNameUserTextReceived }
+func (f UserTextReceivedPacket) Content() string        { return f.Text }
+func (f UserTextReceivedPacket) Role() string           { return "user" }
 
 // UserAudioReceivedPacket carries raw audio input from the user (e.g. via WebRTC).
 type UserAudioReceivedPacket struct {
@@ -90,18 +216,20 @@ type UserAudioReceivedPacket struct {
 	Audio     []byte
 }
 
-func (f UserAudioReceivedPacket) ContextId() string { return f.ContextID }
-func (f UserAudioReceivedPacket) Content() []byte   { return f.Audio }
-func (f UserAudioReceivedPacket) Role() string      { return "user" }
+func (f UserAudioReceivedPacket) ContextId() string      { return f.ContextID }
+func (f UserAudioReceivedPacket) PacketName() PacketName { return PacketNameUserAudioReceived }
+func (f UserAudioReceivedPacket) Content() []byte        { return f.Audio }
+func (f UserAudioReceivedPacket) Role() string           { return "user" }
 
 type SpeechToTextAudioPacket struct {
 	ContextID string
 	Audio     []byte
 }
 
-func (f SpeechToTextAudioPacket) ContextId() string { return f.ContextID }
-func (f SpeechToTextAudioPacket) Content() []byte   { return f.Audio }
-func (f SpeechToTextAudioPacket) IsAsync() bool     { return true }
+func (f SpeechToTextAudioPacket) ContextId() string      { return f.ContextID }
+func (f SpeechToTextAudioPacket) PacketName() PacketName { return PacketNameSpeechToTextAudio }
+func (f SpeechToTextAudioPacket) Content() []byte        { return f.Audio }
+func (f SpeechToTextAudioPacket) IsAsync() bool          { return true }
 
 // DenoiseAudioPacket carries raw user audio to be denoised before entering the pipeline.
 type DenoiseAudioPacket struct {
@@ -109,7 +237,8 @@ type DenoiseAudioPacket struct {
 	Audio     []byte
 }
 
-func (f DenoiseAudioPacket) ContextId() string { return f.ContextID }
+func (f DenoiseAudioPacket) ContextId() string      { return f.ContextID }
+func (f DenoiseAudioPacket) PacketName() PacketName { return PacketNameDenoiseAudio }
 
 // DenoisedAudioPacket carries the result of the denoiser stage.
 // The denoiser pushes this via onPacket instead of returning bytes to the caller.
@@ -120,7 +249,8 @@ type DenoisedAudioPacket struct {
 	Confidence float64
 }
 
-func (f DenoisedAudioPacket) ContextId() string { return f.ContextID }
+func (f DenoisedAudioPacket) ContextId() string      { return f.ContextID }
+func (f DenoisedAudioPacket) PacketName() PacketName { return PacketNameDenoisedAudio }
 
 // VadAudioPacket carries a processed audio chunk to submit to the VAD processor.
 type VadAudioPacket struct {
@@ -128,7 +258,8 @@ type VadAudioPacket struct {
 	Audio     []byte
 }
 
-func (f VadAudioPacket) ContextId() string { return f.ContextID }
+func (f VadAudioPacket) ContextId() string      { return f.ContextID }
+func (f VadAudioPacket) PacketName() PacketName { return PacketNameVadAudio }
 
 // VadSpeechActivityPacket is a lightweight heartbeat emitted by the VAD on every
 // audio chunk where the user is actively speaking. The EOS detector uses it to
@@ -137,7 +268,8 @@ type VadSpeechActivityPacket struct {
 	ContextID string
 }
 
-func (f VadSpeechActivityPacket) ContextId() string { return f.ContextID }
+func (f VadSpeechActivityPacket) ContextId() string      { return f.ContextID }
+func (f VadSpeechActivityPacket) PacketName() PacketName { return PacketNameVadSpeechActivity }
 
 // SpeechToTextPacket carries a transcript result from the STT provider.
 type SpeechToTextPacket struct {
@@ -149,7 +281,8 @@ type SpeechToTextPacket struct {
 	Interim    bool
 }
 
-func (f SpeechToTextPacket) ContextId() string { return f.ContextID }
+func (f SpeechToTextPacket) ContextId() string      { return f.ContextID }
+func (f SpeechToTextPacket) PacketName() PacketName { return PacketNameSpeechToText }
 
 func (f SpeechToTextPacket) GetConcat() string {
 	if f.Concat == nil {
@@ -164,8 +297,9 @@ type EndOfSpeechAudioPacket struct {
 	Audio     []byte
 }
 
-func (f EndOfSpeechAudioPacket) ContextId() string { return f.ContextID }
-func (f EndOfSpeechAudioPacket) IsAsync() bool     { return true }
+func (f EndOfSpeechAudioPacket) ContextId() string      { return f.ContextID }
+func (f EndOfSpeechAudioPacket) PacketName() PacketName { return PacketNameEndOfSpeechAudio }
+func (f EndOfSpeechAudioPacket) IsAsync() bool          { return true }
 
 type EndOfSpeechInterruptionPacket struct {
 	ContextID string
@@ -173,7 +307,10 @@ type EndOfSpeechInterruptionPacket struct {
 }
 
 func (f EndOfSpeechInterruptionPacket) ContextId() string { return f.ContextID }
-func (f EndOfSpeechInterruptionPacket) IsAsync() bool     { return true }
+func (f EndOfSpeechInterruptionPacket) PacketName() PacketName {
+	return PacketNameEndOfSpeechInterruption
+}
+func (f EndOfSpeechInterruptionPacket) IsAsync() bool { return true }
 
 type EndOfSpeechPacket struct {
 	ContextID string
@@ -181,7 +318,8 @@ type EndOfSpeechPacket struct {
 	Speechs   []SpeechToTextPacket // accumulated transcript chunks
 }
 
-func (f EndOfSpeechPacket) ContextId() string { return f.ContextID }
+func (f EndOfSpeechPacket) ContextId() string      { return f.ContextID }
+func (f EndOfSpeechPacket) PacketName() PacketName { return PacketNameEndOfSpeech }
 
 // InterimEndOfSpeechPacket carries a partial EOS result (in-progress transcript).
 type InterimEndOfSpeechPacket struct {
@@ -189,7 +327,8 @@ type InterimEndOfSpeechPacket struct {
 	Speech    string
 }
 
-func (p InterimEndOfSpeechPacket) ContextId() string { return p.ContextID }
+func (p InterimEndOfSpeechPacket) ContextId() string      { return p.ContextID }
+func (p InterimEndOfSpeechPacket) PacketName() PacketName { return PacketNameInterimEndOfSpeech }
 
 // UserInputPacket carries the processed user text after input preprocessing (language detection, etc.).
 type UserInputPacket struct {
@@ -198,7 +337,8 @@ type UserInputPacket struct {
 	Language  types.Language
 }
 
-func (f UserInputPacket) ContextId() string { return f.ContextID }
+func (f UserInputPacket) ContextId() string      { return f.ContextID }
+func (f UserInputPacket) PacketName() PacketName { return PacketNameUserInput }
 
 // =============================================================================
 // Control — interrupts, directives, injected messages
@@ -228,7 +368,8 @@ type InterruptionDetectedPacket struct {
 	EndAt     float64
 }
 
-func (f InterruptionDetectedPacket) ContextId() string { return f.ContextID }
+func (f InterruptionDetectedPacket) ContextId() string      { return f.ContextID }
+func (f InterruptionDetectedPacket) PacketName() PacketName { return PacketNameInterruptionDetected }
 
 // TextToSpeechInterruptPacket signals the TTS transformer to stop current playback.
 type TextToSpeechInterruptPacket struct {
@@ -237,8 +378,9 @@ type TextToSpeechInterruptPacket struct {
 	EndAt     float64
 }
 
-func (f TextToSpeechInterruptPacket) ContextId() string { return f.ContextID }
-func (f TextToSpeechInterruptPacket) IsAsync() bool     { return true }
+func (f TextToSpeechInterruptPacket) ContextId() string      { return f.ContextID }
+func (f TextToSpeechInterruptPacket) PacketName() PacketName { return PacketNameTextToSpeechInterrupt }
+func (f TextToSpeechInterruptPacket) IsAsync() bool          { return true }
 
 type STTErrorType int
 
@@ -259,7 +401,8 @@ type SpeechToTextErrorPacket struct {
 	Type      STTErrorType
 }
 
-func (f SpeechToTextErrorPacket) ContextId() string { return f.ContextID }
+func (f SpeechToTextErrorPacket) ContextId() string      { return f.ContextID }
+func (f SpeechToTextErrorPacket) PacketName() PacketName { return PacketNameSpeechToTextError }
 func (f SpeechToTextErrorPacket) IsRecoverable() bool {
 	return f.Type == STTRateLimit || f.Type == STTNetworkTimeout
 }
@@ -272,7 +415,8 @@ type SpeechToTextEndPacket struct {
 	EndAt     float64
 }
 
-func (f SpeechToTextEndPacket) ContextId() string { return f.ContextID }
+func (f SpeechToTextEndPacket) ContextId() string      { return f.ContextID }
+func (f SpeechToTextEndPacket) PacketName() PacketName { return PacketNameSpeechToTextEnd }
 
 type SpeechToTextStartPacket struct {
 	ContextID string
@@ -280,29 +424,16 @@ type SpeechToTextStartPacket struct {
 	EndAt     float64
 }
 
-func (f SpeechToTextStartPacket) ContextId() string { return f.ContextID }
+func (f SpeechToTextStartPacket) ContextId() string      { return f.ContextID }
+func (f SpeechToTextStartPacket) PacketName() PacketName { return PacketNameSpeechToTextStart }
 
 // InterruptLLMPacket signals the LLM executor to cancel current generation.
 type LLMInterruptPacket struct {
 	ContextID string
 }
 
-func (f LLMInterruptPacket) ContextId() string { return f.ContextID }
-
-// DisableInputPacket pauses ingress processing. Packets already queued on the
-// input channel remain queued until EnableInputPacket is handled.
-type DisableInputPacket struct {
-	ContextID string
-}
-
-func (f DisableInputPacket) ContextId() string { return f.ContextID }
-
-// EnableInputPacket resumes ingress processing after DisableInputPacket.
-type EnableInputPacket struct {
-	ContextID string
-}
-
-func (f EnableInputPacket) ContextId() string { return f.ContextID }
+func (f LLMInterruptPacket) ContextId() string      { return f.ContextID }
+func (f LLMInterruptPacket) PacketName() PacketName { return PacketNameLLMInterrupt }
 
 // TurnChangePacket notifies components that active context changed to a new turn.
 type TurnChangePacket struct {
@@ -313,7 +444,8 @@ type TurnChangePacket struct {
 	Time              time.Time
 }
 
-func (f TurnChangePacket) ContextId() string { return f.ContextID }
+func (f TurnChangePacket) ContextId() string      { return f.ContextID }
+func (f TurnChangePacket) PacketName() PacketName { return PacketNameTurnChange }
 
 // InjectMessagePacket injects a pre-written message (greeting, error, idle timeout) into the pipeline.
 type InjectMessagePacket struct {
@@ -321,9 +453,10 @@ type InjectMessagePacket struct {
 	Text      string
 }
 
-func (f InjectMessagePacket) ContextId() string { return f.ContextID }
-func (f InjectMessagePacket) Content() string   { return f.Text }
-func (f InjectMessagePacket) Role() string      { return "rapida" }
+func (f InjectMessagePacket) ContextId() string      { return f.ContextID }
+func (f InjectMessagePacket) PacketName() PacketName { return PacketNameInjectMessage }
+func (f InjectMessagePacket) Content() string        { return f.Text }
+func (f InjectMessagePacket) Role() string           { return "rapida" }
 
 // =============================================================================
 // Initialization chain:
@@ -340,7 +473,8 @@ type InitializeAssistantPacket struct {
 	Config    *protos.ConversationInitialization
 }
 
-func (f InitializeAssistantPacket) ContextId() string { return f.ContextID }
+func (f InitializeAssistantPacket) ContextId() string      { return f.ContextID }
+func (f InitializeAssistantPacket) PacketName() PacketName { return PacketNameInitializeAssistant }
 
 // InitializeConversationPacket creates or resumes the conversation.
 type InitializeConversationPacket struct {
@@ -349,6 +483,9 @@ type InitializeConversationPacket struct {
 }
 
 func (f InitializeConversationPacket) ContextId() string { return f.ContextID }
+func (f InitializeConversationPacket) PacketName() PacketName {
+	return PacketNameInitializeConversation
+}
 
 // InitializeSessionRuntimePacket initializes collectors, recorder, normalizers, metrics.
 type InitializeSessionRuntimePacket struct {
@@ -357,6 +494,9 @@ type InitializeSessionRuntimePacket struct {
 }
 
 func (f InitializeSessionRuntimePacket) ContextId() string { return f.ContextID }
+func (f InitializeSessionRuntimePacket) PacketName() PacketName {
+	return PacketNameInitializeSessionRuntime
+}
 
 // InitializeAuthenticationPacket starts session authentication stage.
 type InitializeAuthenticationPacket struct {
@@ -365,6 +505,9 @@ type InitializeAuthenticationPacket struct {
 }
 
 func (f InitializeAuthenticationPacket) ContextId() string { return f.ContextID }
+func (f InitializeAuthenticationPacket) PacketName() PacketName {
+	return PacketNameInitializeAuthentication
+}
 
 // ExecuteSessionAuthenticationPacket triggers authentication against the configured endpoint.
 type ExecuteSessionAuthenticationPacket struct {
@@ -374,6 +517,9 @@ type ExecuteSessionAuthenticationPacket struct {
 }
 
 func (f ExecuteSessionAuthenticationPacket) ContextId() string { return f.ContextID }
+func (f ExecuteSessionAuthenticationPacket) PacketName() PacketName {
+	return PacketNameExecuteSessionAuthentication
+}
 
 // SessionAuthenticationSucceededPacket carries successful auth output.
 // Authenticated can be false when fail_behavior=allow is applied.
@@ -387,6 +533,9 @@ type SessionAuthenticationSucceededPacket struct {
 }
 
 func (f SessionAuthenticationSucceededPacket) ContextId() string { return f.ContextID }
+func (f SessionAuthenticationSucceededPacket) PacketName() PacketName {
+	return PacketNameSessionAuthenticationSucceeded
+}
 
 // SessionAuthenticationFailedPacket signals auth stage failure.
 type SessionAuthenticationFailedPacket struct {
@@ -395,7 +544,10 @@ type SessionAuthenticationFailedPacket struct {
 	Initialization *protos.ConversationInitialization
 }
 
-func (f SessionAuthenticationFailedPacket) ContextId() string   { return f.ContextID }
+func (f SessionAuthenticationFailedPacket) ContextId() string { return f.ContextID }
+func (f SessionAuthenticationFailedPacket) PacketName() PacketName {
+	return PacketNameSessionAuthenticationFailed
+}
 func (f SessionAuthenticationFailedPacket) IsRecoverable() bool { return false }
 func (f SessionAuthenticationFailedPacket) Err() error          { return f.Error }
 func (f SessionAuthenticationFailedPacket) ErrMessage() string {
@@ -409,6 +561,9 @@ type InitializeSpeechToTextPacket struct {
 }
 
 func (f InitializeSpeechToTextPacket) ContextId() string { return f.ContextID }
+func (f InitializeSpeechToTextPacket) PacketName() PacketName {
+	return PacketNameInitializeSpeechToText
+}
 
 type InitializeAssistantExecutorPacket struct {
 	ContextID string
@@ -416,7 +571,10 @@ type InitializeAssistantExecutorPacket struct {
 }
 
 func (f InitializeAssistantExecutorPacket) ContextId() string { return f.ContextID }
-func (f InitializeAssistantExecutorPacket) IsAsync() bool     { return true }
+func (f InitializeAssistantExecutorPacket) PacketName() PacketName {
+	return PacketNameInitializeAssistantExecutor
+}
+func (f InitializeAssistantExecutorPacket) IsAsync() bool { return true }
 
 // InitializeTextToSpeechPacket initializes text-to-speech.
 type InitializeTextToSpeechPacket struct {
@@ -425,6 +583,9 @@ type InitializeTextToSpeechPacket struct {
 }
 
 func (f InitializeTextToSpeechPacket) ContextId() string { return f.ContextID }
+func (f InitializeTextToSpeechPacket) PacketName() PacketName {
+	return PacketNameInitializeTextToSpeech
+}
 
 // InitializeVoiceActivityDetectionPacket initializes voice activity detection.
 type InitializeVoiceActivityDetectionPacket struct {
@@ -434,6 +595,9 @@ type InitializeVoiceActivityDetectionPacket struct {
 
 func (f InitializeVoiceActivityDetectionPacket) IsAsync() bool     { return true }
 func (f InitializeVoiceActivityDetectionPacket) ContextId() string { return f.ContextID }
+func (f InitializeVoiceActivityDetectionPacket) PacketName() PacketName {
+	return PacketNameInitializeVoiceActivityDetection
+}
 
 // InitializeEndOfSpeechPacket initializes end-of-speech detection.
 type InitializeEndOfSpeechPacket struct {
@@ -441,8 +605,9 @@ type InitializeEndOfSpeechPacket struct {
 	Config    *protos.ConversationInitialization
 }
 
-func (f InitializeEndOfSpeechPacket) IsAsync() bool     { return true }
-func (f InitializeEndOfSpeechPacket) ContextId() string { return f.ContextID }
+func (f InitializeEndOfSpeechPacket) IsAsync() bool          { return true }
+func (f InitializeEndOfSpeechPacket) ContextId() string      { return f.ContextID }
+func (f InitializeEndOfSpeechPacket) PacketName() PacketName { return PacketNameInitializeEndOfSpeech }
 
 // InitializeDenoisePacket initializes the denoiser for text->audio switch.
 type InitializeDenoisePacket struct {
@@ -450,8 +615,9 @@ type InitializeDenoisePacket struct {
 	Config    *protos.ConversationInitialization
 }
 
-func (f InitializeDenoisePacket) IsAsync() bool     { return true }
-func (f InitializeDenoisePacket) ContextId() string { return f.ContextID }
+func (f InitializeDenoisePacket) IsAsync() bool          { return true }
+func (f InitializeDenoisePacket) ContextId() string      { return f.ContextID }
+func (f InitializeDenoisePacket) PacketName() PacketName { return PacketNameInitializeDenoise }
 
 // InitializeBehaviorPacket sets up greeting, idle timeout, max session.
 type InitializeBehaviorPacket struct {
@@ -459,7 +625,8 @@ type InitializeBehaviorPacket struct {
 	Config    *protos.ConversationInitialization
 }
 
-func (f InitializeBehaviorPacket) ContextId() string { return f.ContextID }
+func (f InitializeBehaviorPacket) ContextId() string      { return f.ContextID }
+func (f InitializeBehaviorPacket) PacketName() PacketName { return PacketNameInitializeBehavior }
 
 // InitializationCompletedPacket is emitted when the connect initialization chain succeeds.
 type InitializationCompletedPacket struct {
@@ -468,6 +635,9 @@ type InitializationCompletedPacket struct {
 }
 
 func (f InitializationCompletedPacket) ContextId() string { return f.ContextID }
+func (f InitializationCompletedPacket) PacketName() PacketName {
+	return PacketNameInitializationCompleted
+}
 
 // AsyncPacket marks a packet whose handler runs in its own goroutine.
 type AsyncPacket interface {
@@ -480,8 +650,9 @@ type InitializeTelemetryPacket struct {
 	ContextID string
 }
 
-func (p InitializeTelemetryPacket) ContextId() string { return p.ContextID }
-func (p InitializeTelemetryPacket) IsAsync() bool     { return true }
+func (p InitializeTelemetryPacket) ContextId() string      { return p.ContextID }
+func (p InitializeTelemetryPacket) PacketName() PacketName { return PacketNameInitializeTelemetry }
+func (p InitializeTelemetryPacket) IsAsync() bool          { return true }
 
 // InitializeInboundDispatcherPacket starts the ingress dispatcher.
 type InitializeInboundDispatcherPacket struct {
@@ -489,6 +660,9 @@ type InitializeInboundDispatcherPacket struct {
 }
 
 func (p InitializeInboundDispatcherPacket) ContextId() string { return p.ContextID }
+func (p InitializeInboundDispatcherPacket) PacketName() PacketName {
+	return PacketNameInitializeInboundDispatcher
+}
 
 // InitializationStage identifies which initialization phase failed.
 type InitializationStage string
@@ -520,9 +694,10 @@ type InitializationFailedPacket struct {
 	Error     error
 }
 
-func (f InitializationFailedPacket) ContextId() string   { return f.ContextID }
-func (f InitializationFailedPacket) IsRecoverable() bool { return false }
-func (f InitializationFailedPacket) Err() error          { return f.Error }
+func (f InitializationFailedPacket) ContextId() string      { return f.ContextID }
+func (f InitializationFailedPacket) PacketName() PacketName { return PacketNameInitializationFailed }
+func (f InitializationFailedPacket) IsRecoverable() bool    { return false }
+func (f InitializationFailedPacket) Err() error             { return f.Error }
 func (f InitializationFailedPacket) ErrMessage() string {
 	if f.Stage != "" {
 		return fmt.Sprintf("init[%s]: %s", string(f.Stage), f.Error.Error())
@@ -542,14 +717,16 @@ type ModeSwitchRequestedPacket struct {
 	RequestedAt time.Time
 }
 
-func (f ModeSwitchRequestedPacket) ContextId() string { return f.ContextID }
+func (f ModeSwitchRequestedPacket) ContextId() string      { return f.ContextID }
+func (f ModeSwitchRequestedPacket) PacketName() PacketName { return PacketNameModeSwitchRequested }
 
 type ModeSwitchCompletedPacket struct {
 	ContextID  string
 	StreamMode protos.StreamMode
 }
 
-func (f ModeSwitchCompletedPacket) ContextId() string { return f.ContextID }
+func (f ModeSwitchCompletedPacket) ContextId() string      { return f.ContextID }
+func (f ModeSwitchCompletedPacket) PacketName() PacketName { return PacketNameModeSwitchCompleted }
 
 type ModeSwitchErrorType string
 
@@ -576,7 +753,8 @@ type ModeSwitchErrorPacket struct {
 	Error      error
 }
 
-func (f ModeSwitchErrorPacket) ContextId() string { return f.ContextID }
+func (f ModeSwitchErrorPacket) ContextId() string      { return f.ContextID }
+func (f ModeSwitchErrorPacket) PacketName() PacketName { return PacketNameModeSwitchError }
 func (f ModeSwitchErrorPacket) IsRecoverable() bool {
 	return f.Type == ModeSwitchErrorTypeUnknown ||
 		f.Type == ModeSwitchErrorTypePreconditionNotReady ||
@@ -600,7 +778,10 @@ type ModeSwitchInitializeSpeechToTextPacket struct {
 }
 
 func (f ModeSwitchInitializeSpeechToTextPacket) ContextId() string { return f.ContextID }
-func (f ModeSwitchInitializeSpeechToTextPacket) IsAsync() bool     { return true }
+func (f ModeSwitchInitializeSpeechToTextPacket) PacketName() PacketName {
+	return PacketNameModeSwitchInitializeSpeechToText
+}
+func (f ModeSwitchInitializeSpeechToTextPacket) IsAsync() bool { return true }
 
 // ModeSwitchInitializeTextToSpeechPacket initializes TTS for text->audio switch.
 type ModeSwitchInitializeTextToSpeechPacket struct {
@@ -609,6 +790,9 @@ type ModeSwitchInitializeTextToSpeechPacket struct {
 }
 
 func (f ModeSwitchInitializeTextToSpeechPacket) ContextId() string { return f.ContextID }
+func (f ModeSwitchInitializeTextToSpeechPacket) PacketName() PacketName {
+	return PacketNameModeSwitchInitializeTextToSpeech
+}
 
 // ModeSwitchInitializeVoiceActivityDetectionPacket initializes VAD for text->audio switch.
 type ModeSwitchInitializeVoiceActivityDetectionPacket struct {
@@ -617,7 +801,10 @@ type ModeSwitchInitializeVoiceActivityDetectionPacket struct {
 }
 
 func (f ModeSwitchInitializeVoiceActivityDetectionPacket) ContextId() string { return f.ContextID }
-func (f ModeSwitchInitializeVoiceActivityDetectionPacket) IsAsync() bool     { return true }
+func (f ModeSwitchInitializeVoiceActivityDetectionPacket) PacketName() PacketName {
+	return PacketNameModeSwitchInitializeVoiceActivityDetection
+}
+func (f ModeSwitchInitializeVoiceActivityDetectionPacket) IsAsync() bool { return true }
 
 // ModeSwitchInitializeEndOfSpeechPacket initializes EOS for text->audio switch.
 type ModeSwitchInitializeEndOfSpeechPacket struct {
@@ -626,6 +813,9 @@ type ModeSwitchInitializeEndOfSpeechPacket struct {
 }
 
 func (f ModeSwitchInitializeEndOfSpeechPacket) ContextId() string { return f.ContextID }
+func (f ModeSwitchInitializeEndOfSpeechPacket) PacketName() PacketName {
+	return PacketNameModeSwitchInitializeEndOfSpeech
+}
 
 // ModeSwitchInitializeDenoisePacket initializes the denoiser for text->audio switch.
 type ModeSwitchInitializeDenoisePacket struct {
@@ -634,7 +824,10 @@ type ModeSwitchInitializeDenoisePacket struct {
 }
 
 func (f ModeSwitchInitializeDenoisePacket) ContextId() string { return f.ContextID }
-func (f ModeSwitchInitializeDenoisePacket) IsAsync() bool     { return true }
+func (f ModeSwitchInitializeDenoisePacket) PacketName() PacketName {
+	return PacketNameModeSwitchInitializeDenoise
+}
+func (f ModeSwitchInitializeDenoisePacket) IsAsync() bool { return true }
 
 // ModeSwitchFinalizeSpeechToTextPacket finalizes STT for audio->text switch.
 // Async — runs in its own goroutine. Fire-and-forget; the client has already
@@ -645,7 +838,10 @@ type ModeSwitchFinalizeSpeechToTextPacket struct {
 }
 
 func (f ModeSwitchFinalizeSpeechToTextPacket) ContextId() string { return f.ContextID }
-func (f ModeSwitchFinalizeSpeechToTextPacket) IsAsync() bool     { return true }
+func (f ModeSwitchFinalizeSpeechToTextPacket) PacketName() PacketName {
+	return PacketNameModeSwitchFinalizeSpeechToText
+}
+func (f ModeSwitchFinalizeSpeechToTextPacket) IsAsync() bool { return true }
 
 // ModeSwitchFinalizeTextToSpeechPacket finalizes TTS for audio->text switch.
 type ModeSwitchFinalizeTextToSpeechPacket struct {
@@ -654,7 +850,10 @@ type ModeSwitchFinalizeTextToSpeechPacket struct {
 }
 
 func (f ModeSwitchFinalizeTextToSpeechPacket) ContextId() string { return f.ContextID }
-func (f ModeSwitchFinalizeTextToSpeechPacket) IsAsync() bool     { return true }
+func (f ModeSwitchFinalizeTextToSpeechPacket) PacketName() PacketName {
+	return PacketNameModeSwitchFinalizeTextToSpeech
+}
+func (f ModeSwitchFinalizeTextToSpeechPacket) IsAsync() bool { return true }
 
 // ModeSwitchFinalizeVoiceActivityDetectionPacket finalizes VAD for audio->text switch.
 type ModeSwitchFinalizeVoiceActivityDetectionPacket struct {
@@ -663,7 +862,10 @@ type ModeSwitchFinalizeVoiceActivityDetectionPacket struct {
 }
 
 func (f ModeSwitchFinalizeVoiceActivityDetectionPacket) ContextId() string { return f.ContextID }
-func (f ModeSwitchFinalizeVoiceActivityDetectionPacket) IsAsync() bool     { return true }
+func (f ModeSwitchFinalizeVoiceActivityDetectionPacket) PacketName() PacketName {
+	return PacketNameModeSwitchFinalizeVoiceActivityDetection
+}
+func (f ModeSwitchFinalizeVoiceActivityDetectionPacket) IsAsync() bool { return true }
 
 // ModeSwitchFinalizeEndOfSpeechPacket finalizes EOS for audio->text switch.
 type ModeSwitchFinalizeEndOfSpeechPacket struct {
@@ -672,7 +874,10 @@ type ModeSwitchFinalizeEndOfSpeechPacket struct {
 }
 
 func (f ModeSwitchFinalizeEndOfSpeechPacket) ContextId() string { return f.ContextID }
-func (f ModeSwitchFinalizeEndOfSpeechPacket) IsAsync() bool     { return true }
+func (f ModeSwitchFinalizeEndOfSpeechPacket) PacketName() PacketName {
+	return PacketNameModeSwitchFinalizeEndOfSpeech
+}
+func (f ModeSwitchFinalizeEndOfSpeechPacket) IsAsync() bool { return true }
 
 // ModeSwitchFinalizeDenoisePacket finalizes the denoiser for audio->text switch.
 type ModeSwitchFinalizeDenoisePacket struct {
@@ -681,7 +886,10 @@ type ModeSwitchFinalizeDenoisePacket struct {
 }
 
 func (f ModeSwitchFinalizeDenoisePacket) ContextId() string { return f.ContextID }
-func (f ModeSwitchFinalizeDenoisePacket) IsAsync() bool     { return true }
+func (f ModeSwitchFinalizeDenoisePacket) PacketName() PacketName {
+	return PacketNameModeSwitchFinalizeDenoise
+}
+func (f ModeSwitchFinalizeDenoisePacket) IsAsync() bool { return true }
 
 // =============================================================================
 // Finalization chain:
@@ -698,14 +906,16 @@ type FinalizeBehaviorPacket struct {
 	ContextID string
 }
 
-func (f FinalizeBehaviorPacket) ContextId() string { return f.ContextID }
+func (f FinalizeBehaviorPacket) ContextId() string      { return f.ContextID }
+func (f FinalizeBehaviorPacket) PacketName() PacketName { return PacketNameFinalizeBehavior }
 
 // FinalizeEndOfSpeechPacket finalizes end-of-speech processing.
 type FinalizeEndOfSpeechPacket struct {
 	ContextID string
 }
 
-func (f FinalizeEndOfSpeechPacket) ContextId() string { return f.ContextID }
+func (f FinalizeEndOfSpeechPacket) ContextId() string      { return f.ContextID }
+func (f FinalizeEndOfSpeechPacket) PacketName() PacketName { return PacketNameFinalizeEndOfSpeech }
 
 // FinalizeVoiceActivityDetectionPacket finalizes VAD processing.
 type FinalizeVoiceActivityDetectionPacket struct {
@@ -713,20 +923,25 @@ type FinalizeVoiceActivityDetectionPacket struct {
 }
 
 func (f FinalizeVoiceActivityDetectionPacket) ContextId() string { return f.ContextID }
+func (f FinalizeVoiceActivityDetectionPacket) PacketName() PacketName {
+	return PacketNameFinalizeVoiceActivityDetection
+}
 
 // FinalizeTextToSpeechPacket finalizes text-to-speech resources.
 type FinalizeTextToSpeechPacket struct {
 	ContextID string
 }
 
-func (f FinalizeTextToSpeechPacket) ContextId() string { return f.ContextID }
+func (f FinalizeTextToSpeechPacket) ContextId() string      { return f.ContextID }
+func (f FinalizeTextToSpeechPacket) PacketName() PacketName { return PacketNameFinalizeTextToSpeech }
 
 // FinalizeSpeechToTextPacket finalizes speech-to-text resources.
 type FinalizeSpeechToTextPacket struct {
 	ContextID string
 }
 
-func (f FinalizeSpeechToTextPacket) ContextId() string { return f.ContextID }
+func (f FinalizeSpeechToTextPacket) ContextId() string      { return f.ContextID }
+func (f FinalizeSpeechToTextPacket) PacketName() PacketName { return PacketNameFinalizeSpeechToText }
 
 // FinalizeAuthenticationPacket finalizes session authentication stage.
 type FinalizeAuthenticationPacket struct {
@@ -734,6 +949,9 @@ type FinalizeAuthenticationPacket struct {
 }
 
 func (f FinalizeAuthenticationPacket) ContextId() string { return f.ContextID }
+func (f FinalizeAuthenticationPacket) PacketName() PacketName {
+	return PacketNameFinalizeAuthentication
+}
 
 // FinalizeSessionRuntimePacket finalizes runtime resources and recording.
 type FinalizeSessionRuntimePacket struct {
@@ -741,27 +959,33 @@ type FinalizeSessionRuntimePacket struct {
 }
 
 func (f FinalizeSessionRuntimePacket) ContextId() string { return f.ContextID }
+func (f FinalizeSessionRuntimePacket) PacketName() PacketName {
+	return PacketNameFinalizeSessionRuntime
+}
 
 // FinalizeConversationPacket finalizes conversation-level collectors/events.
 type FinalizeConversationPacket struct {
 	ContextID string
 }
 
-func (f FinalizeConversationPacket) ContextId() string { return f.ContextID }
+func (f FinalizeConversationPacket) ContextId() string      { return f.ContextID }
+func (f FinalizeConversationPacket) PacketName() PacketName { return PacketNameFinalizeConversation }
 
 // FinalizeAssistantPacket finalizes assistant runtime resources.
 type FinalizeAssistantPacket struct {
 	ContextID string
 }
 
-func (f FinalizeAssistantPacket) ContextId() string { return f.ContextID }
+func (f FinalizeAssistantPacket) ContextId() string      { return f.ContextID }
+func (f FinalizeAssistantPacket) PacketName() PacketName { return PacketNameFinalizeAssistant }
 
 // FinalizationCompletedPacket marks terminal completion of disconnect flow.
 type FinalizationCompletedPacket struct {
 	ContextID string
 }
 
-func (f FinalizationCompletedPacket) ContextId() string { return f.ContextID }
+func (f FinalizationCompletedPacket) ContextId() string      { return f.ContextID }
+func (f FinalizationCompletedPacket) PacketName() PacketName { return PacketNameFinalizationCompleted }
 
 // ExecuteAnalysisPacket triggers a single analysis execution.
 type ExecuteAnalysisPacket struct {
@@ -771,7 +995,8 @@ type ExecuteAnalysisPacket struct {
 	Auth           types.SimplePrinciple
 }
 
-func (f ExecuteAnalysisPacket) ContextId() string { return f.ContextID }
+func (f ExecuteAnalysisPacket) ContextId() string      { return f.ContextID }
+func (f ExecuteAnalysisPacket) PacketName() PacketName { return PacketNameExecuteAnalysis }
 
 // ExecuteWebhookPacket triggers a single webhook execution.
 type ExecuteWebhookPacket struct {
@@ -780,7 +1005,8 @@ type ExecuteWebhookPacket struct {
 	Arguments map[string]interface{}
 }
 
-func (f ExecuteWebhookPacket) ContextId() string { return f.ContextID }
+func (f ExecuteWebhookPacket) ContextId() string      { return f.ContextID }
+func (f ExecuteWebhookPacket) PacketName() PacketName { return PacketNameExecuteWebhook }
 
 // StartIdleTimeoutPacket explicitly (re)starts the idle timeout timer.
 // Routed on outputCh so producers can order it relative to InjectMessagePacket
@@ -789,7 +1015,8 @@ type StartIdleTimeoutPacket struct {
 	ContextID string
 }
 
-func (f StartIdleTimeoutPacket) ContextId() string { return f.ContextID }
+func (f StartIdleTimeoutPacket) ContextId() string      { return f.ContextID }
+func (f StartIdleTimeoutPacket) PacketName() PacketName { return PacketNameStartIdleTimeout }
 
 // StopIdleTimeoutPacket explicitly stops the idle timeout timer.
 // ResetCount = true also clears the consecutive idle backoff counter
@@ -799,7 +1026,8 @@ type StopIdleTimeoutPacket struct {
 	ResetCount bool
 }
 
-func (f StopIdleTimeoutPacket) ContextId() string { return f.ContextID }
+func (f StopIdleTimeoutPacket) ContextId() string      { return f.ContextID }
+func (f StopIdleTimeoutPacket) PacketName() PacketName { return PacketNameStopIdleTimeout }
 
 // =============================================================================
 // LLM Pipeline — execute -> delta -> done -> error -> tools
@@ -811,7 +1039,8 @@ type LLMResponseDeltaPacket struct {
 	Text      string
 }
 
-func (f LLMResponseDeltaPacket) ContextId() string { return f.ContextID }
+func (f LLMResponseDeltaPacket) ContextId() string      { return f.ContextID }
+func (f LLMResponseDeltaPacket) PacketName() PacketName { return PacketNameLLMResponseDelta }
 
 // LLMResponseDonePacket signals the completion of an LLM response stream.
 type LLMResponseDonePacket struct {
@@ -819,9 +1048,10 @@ type LLMResponseDonePacket struct {
 	Text      string
 }
 
-func (f LLMResponseDonePacket) Content() string   { return f.Text }
-func (f LLMResponseDonePacket) Role() string      { return "assistant" }
-func (f LLMResponseDonePacket) ContextId() string { return f.ContextID }
+func (f LLMResponseDonePacket) Content() string        { return f.Text }
+func (f LLMResponseDonePacket) Role() string           { return "assistant" }
+func (f LLMResponseDonePacket) ContextId() string      { return f.ContextID }
+func (f LLMResponseDonePacket) PacketName() PacketName { return PacketNameLLMResponseDone }
 
 // LLMErrorPacket signals that the LLM encountered an error during generation.
 
@@ -848,7 +1078,8 @@ type LLMErrorPacket struct {
 	Type      LLMErrorType
 }
 
-func (f LLMErrorPacket) ContextId() string { return f.ContextID }
+func (f LLMErrorPacket) ContextId() string      { return f.ContextID }
+func (f LLMErrorPacket) PacketName() PacketName { return PacketNameLLMError }
 func (f LLMErrorPacket) IsRecoverable() bool {
 	return f.Type != LLMAuthentication && f.Type != LLMSystemPanic
 }
@@ -865,8 +1096,9 @@ type LLMToolCallPacket struct {
 	Arguments map[string]string
 }
 
-func (f LLMToolCallPacket) ContextId() string { return f.ContextID }
-func (f LLMToolCallPacket) ToolId() string    { return f.ToolID }
+func (f LLMToolCallPacket) ContextId() string      { return f.ContextID }
+func (f LLMToolCallPacket) PacketName() PacketName { return PacketNameLLMToolCall }
+func (f LLMToolCallPacket) ToolId() string         { return f.ToolID }
 
 func (f LLMToolCallPacket) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
@@ -907,8 +1139,9 @@ type LLMToolResultPacket struct {
 	Result    map[string]string
 }
 
-func (f LLMToolResultPacket) ToolId() string    { return f.ToolID }
-func (f LLMToolResultPacket) ContextId() string { return f.ContextID }
+func (f LLMToolResultPacket) ToolId() string         { return f.ToolID }
+func (f LLMToolResultPacket) ContextId() string      { return f.ContextID }
+func (f LLMToolResultPacket) PacketName() PacketName { return PacketNameLLMToolResult }
 
 func (f LLMToolResultPacket) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
@@ -964,7 +1197,8 @@ type TextToSpeechErrorPacket struct {
 	Type      TTSErrorType
 }
 
-func (f TextToSpeechErrorPacket) ContextId() string { return f.ContextID }
+func (f TextToSpeechErrorPacket) ContextId() string      { return f.ContextID }
+func (f TextToSpeechErrorPacket) PacketName() PacketName { return PacketNameTextToSpeechError }
 func (f TextToSpeechErrorPacket) IsRecoverable() bool {
 	return f.Type != TTSAuthentication
 }
@@ -977,7 +1211,8 @@ type TextToSpeechTextPacket struct {
 	Text      string
 }
 
-func (f TextToSpeechTextPacket) ContextId() string { return f.ContextID }
+func (f TextToSpeechTextPacket) ContextId() string      { return f.ContextID }
+func (f TextToSpeechTextPacket) PacketName() PacketName { return PacketNameTextToSpeechText }
 
 // TextToSpeechDonePacket signals end of this turn's output. TTS flushes remaining audio.
 type TextToSpeechDonePacket struct {
@@ -985,7 +1220,8 @@ type TextToSpeechDonePacket struct {
 	Text      string
 }
 
-func (f TextToSpeechDonePacket) ContextId() string { return f.ContextID }
+func (f TextToSpeechDonePacket) ContextId() string      { return f.ContextID }
+func (f TextToSpeechDonePacket) PacketName() PacketName { return PacketNameTextToSpeechDone }
 
 // TextToSpeechAudioPacket carries a TTS audio chunk produced by the TTS provider.
 type TextToSpeechAudioPacket struct {
@@ -993,14 +1229,16 @@ type TextToSpeechAudioPacket struct {
 	AudioChunk []byte
 }
 
-func (f TextToSpeechAudioPacket) ContextId() string { return f.ContextID }
+func (f TextToSpeechAudioPacket) ContextId() string      { return f.ContextID }
+func (f TextToSpeechAudioPacket) PacketName() PacketName { return PacketNameTextToSpeechAudio }
 
 // TextToSpeechEndPacket signals that TTS has finished producing audio.
 type TextToSpeechEndPacket struct {
 	ContextID string
 }
 
-func (f TextToSpeechEndPacket) ContextId() string { return f.ContextID }
+func (f TextToSpeechEndPacket) ContextId() string      { return f.ContextID }
+func (f TextToSpeechEndPacket) PacketName() PacketName { return PacketNameTextToSpeechEnd }
 
 // =============================================================================
 // Recording
@@ -1013,7 +1251,8 @@ type RecordUserAudioPacket struct {
 	Timestamp time.Time
 }
 
-func (f RecordUserAudioPacket) ContextId() string { return f.ContextID }
+func (f RecordUserAudioPacket) ContextId() string      { return f.ContextID }
+func (f RecordUserAudioPacket) PacketName() PacketName { return PacketNameRecordUserAudio }
 
 // RecordAssistantAudioPacket carries an assistant audio chunk to the recorder.
 type RecordAssistantAudioPacket struct {
@@ -1022,7 +1261,8 @@ type RecordAssistantAudioPacket struct {
 	Timestamp time.Time
 }
 
-func (f RecordAssistantAudioPacket) ContextId() string { return f.ContextID }
+func (f RecordAssistantAudioPacket) ContextId() string      { return f.ContextID }
+func (f RecordAssistantAudioPacket) PacketName() PacketName { return PacketNameRecordAssistantAudio }
 
 // ConversationRecordingCompletedPacket carries finalized recording audio for persistence.
 type ConversationRecordingCompletedPacket struct {
@@ -1031,6 +1271,9 @@ type ConversationRecordingCompletedPacket struct {
 }
 
 func (f ConversationRecordingCompletedPacket) ContextId() string { return f.ContextID }
+func (f ConversationRecordingCompletedPacket) PacketName() PacketName {
+	return PacketNameConversationRecordingCompleted
+}
 
 // =============================================================================
 // Persistence
@@ -1045,9 +1288,10 @@ type MessageCreatePacket struct {
 	Text        string
 }
 
-func (f MessageCreatePacket) ContextId() string { return f.ContextID }
-func (f MessageCreatePacket) Role() string      { return f.MessageRole }
-func (f MessageCreatePacket) Content() string   { return f.Text }
+func (f MessageCreatePacket) ContextId() string      { return f.ContextID }
+func (f MessageCreatePacket) PacketName() PacketName { return PacketNameMessageCreate }
+func (f MessageCreatePacket) Role() string           { return f.MessageRole }
+func (f MessageCreatePacket) Content() string        { return f.Text }
 
 // ToolLogCreatePacket persists a tool call start to the database.
 type ToolLogCreatePacket struct {
@@ -1057,7 +1301,8 @@ type ToolLogCreatePacket struct {
 	Request   []byte
 }
 
-func (f ToolLogCreatePacket) ContextId() string { return f.ContextID }
+func (f ToolLogCreatePacket) ContextId() string      { return f.ContextID }
+func (f ToolLogCreatePacket) PacketName() PacketName { return PacketNameToolLogCreate }
 
 // ToolLogUpdatePacket persists a tool call result to the database.
 type ToolLogUpdatePacket struct {
@@ -1066,7 +1311,8 @@ type ToolLogUpdatePacket struct {
 	Response  []byte
 }
 
-func (f ToolLogUpdatePacket) ContextId() string { return f.ContextID }
+func (f ToolLogUpdatePacket) ContextId() string      { return f.ContextID }
+func (f ToolLogUpdatePacket) PacketName() PacketName { return PacketNameToolLogUpdate }
 
 // HTTPLogCreatePacket persists generic HTTP execution logs (webhook, authentication, analysis).
 type HTTPLogCreatePacket struct {
@@ -1085,8 +1331,9 @@ type HTTPLogCreatePacket struct {
 	ResponsePayload []byte
 }
 
-func (f HTTPLogCreatePacket) ContextId() string { return f.ContextID }
-func (f HTTPLogCreatePacket) IsAsync() bool     { return true }
+func (f HTTPLogCreatePacket) ContextId() string      { return f.ContextID }
+func (f HTTPLogCreatePacket) PacketName() PacketName { return PacketNameHTTPLogCreate }
+func (f HTTPLogCreatePacket) IsAsync() bool          { return true }
 
 // =============================================================================
 // Observability
@@ -1103,7 +1350,7 @@ const (
 )
 
 type ObservabilityRecordPacket interface {
-	ContextId() string
+	Packet
 	GetScope() ObservabilityRecordScope
 	GetRecord() observability.Record
 }
@@ -1116,6 +1363,9 @@ type ObservabilityLogRecordPacket struct {
 }
 
 func (p ObservabilityLogRecordPacket) ContextId() string { return p.ContextID }
+func (p ObservabilityLogRecordPacket) PacketName() PacketName {
+	return PacketNameObservabilityLogRecord
+}
 func (p ObservabilityLogRecordPacket) GetScope() ObservabilityRecordScope {
 	return p.Scope
 }
@@ -1132,6 +1382,9 @@ type ObservabilityEventRecordPacket struct {
 }
 
 func (p ObservabilityEventRecordPacket) ContextId() string { return p.ContextID }
+func (p ObservabilityEventRecordPacket) PacketName() PacketName {
+	return PacketNameObservabilityEventRecord
+}
 func (p ObservabilityEventRecordPacket) GetScope() ObservabilityRecordScope {
 	return p.Scope
 }
@@ -1139,7 +1392,6 @@ func (p ObservabilityEventRecordPacket) GetScope() ObservabilityRecordScope {
 func (p ObservabilityEventRecordPacket) GetRecord() observability.Record {
 	return p.Record
 }
-func (p ObservabilityEventRecordPacket) IsAsync() bool { return true }
 
 // ObservabilityMetricRecordPacket emits an observability.RecordMetric.
 type ObservabilityMetricRecordPacket struct {
@@ -1149,13 +1401,15 @@ type ObservabilityMetricRecordPacket struct {
 }
 
 func (p ObservabilityMetricRecordPacket) ContextId() string { return p.ContextID }
+func (p ObservabilityMetricRecordPacket) PacketName() PacketName {
+	return PacketNameObservabilityMetricRecord
+}
 func (p ObservabilityMetricRecordPacket) GetScope() ObservabilityRecordScope {
 	return p.Scope
 }
 func (p ObservabilityMetricRecordPacket) GetRecord() observability.Record {
 	return p.Record
 }
-func (p ObservabilityMetricRecordPacket) IsAsync() bool { return true }
 
 // ObservabilityMetadataRecordPacket emits an observability.RecordMetadata.
 type ObservabilityMetadataRecordPacket struct {
@@ -1165,6 +1419,9 @@ type ObservabilityMetadataRecordPacket struct {
 }
 
 func (p ObservabilityMetadataRecordPacket) ContextId() string { return p.ContextID }
+func (p ObservabilityMetadataRecordPacket) PacketName() PacketName {
+	return PacketNameObservabilityMetadataRecord
+}
 func (p ObservabilityMetadataRecordPacket) GetScope() ObservabilityRecordScope {
 	return p.Scope
 }
@@ -1172,8 +1429,6 @@ func (p ObservabilityMetadataRecordPacket) GetScope() ObservabilityRecordScope {
 func (p ObservabilityMetadataRecordPacket) GetRecord() observability.Record {
 	return p.Record
 }
-
-func (p ObservabilityMetadataRecordPacket) IsAsync() bool { return true }
 
 // ObservabilityUsageRecordPacket emits an observability.RecordUsage.
 type ObservabilityUsageRecordPacket struct {
@@ -1184,6 +1439,9 @@ type ObservabilityUsageRecordPacket struct {
 }
 
 func (p ObservabilityUsageRecordPacket) ContextId() string { return p.ContextID }
+func (p ObservabilityUsageRecordPacket) PacketName() PacketName {
+	return PacketNameObservabilityUsageRecord
+}
 func (p ObservabilityUsageRecordPacket) GetScope() ObservabilityRecordScope {
 	return p.Scope
 }
@@ -1194,8 +1452,6 @@ func (p ObservabilityUsageRecordPacket) GetRecord() observability.Record {
 	return p.Record
 }
 
-func (p ObservabilityUsageRecordPacket) IsAsync() bool { return true }
-
 // ObservabilityWebhookRecordPacket emits an observability.RecordWebhook.
 type ObservabilityWebhookRecordPacket struct {
 	ContextID   string
@@ -1205,6 +1461,9 @@ type ObservabilityWebhookRecordPacket struct {
 }
 
 func (p ObservabilityWebhookRecordPacket) ContextId() string { return p.ContextID }
+func (p ObservabilityWebhookRecordPacket) PacketName() PacketName {
+	return PacketNameObservabilityWebhookRecord
+}
 func (p ObservabilityWebhookRecordPacket) GetScope() ObservabilityRecordScope {
 	return p.Scope
 }

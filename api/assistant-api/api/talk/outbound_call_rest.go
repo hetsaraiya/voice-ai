@@ -73,10 +73,7 @@ func (cApi *ConversationApi) CreatePhoneCallRest(c *gin.Context) {
 		Level:   observability.LevelInfo,
 		Message: "CreatePhoneCall REST request received",
 		Attributes: observability.Attributes{
-			"assistantId":      fmt.Sprintf("%d", ir.Assistant.AssistantId),
-			"assistantVersion": *ir.Assistant.Version,
-			"FromNumber":       *ir.FromNumber,
-			"ToNumber":         *ir.ToNumber,
+			"payload": observability.AttributeValue(ir),
 		},
 	})
 	if !validator.NonNil(ir.ToNumber) || !validator.NotBlank(*ir.ToNumber) {

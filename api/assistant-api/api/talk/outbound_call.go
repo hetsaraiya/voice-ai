@@ -43,10 +43,7 @@ func (cApi *ConversationGrpcApi) CreatePhoneCall(ctx context.Context, ir *protos
 		Level:   observability.LevelInfo,
 		Message: "CreatePhoneCall request received",
 		Attributes: observability.Attributes{
-			"assistantId":      fmt.Sprintf("%d", ir.Assistant.GetAssistantId()),
-			"assistantVersion": ir.GetAssistant().GetVersion(),
-			"FromNumber":       ir.GetFromNumber(),
-			"ToNumber":         ir.GetToNumber(),
+			"payload": observability.AttributeValue(ir),
 		},
 	})
 

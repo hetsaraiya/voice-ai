@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rapidaai/api/assistant-api/config"
 	internal_sip "github.com/rapidaai/api/assistant-api/internal/channel/telephony/internal/sip/internal"
-	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/protos"
@@ -166,25 +165,6 @@ func TestParseConfig_AppliesInboundAnswerPolicyDefaults(t *testing.T) {
 	}
 }
 
-func TestOutboundHealthGateEnabled_DefaultsOn(t *testing.T) {
-	if !outboundHealthGateEnabled(nil) {
-		t.Fatal("expected health gate enabled for nil app config")
-	}
-	if !outboundHealthGateEnabled(&config.AssistantConfig{}) {
-		t.Fatal("expected health gate enabled without SIP config")
-	}
-}
-
-func TestOutboundHealthGateEnabled_AllowsExplicitDisable(t *testing.T) {
-	disabled := false
-	appCfg := &config.AssistantConfig{
-		SIPConfig: &config.SIPConfig{OutboundHealthGate: &disabled},
-	}
-	if outboundHealthGateEnabled(appCfg) {
-		t.Fatal("expected health gate disabled")
-	}
-}
-
 func TestParseConfig_ParsesCustomHeaders(t *testing.T) {
 	telephony := newSIPTelephonyForTest()
 	cred := vaultCredential(t, map[string]interface{}{
@@ -258,17 +238,6 @@ func TestNewOutboundInitiatedCallInfo_UsesInitiatedStatus(t *testing.T) {
 	}
 	if info.Extra["telephony.status"] != string(sip_infra.OutboundCallStatusInitiated) {
 		t.Fatalf("expected telephony.status initiated, got %q", info.Extra["telephony.status"])
-	}
-}
-
-func TestOutboundAssistantID_AllowsNilAssistant(t *testing.T) {
-	if got := outboundAssistantID(nil); got != 0 {
-		t.Fatalf("expected nil assistant ID 0, got %d", got)
-	}
-	assistant := &internal_assistant_entity.Assistant{}
-	assistant.Id = 42
-	if got := outboundAssistantID(assistant); got != 42 {
-		t.Fatalf("expected assistant ID 42, got %d", got)
 	}
 }
 

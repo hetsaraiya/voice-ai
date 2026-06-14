@@ -83,10 +83,6 @@ func (s *assistantAuthenticationService) Create(
 	if timeoutMs == 0 {
 		timeoutMs = 5000
 	}
-	provider = internal_assistant_entity.NormalizeAssistantAuthenticationProvider(provider)
-
-	recordStatus := type_enums.ToRecordState(status)
-
 	var out *internal_assistant_entity.AssistantAuthentication
 	err := db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where(
@@ -102,10 +98,9 @@ func (s *assistantAuthenticationService) Create(
 		if err := s.archiveCurrentConfigs(ctx, tx, auth, assistantId); err != nil {
 			return err
 		}
-
 		created := &internal_assistant_entity.AssistantAuthentication{
 			AssistantId:  assistantId,
-			Provider:     provider,
+			Provider:     internal_assistant_entity.NormalizeAssistantAuthenticationProvider(provider),
 			FailBehavior: failBehavior,
 			TimeoutMs:    timeoutMs,
 			Organizational: gorm_models.Organizational{
@@ -113,7 +108,7 @@ func (s *assistantAuthenticationService) Create(
 				OrganizationId: *auth.GetCurrentOrganizationId(),
 			},
 			Mutable: gorm_models.Mutable{
-				Status:    recordStatus,
+				Status:    type_enums.ToRecordState(status),
 				CreatedBy: *auth.GetUserId(),
 				UpdatedBy: *auth.GetUserId(),
 			},
@@ -276,16 +271,14 @@ func (s *assistantAuthenticationService) archiveCurrentConfigs(
 		}).Error; err != nil {
 		return err
 	}
-
-	opt := &internal_assistant_entity.AssistantAuthenticationOption{
-		Mutable: gorm_models.Mutable{
-			Status:    type_enums.RECORD_ARCHIEVE,
-			UpdatedBy: *auth.GetUserId(),
-		},
-	}
 	return tx.WithContext(ctx).
 		Where("assistant_authentication_id IN ? AND status = ?", ids, type_enums.RECORD_ACTIVE).
-		Updates(opt).
+		Updates(&internal_assistant_entity.AssistantAuthenticationOption{
+			Mutable: gorm_models.Mutable{
+				Status:    type_enums.RECORD_ARCHIEVE,
+				UpdatedBy: *auth.GetUserId(),
+			},
+		}).
 		Error
 }
 
@@ -299,7 +292,6 @@ func (s *assistantAuthenticationService) createOptions(
 	if len(options) == 0 {
 		return []*internal_assistant_entity.AssistantAuthenticationOption{}, nil
 	}
-
 	out := make([]*internal_assistant_entity.AssistantAuthenticationOption, 0, len(options))
 	for _, opt := range options {
 		out = append(out, &internal_assistant_entity.AssistantAuthenticationOption{

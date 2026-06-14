@@ -7,7 +7,6 @@ package channel
 
 import (
 	"context"
-	"sync"
 
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 )
@@ -43,6 +42,12 @@ type ChannelFlusher interface {
 	FlushEgress() int
 	FlushData() int
 	FlushBackground() int
+	FlushControlMatching(func(internal_type.Packet) bool) int
+	FlushBootstrapMatching(func(internal_type.Packet) bool) int
+	FlushIngressMatching(func(internal_type.Packet) bool) int
+	FlushEgressMatching(func(internal_type.Packet) bool) int
+	FlushDataMatching(func(internal_type.Packet) bool) int
+	FlushBackgroundMatching(func(internal_type.Packet) bool) int
 	FlushAll() int
 }
 
@@ -55,19 +60,12 @@ type ChannelRunner interface {
 	RunBackground(context.Context, func(Envelope))
 }
 
-type InputGate interface {
-	DisableInput()
-	EnableInput()
-	InputBlocked() bool
-}
-
 // RequestorChannelBus is the unified channel interface used by the requestor.
 type RequestorChannelBus interface {
 	ChannelWriter
 	ChannelReader
 	ChannelFlusher
 	ChannelRunner
-	InputGate
 }
 
 // RequestorChannels groups all dispatcher channels used by one requestor.
@@ -96,11 +94,6 @@ type RequestorChannels struct {
 	// backgroundCh is for observer-touching telemetry (events, metrics).
 	// Drained by the dispatcher started after telemetry init completes.
 	backgroundCh chan Envelope
-
-	inputGateOnce sync.Once
-	inputGateMu   sync.RWMutex
-	inputBlocked  bool
-	inputChanged  chan struct{}
 }
 
 func NewRequestorChannels() *RequestorChannels {
@@ -112,7 +105,6 @@ func NewRequestorChannels() *RequestorChannels {
 		dataCh:         make(chan Envelope, 2048),
 		backgroundCh:   make(chan Envelope, 2048),
 	}
-	channels.ensureInputGate()
 	return channels
 }
 
@@ -160,55 +152,6 @@ func (c *RequestorChannels) OnBackground(e Envelope) {
 	c.backgroundCh <- e
 }
 
-func (c *RequestorChannels) ensureInputGate() {
-	c.inputGateOnce.Do(func() {
-		c.inputChanged = make(chan struct{})
-	})
-}
-
-func (c *RequestorChannels) DisableInput() {
-	c.ensureInputGate()
-	c.inputGateMu.Lock()
-	c.inputBlocked = true
-	c.inputGateMu.Unlock()
-}
-
-func (c *RequestorChannels) EnableInput() {
-	c.ensureInputGate()
-	c.inputGateMu.Lock()
-	if c.inputBlocked {
-		c.inputBlocked = false
-		close(c.inputChanged)
-		c.inputChanged = make(chan struct{})
-	}
-	c.inputGateMu.Unlock()
-}
-
-func (c *RequestorChannels) InputBlocked() bool {
-	c.ensureInputGate()
-	c.inputGateMu.RLock()
-	defer c.inputGateMu.RUnlock()
-	return c.inputBlocked
-}
-
-func (c *RequestorChannels) waitInputEnabled(ctx context.Context) bool {
-	c.ensureInputGate()
-	for {
-		c.inputGateMu.RLock()
-		blocked := c.inputBlocked
-		changed := c.inputChanged
-		c.inputGateMu.RUnlock()
-		if !blocked {
-			return true
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-changed:
-		}
-	}
-}
-
 func run(ctx context.Context, ch <-chan Envelope, onEnvelope func(Envelope)) {
 	for {
 		select {
@@ -229,20 +172,7 @@ func (c *RequestorChannels) RunBootstrap(ctx context.Context, onEnvelope func(En
 }
 
 func (c *RequestorChannels) RunIngress(ctx context.Context, onEnvelope func(Envelope)) {
-	for {
-		if !c.waitInputEnabled(ctx) {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case e := <-c.ingressCh:
-			if !c.waitInputEnabled(ctx) {
-				return
-			}
-			onEnvelope(e)
-		}
-	}
+	run(ctx, c.ingressCh, onEnvelope)
 }
 
 func (c *RequestorChannels) RunEgress(ctx context.Context, onEnvelope func(Envelope)) {
@@ -267,6 +197,27 @@ func (c *RequestorChannels) flushChannel(ch chan Envelope) int {
 			return dropped
 		}
 	}
+}
+
+func (c *RequestorChannels) flushChannelMatching(ch chan Envelope, match func(internal_type.Packet) bool) int {
+	dropped := 0
+	keep := make([]Envelope, 0, len(ch))
+	count := len(ch)
+	for i := 0; i < count; i++ {
+		select {
+		case e := <-ch:
+			if match != nil && match(e.Pkt) {
+				dropped++
+				continue
+			}
+			keep = append(keep, e)
+		default:
+		}
+	}
+	for _, e := range keep {
+		ch <- e
+	}
+	return dropped
 }
 
 // FlushControl drains queued control packets and returns dropped count.
@@ -297,6 +248,36 @@ func (c *RequestorChannels) FlushData() int {
 // FlushBackground drains queued background packets and returns dropped count.
 func (c *RequestorChannels) FlushBackground() int {
 	return c.flushChannel(c.backgroundCh)
+}
+
+// FlushControlMatching drains matching queued control packets.
+func (c *RequestorChannels) FlushControlMatching(match func(internal_type.Packet) bool) int {
+	return c.flushChannelMatching(c.controlChannel, match)
+}
+
+// FlushBootstrapMatching drains matching queued bootstrap packets.
+func (c *RequestorChannels) FlushBootstrapMatching(match func(internal_type.Packet) bool) int {
+	return c.flushChannelMatching(c.bootstrapCh, match)
+}
+
+// FlushIngressMatching drains matching queued ingress packets.
+func (c *RequestorChannels) FlushIngressMatching(match func(internal_type.Packet) bool) int {
+	return c.flushChannelMatching(c.ingressCh, match)
+}
+
+// FlushEgressMatching drains matching queued egress packets.
+func (c *RequestorChannels) FlushEgressMatching(match func(internal_type.Packet) bool) int {
+	return c.flushChannelMatching(c.egressCh, match)
+}
+
+// FlushDataMatching drains matching queued data packets.
+func (c *RequestorChannels) FlushDataMatching(match func(internal_type.Packet) bool) int {
+	return c.flushChannelMatching(c.dataCh, match)
+}
+
+// FlushBackgroundMatching drains matching queued background packets.
+func (c *RequestorChannels) FlushBackgroundMatching(match func(internal_type.Packet) bool) int {
+	return c.flushChannelMatching(c.backgroundCh, match)
 }
 
 // FlushAll drains all channels and returns total dropped packets.

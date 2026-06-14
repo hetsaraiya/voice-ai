@@ -61,7 +61,22 @@ func (r *genericRequestor) initializeGreeting(ctx context.Context, behavior *int
 	}
 	contextID := r.GetID()
 	if r.GetMode().Audio() && behavior.GreetingInterruptible != nil && !*behavior.GreetingInterruptible {
-		_ = r.OnPacket(ctx, internal_type.DisableInputPacket{ContextID: contextID})
+		_ = r.OnPacket(ctx,
+			internal_type.DispatchPolicyPacket{
+				ContextID: contextID,
+				Policy: internal_type.DispatchPolicy{
+					Target: internal_type.PacketNameUserAudioReceived,
+					Action: internal_type.DispatchActionIgnore,
+				},
+			},
+			internal_type.DispatchPolicyPacket{
+				ContextID: contextID,
+				Policy: internal_type.DispatchPolicy{
+					Target: internal_type.PacketNameInterruptionDetected,
+					Action: internal_type.DispatchActionIgnore,
+				},
+			},
+		)
 	}
 	_ = r.OnPacket(ctx,
 		internal_type.InjectMessagePacket{ContextID: contextID, Text: greetingContent},

@@ -434,7 +434,7 @@ func TestBehavior_InitializeGreeting(t *testing.T) {
 		assert.Equal(t, "8", event.Record.Attributes["text_chars"])
 	})
 
-	t.Run("non-interruptible audio greeting disables input before inject", func(t *testing.T) {
+	t.Run("non-interruptible audio greeting applies dispatch policies before inject", func(t *testing.T) {
 		r := newBehaviorDisconnectTestRequestor(t, &behaviorCapturingStreamer{})
 		r.messageLifecycle.SetContextID("ctx-greeting")
 		r.messageLifecycle.SetMode(type_enums.AudioMode)
@@ -445,10 +445,19 @@ func TestBehavior_InitializeGreeting(t *testing.T) {
 			GreetingInterruptible: &interruptible,
 		})
 
-		disable := requireBehaviorPacketEventually[internal_type.DisableInputPacket](
+		userAudioPolicy := requireBehaviorPacketEventually[internal_type.DispatchPolicyPacket](
 			t, r.channels.ControlChannel(), time.Second,
 		)
-		assert.Equal(t, "ctx-greeting", disable.ContextID)
+		assert.Equal(t, "ctx-greeting", userAudioPolicy.ContextID)
+		assert.Equal(t, internal_type.DispatchActionIgnore, userAudioPolicy.Policy.Action)
+		assert.Equal(t, internal_type.PacketNameUserAudioReceived, userAudioPolicy.Policy.Target)
+
+		interruptionPolicy := requireBehaviorPacketEventually[internal_type.DispatchPolicyPacket](
+			t, r.channels.ControlChannel(), time.Second,
+		)
+		assert.Equal(t, "ctx-greeting", interruptionPolicy.ContextID)
+		assert.Equal(t, internal_type.DispatchActionIgnore, interruptionPolicy.Policy.Action)
+		assert.Equal(t, internal_type.PacketNameInterruptionDetected, interruptionPolicy.Policy.Target)
 
 		inject := requireBehaviorPacketEventually[internal_type.InjectMessagePacket](
 			t, r.channels.EgressChannel(), time.Second,
@@ -458,40 +467,26 @@ func TestBehavior_InitializeGreeting(t *testing.T) {
 	})
 }
 
-func TestHandleTextToSpeechEnd_EnablesBlockedInput(t *testing.T) {
+func TestHandleTextToSpeechEnd_RestoresGreetingDispatchPolicies(t *testing.T) {
 	r := newBehaviorDisconnectTestRequestor(t, &behaviorCapturingStreamer{})
 	r.messageLifecycle.SetContextID("ctx-tts-end")
-	r.channels.DisableInput()
 	h := requestorDispatchHandler{r: r}
 
 	h.HandleTextToSpeechEnd(context.Background(), internal_type.TextToSpeechEndPacket{ContextID: "ctx-tts-end"})
 
-	enable := requireBehaviorPacketEventually[internal_type.EnableInputPacket](
+	userAudioPolicy := requireBehaviorPacketEventually[internal_type.DispatchPolicyPacket](
 		t, r.channels.ControlChannel(), time.Second,
 	)
-	assert.Equal(t, "ctx-tts-end", enable.ContextID)
-}
+	assert.Equal(t, "ctx-tts-end", userAudioPolicy.ContextID)
+	assert.Equal(t, internal_type.DispatchActionPassthrough, userAudioPolicy.Policy.Action)
+	assert.Equal(t, internal_type.PacketNameUserAudioReceived, userAudioPolicy.Policy.Target)
 
-func TestOnPacket_HoldsInputOriginatedControlWhileInputBlocked(t *testing.T) {
-	r := newBehaviorDisconnectTestRequestor(t, &behaviorCapturingStreamer{})
-	r.channels.DisableInput()
-
-	err := r.OnPacket(context.Background(), internal_type.InterruptionDetectedPacket{
-		ContextID: "ctx-interrupt",
-		Source:    internal_type.InterruptionSourceWord,
-	})
-	require.NoError(t, err)
-
-	select {
-	case env := <-r.channels.ControlChannel():
-		t.Fatalf("expected interruption to be held on ingress, got control packet %T", env.Pkt)
-	default:
-	}
-
-	pkt := requireBehaviorPacketEventually[internal_type.InterruptionDetectedPacket](
-		t, r.channels.IngressChannel(), time.Second,
+	interruptionPolicy := requireBehaviorPacketEventually[internal_type.DispatchPolicyPacket](
+		t, r.channels.ControlChannel(), time.Second,
 	)
-	assert.Equal(t, "ctx-interrupt", pkt.ContextID)
+	assert.Equal(t, "ctx-tts-end", interruptionPolicy.ContextID)
+	assert.Equal(t, internal_type.DispatchActionPassthrough, interruptionPolicy.Policy.Action)
+	assert.Equal(t, internal_type.PacketNameInterruptionDetected, interruptionPolicy.Policy.Target)
 }
 
 // Idle timeout initialization should only enqueue a timer start when configured.
