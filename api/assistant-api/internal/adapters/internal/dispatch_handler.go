@@ -45,9 +45,6 @@ type requestorDispatchHandler struct {
 }
 
 func (h requestorDispatchHandler) HandleUserText(ctx context.Context, vl internal_type.UserTextReceivedPacket) {
-	if !h.r.canAcceptInput() {
-		return
-	}
 	h.HandleInterruptionDetected(ctx, internal_type.InterruptionDetectedPacket{
 		ContextID: h.r.GetID(),
 		Source:    internal_type.InterruptionSourceWord,
@@ -75,9 +72,6 @@ func (h requestorDispatchHandler) HandleUserText(ctx context.Context, vl interna
 }
 
 func (h requestorDispatchHandler) HandleUserAudio(ctx context.Context, vl internal_type.UserAudioReceivedPacket) {
-	if !h.r.canAcceptInput() {
-		return
-	}
 	if h.r.denoiserExecutor != nil {
 		h.r.OnPacket(ctx,
 			internal_type.DenoiseAudioPacket{ContextID: vl.ContextID, Audio: vl.Audio},
@@ -188,15 +182,6 @@ func (h requestorDispatchHandler) HandleUserInput(ctx context.Context, p interna
 
 	contextID := h.r.GetID()
 	p.ContextID = contextID
-
-	if err := h.r.Notify(ctx, &protos.ConversationUserMessage{
-		Id:        contextID,
-		Message:   &protos.ConversationUserMessage_Text{Text: p.Text},
-		Completed: true,
-		Time:      timestamppb.New(time.Now()),
-	}); err != nil {
-		return
-	}
 	h.r.OnPacket(ctx,
 		internal_type.MessageCreatePacket{ContextID: contextID, MessageRole: "user", Text: p.Text},
 		internal_type.ObservabilityMetadataRecordPacket{
@@ -238,6 +223,14 @@ func (h requestorDispatchHandler) HandleUserInput(ctx context.Context, p interna
 				h.r.OnPacket(ctx, internal_type.LLMErrorPacket{ContextID: contextID, Error: err})
 			}
 		})
+	}
+	if err := h.r.Notify(ctx, &protos.ConversationUserMessage{
+		Id:        contextID,
+		Message:   &protos.ConversationUserMessage_Text{Text: p.Text},
+		Completed: true,
+		Time:      timestamppb.New(time.Now()),
+	}); err != nil {
+		return
 	}
 }
 func (h requestorDispatchHandler) HandleInterruptionDetected(ctx context.Context, p internal_type.InterruptionDetectedPacket) {
@@ -356,6 +349,10 @@ func (h requestorDispatchHandler) HandleLLMInterrupt(ctx context.Context, p inte
 			})
 		}
 	}
+}
+
+func (h requestorDispatchHandler) HandleDispatchPolicy(ctx context.Context, p internal_type.DispatchPolicyPacket) {
+	h.r.dispatchRoute.ApplyPolicy(p.Policy)
 }
 
 func (h requestorDispatchHandler) HandleSpeechToTextStart(ctx context.Context, p internal_type.SpeechToTextStartPacket) {
@@ -661,6 +658,22 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 					"message": p.ErrMessage(),
 				}),
 			})
+		h.r.OnPacket(ctx,
+			internal_type.DispatchPolicyPacket{
+				ContextID: p.ContextId(),
+				Policy: internal_type.DispatchPolicy{
+					Target: internal_type.PacketNameUserAudioReceived,
+					Action: internal_type.DispatchActionPassthrough,
+				},
+			},
+			internal_type.DispatchPolicyPacket{
+				ContextID: p.ContextId(),
+				Policy: internal_type.DispatchPolicy{
+					Target: internal_type.PacketNameInterruptionDetected,
+					Action: internal_type.DispatchActionPassthrough,
+				},
+			},
+		)
 	case internal_type.ModeSwitchErrorPacket:
 		if errPkt.IsRecoverable() {
 			_ = h.r.sessionLifecycle.Transition(adapter_lifecycle.EventSwitchFailedRecoverable)
@@ -728,7 +741,7 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 func (h requestorDispatchHandler) HandleInjectMessage(ctx context.Context, p internal_type.InjectMessagePacket) {
 	if err := h.r.Transition(LLMGenerating); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID: h.r.GetID(),
+			ContextID: p.ContextID,
 			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
@@ -1008,6 +1021,22 @@ func (h requestorDispatchHandler) HandleTextToSpeechEnd(ctx context.Context, p i
 	}); err != nil {
 		return
 	}
+	h.r.OnPacket(ctx,
+		internal_type.DispatchPolicyPacket{
+			ContextID: p.ContextID,
+			Policy: internal_type.DispatchPolicy{
+				Target: internal_type.PacketNameUserAudioReceived,
+				Action: internal_type.DispatchActionPassthrough,
+			},
+		},
+		internal_type.DispatchPolicyPacket{
+			ContextID: p.ContextID,
+			Policy: internal_type.DispatchPolicy{
+				Target: internal_type.PacketNameInterruptionDetected,
+				Action: internal_type.DispatchActionPassthrough,
+			},
+		},
+	)
 }
 func (h requestorDispatchHandler) HandleLLMToolCall(ctx context.Context, p internal_type.LLMToolCallPacket) {
 	req, _ := json.Marshal(p)
@@ -1708,55 +1737,84 @@ func (h requestorDispatchHandler) HandleSessionAuthenticationSucceeded(ctx conte
 		h.r.applyOptions(p.Options)
 	}
 
+	conversationConfigurationObj := &protos.ConversationInitialization{
+		AssistantConversationId: h.r.assistantConversation.Id,
+		Assistant: &protos.AssistantDefinition{
+			AssistantId: h.r.assistant.Id,
+			Version:     utils.GetVersionString(h.r.assistant.AssistantProviderId),
+		},
+		StreamMode:   p.Initialization.GetStreamMode(),
+		UserIdentity: p.Initialization.GetUserIdentity(),
+		Time:         timestamppb.Now(),
+	}
+	options := h.r.GetOptions()
+	if outputAudio, err := h.r.GetTextToSpeechTransformer(); err == nil && outputAudio != nil {
+		if ambient, _ := outputAudio.GetOptions().GetString("speaker.ambient"); ambient != "" {
+			options["speaker.ambient"] = ambient
+		}
+		if volume, _ := outputAudio.GetOptions().GetString("speaker.ambient_volume"); volume != "" {
+			options["speaker.ambient_volume"] = volume
+		}
+	}
+	if anyArgMap, err := utils.InterfaceMapToAnyMap(h.r.GetArgs()); err == nil {
+		conversationConfigurationObj.Args = anyArgMap
+	}
+	if anyMetaMap, err := utils.InterfaceMapToAnyMap(h.r.GetMetadata()); err == nil {
+		conversationConfigurationObj.Metadata = anyMetaMap
+	}
+	if anyOptionMap, err := utils.InterfaceMapToAnyMap(options); err == nil {
+		conversationConfigurationObj.Options = anyOptionMap
+	}
+
 	switch p.Initialization.StreamMode {
 	case protos.StreamMode_STREAM_MODE_TEXT:
 		h.r.SwitchMode(type_enums.TextMode)
 		h.r.OnPacket(ctx,
 			internal_type.InitializeAssistantExecutorPacket{
 				ContextID: p.ContextID,
-				Config:    p.Initialization,
+				Config:    conversationConfigurationObj,
 			}, internal_type.InitializeBehaviorPacket{
 				ContextID: p.ContextID,
-				Config:    p.Initialization,
+				Config:    conversationConfigurationObj,
 			},
 			internal_type.InitializationCompletedPacket{
 				ContextID: p.ContextID,
-				Config:    p.Initialization,
+				Config:    conversationConfigurationObj,
 			})
 
 	case protos.StreamMode_STREAM_MODE_AUDIO:
 		h.r.OnPacket(ctx,
 			internal_type.InitializeSpeechToTextPacket{
 				ContextID: p.ContextID,
-				Config:    p.Initialization,
+				Config:    conversationConfigurationObj,
 			},
 			internal_type.InitializeTextToSpeechPacket{
 				ContextID: p.ContextID,
-				Config:    p.Initialization,
+				Config:    conversationConfigurationObj,
 			},
 			internal_type.InitializeAssistantExecutorPacket{
 				ContextID: p.ContextID,
-				Config:    p.Initialization,
+				Config:    conversationConfigurationObj,
 			},
 			internal_type.InitializeVoiceActivityDetectionPacket{
 				ContextID: p.ContextID,
-				Config:    p.Initialization,
+				Config:    conversationConfigurationObj,
 			},
 			internal_type.InitializeEndOfSpeechPacket{
 				ContextID: p.ContextID,
-				Config:    p.Initialization,
+				Config:    conversationConfigurationObj,
 			},
 			internal_type.InitializeDenoisePacket{
 				ContextID: p.ContextID,
-				Config:    p.Initialization,
+				Config:    conversationConfigurationObj,
 			},
 			internal_type.InitializeBehaviorPacket{
 				ContextID: p.ContextID,
-				Config:    p.Initialization,
+				Config:    conversationConfigurationObj,
 			},
 			internal_type.InitializationCompletedPacket{
 				ContextID: p.ContextID,
-				Config:    p.Initialization,
+				Config:    conversationConfigurationObj,
 			},
 		)
 		h.r.SwitchMode(type_enums.AudioMode)
@@ -1830,6 +1888,7 @@ func (h requestorDispatchHandler) HandleInitializeSpeechToText(ctx context.Conte
 		return
 	}
 	h.r.speechToTextTransformer = atransformer
+
 }
 
 func (h requestorDispatchHandler) HandleInitializeDenoise(ctx context.Context, p internal_type.InitializeDenoisePacket) {
@@ -2468,9 +2527,7 @@ func (h requestorDispatchHandler) HandleInitializeTelemetry(ctx context.Context,
 }
 
 func (h requestorDispatchHandler) HandleInitializeInboundDispatcher(ctx context.Context, p internal_type.InitializeInboundDispatcherPacket) {
-	h.r.inputStart.Do(func() {
-		go h.r.runInputDispatcher(h.r.sessionCtx)
-	})
+	go h.r.runInputDispatcher(h.r.sessionCtx)
 }
 
 func (h requestorDispatchHandler) HandleFinalizeBehavior(ctx context.Context, p internal_type.FinalizeBehaviorPacket) {
@@ -2877,52 +2934,26 @@ func (h requestorDispatchHandler) callInputNormalizer(ctx context.Context, vl in
 }
 
 func (r *genericRequestor) OnNotifyAssistantConfiguration(ctx context.Context, config *protos.ConversationInitialization, conversation *internal_conversation_entity.AssistantConversation) {
-	conversationConfigurationObj := &protos.ConversationInitialization{
-		AssistantConversationId: conversation.Id,
-		Assistant: &protos.AssistantDefinition{
-			AssistantId: r.assistant.Id,
-			Version:     utils.GetVersionString(r.assistant.AssistantProviderId),
-		},
-		StreamMode:   config.GetStreamMode(),
-		UserIdentity: config.GetUserIdentity(),
-		Time:         timestamppb.Now(),
-	}
-	options := r.GetOptions()
-	if outputAudio, err := r.GetTextToSpeechTransformer(); err == nil && outputAudio != nil {
-		if ambient, _ := outputAudio.GetOptions().GetString("speaker.ambient"); ambient != "" {
-			options["speaker.ambient"] = ambient
-		}
-		if volume, _ := outputAudio.GetOptions().GetString("speaker.ambient_volume"); volume != "" {
-			options["speaker.ambient_volume"] = volume
-		}
-	}
-	if anyArgMap, err := utils.InterfaceMapToAnyMap(r.GetArgs()); err == nil {
-		conversationConfigurationObj.Args = anyArgMap
-	}
-	if anyMetaMap, err := utils.InterfaceMapToAnyMap(r.GetMetadata()); err == nil {
-		conversationConfigurationObj.Metadata = anyMetaMap
-	}
-	if anyOptionMap, err := utils.InterfaceMapToAnyMap(options); err == nil {
-		conversationConfigurationObj.Options = anyOptionMap
-	}
-	if err := r.Notify(ctx, conversationConfigurationObj); err != nil {
-		r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-			ContextID: r.GetID(),
-			Scope:     internal_type.ObservabilityRecordScopeConversation,
-			Record: observability.RecordLog{
-				Level:   observability.LevelError,
-				Message: "Configuration notification failed; streamer may use stale settings",
-				Attributes: observability.Attributes{
-					"component":  observability.ComponentConversation.String(),
-					"operation":  "notify_configuration",
-					"context_id": r.GetID(),
-					"mode":       r.GetMode().String(),
-					"error":      err.Error(),
-					"error_type": fmt.Sprintf("%T", err),
+	utils.Go(ctx, func() {
+		if err := r.Notify(ctx, config); err != nil {
+			r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+				ContextID: r.GetID(),
+				Scope:     internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "Configuration notification failed; streamer may use stale settings",
+					Attributes: observability.Attributes{
+						"component":  observability.ComponentConversation.String(),
+						"operation":  "notify_configuration",
+						"context_id": r.GetID(),
+						"mode":       r.GetMode().String(),
+						"error":      err.Error(),
+						"error_type": fmt.Sprintf("%T", err),
+					},
 				},
-			},
-		})
-	}
+			})
+		}
+	})
 }
 
 func (r *genericRequestor) IsConditionAllowed(opts utils.Option, key string) bool {

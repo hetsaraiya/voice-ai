@@ -9,8 +9,10 @@ import (
 	"context"
 	"errors"
 
+	pkg_errors "github.com/rapidaai/pkg/errors"
 	"github.com/rapidaai/pkg/types"
 	"github.com/rapidaai/pkg/utils"
+	"github.com/rapidaai/pkg/validator"
 	assistant_api "github.com/rapidaai/protos"
 )
 
@@ -29,6 +31,39 @@ func (deploymentApi *assistantDeploymentGrpcApi) CreateAssistantDebuggerDeployme
 			errors.New("illegal parameters attached to deployment"),
 			"Please check and provide valid deployment request for debugger.",
 		)
+	}
+	if !validator.Between(int(deployment.GetDebugger().GetIdealTimeout()), 15, 120) {
+		return &assistant_api.GetAssistantDebuggerDeploymentResponse{
+			Code:    pkg_errors.CreateAssistantDebuggerDeploymentInvalidIdealTimeout.HTTPStatusCodeInt32(),
+			Success: false,
+			Error: &assistant_api.Error{
+				ErrorCode:    uint64(pkg_errors.CreateAssistantDebuggerDeploymentInvalidIdealTimeout.Code),
+				ErrorMessage: pkg_errors.CreateAssistantDebuggerDeploymentInvalidIdealTimeout.Error,
+				HumanMessage: pkg_errors.CreateAssistantDebuggerDeploymentInvalidIdealTimeout.ErrorMessage,
+			},
+		}, errors.New(pkg_errors.CreateAssistantDebuggerDeploymentInvalidIdealTimeout.Error)
+	}
+	if !validator.Between(int(deployment.GetDebugger().GetIdealTimeoutBackoff()), 0, 5) {
+		return &assistant_api.GetAssistantDebuggerDeploymentResponse{
+			Code:    pkg_errors.CreateAssistantDebuggerDeploymentInvalidTimeoutBackoff.HTTPStatusCodeInt32(),
+			Success: false,
+			Error: &assistant_api.Error{
+				ErrorCode:    uint64(pkg_errors.CreateAssistantDebuggerDeploymentInvalidTimeoutBackoff.Code),
+				ErrorMessage: pkg_errors.CreateAssistantDebuggerDeploymentInvalidTimeoutBackoff.Error,
+				HumanMessage: pkg_errors.CreateAssistantDebuggerDeploymentInvalidTimeoutBackoff.ErrorMessage,
+			},
+		}, errors.New(pkg_errors.CreateAssistantDebuggerDeploymentInvalidTimeoutBackoff.Error)
+	}
+	if !validator.Between(int(deployment.GetDebugger().GetMaxSessionDuration()), 180, 600) {
+		return &assistant_api.GetAssistantDebuggerDeploymentResponse{
+			Code:    pkg_errors.CreateAssistantDebuggerDeploymentInvalidSessionDuration.HTTPStatusCodeInt32(),
+			Success: false,
+			Error: &assistant_api.Error{
+				ErrorCode:    uint64(pkg_errors.CreateAssistantDebuggerDeploymentInvalidSessionDuration.Code),
+				ErrorMessage: pkg_errors.CreateAssistantDebuggerDeploymentInvalidSessionDuration.Error,
+				HumanMessage: pkg_errors.CreateAssistantDebuggerDeploymentInvalidSessionDuration.ErrorMessage,
+			},
+		}, errors.New(pkg_errors.CreateAssistantDebuggerDeploymentInvalidSessionDuration.Error)
 	}
 
 	wpDeployment, err := deploymentApi.deploymentService.CreateDebuggerDeployment(ctx,

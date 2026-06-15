@@ -173,6 +173,17 @@ type Metric struct {
 // - `1003007`: invalid arguments parameter - Please provide valid arguments.
 // - `1003008`: invalid options parameter - Please provide valid options.
 // - `1003009`: unable to initiate outbound call - Unable to initiate outbound call, please try again later.
+//
+// Create Assistant Debugger Deployment:
+// - `1004001`: invalid request - Invalid request.
+// - `1004002`: unauthenticated request - Unauthenticated request, please try again with valid authentication.
+// - `1004003`: missing authentication scope - Unauthenticated request, please try again with valid authentication.
+// - `1004004`: invalid assistant_id parameter - Please provide a valid assistantId parameter.
+// - `1004005`: unable to create assistant debugger deployment - Unable to create assistant debugger deployment, please try again later.
+// - `1004006`: invalid audio provider parameter - Please provide a valid audioProvider parameter.
+// - `1004007`: invalid ideal_timeout parameter - Please provide idealTimeout between 15 and 120 seconds.
+// - `1004008`: invalid ideal_timeout_backoff parameter - Please provide idealTimeoutBackoff between 0 and 5 times.
+// - `1004009`: invalid max_session_duration parameter - Please provide maxSessionDuration between 180 and 600 seconds.
 type PlatformErrorCode = string
 
 // Uint64String defines model for Uint64String.

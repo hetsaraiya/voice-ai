@@ -24,103 +24,118 @@ const (
 // Classify maps a packet to its dispatcher route.
 // Unknown packets default to RouteBackground.
 func Classify(p internal_type.Packet) Route {
-	switch p.(type) {
+	return ClassifyName(p.PacketName())
+}
+
+func ClassifyName(name internal_type.PacketName) Route {
+	switch name {
 	// Critical — interrupts, tool lifecycle
-	case internal_type.InterruptionDetectedPacket,
-		internal_type.TextToSpeechInterruptPacket,
-		internal_type.LLMInterruptPacket,
-		internal_type.SpeechToTextEndPacket,
-		internal_type.EndOfSpeechInterruptionPacket,
-		internal_type.TurnChangePacket:
+	case internal_type.PacketNameInterruptionDetected,
+		internal_type.PacketNameTextToSpeechInterrupt,
+		internal_type.PacketNameLLMInterrupt,
+		internal_type.PacketNameDispatchPolicy,
+		internal_type.PacketNameSpeechToTextEnd,
+		internal_type.PacketNameSpeechToTextStart,
+		internal_type.PacketNameEndOfSpeechInterruption,
+		internal_type.PacketNameTurnChange:
 		return RouteControl
 
 	// Bootstrap — connect/session initialization pipeline
-	case internal_type.InitializeAssistantPacket,
-		internal_type.InitializeConversationPacket,
-		internal_type.InitializeSessionRuntimePacket,
-		internal_type.InitializeAuthenticationPacket,
-		internal_type.ExecuteSessionAuthenticationPacket,
-		internal_type.SessionAuthenticationSucceededPacket,
-		internal_type.SessionAuthenticationFailedPacket,
-		internal_type.InitializeSpeechToTextPacket,
-		internal_type.InitializeTextToSpeechPacket,
-		internal_type.InitializeVoiceActivityDetectionPacket,
-		internal_type.InitializeEndOfSpeechPacket,
-		internal_type.InitializeDenoisePacket,
-		internal_type.InitializeBehaviorPacket,
-		internal_type.InitializationCompletedPacket,
-		internal_type.InitializationFailedPacket,
-		internal_type.InitializeTelemetryPacket,
-		internal_type.InitializeInboundDispatcherPacket,
-		internal_type.ModeSwitchRequestedPacket,
-		internal_type.ModeSwitchCompletedPacket,
-		internal_type.ModeSwitchInitializeSpeechToTextPacket,
-		internal_type.ModeSwitchInitializeTextToSpeechPacket,
-		internal_type.ModeSwitchInitializeVoiceActivityDetectionPacket,
-		internal_type.ModeSwitchInitializeEndOfSpeechPacket,
-		internal_type.ModeSwitchFinalizeEndOfSpeechPacket,
-		internal_type.ModeSwitchInitializeDenoisePacket,
-		internal_type.ModeSwitchFinalizeDenoisePacket,
-		internal_type.ModeSwitchFinalizeVoiceActivityDetectionPacket,
-		internal_type.ModeSwitchFinalizeTextToSpeechPacket,
-		internal_type.ModeSwitchFinalizeSpeechToTextPacket:
+	case internal_type.PacketNameInitializeAssistant,
+		internal_type.PacketNameInitializeConversation,
+		internal_type.PacketNameInitializeSessionRuntime,
+		internal_type.PacketNameInitializeAuthentication,
+		internal_type.PacketNameExecuteSessionAuthentication,
+		internal_type.PacketNameSessionAuthenticationSucceeded,
+		internal_type.PacketNameSessionAuthenticationFailed,
+		internal_type.PacketNameInitializeSpeechToText,
+		internal_type.PacketNameInitializeAssistantExecutor,
+		internal_type.PacketNameInitializeTextToSpeech,
+		internal_type.PacketNameInitializeVoiceActivityDetection,
+		internal_type.PacketNameInitializeEndOfSpeech,
+		internal_type.PacketNameInitializeDenoise,
+		internal_type.PacketNameInitializeBehavior,
+		internal_type.PacketNameInitializationCompleted,
+		internal_type.PacketNameInitializationFailed,
+		internal_type.PacketNameInitializeTelemetry,
+		internal_type.PacketNameInitializeInboundDispatcher,
+		internal_type.PacketNameModeSwitchRequested,
+		internal_type.PacketNameModeSwitchCompleted,
+		internal_type.PacketNameModeSwitchInitializeSpeechToText,
+		internal_type.PacketNameModeSwitchInitializeTextToSpeech,
+		internal_type.PacketNameModeSwitchInitializeVoiceActivityDetection,
+		internal_type.PacketNameModeSwitchInitializeEndOfSpeech,
+		internal_type.PacketNameModeSwitchFinalizeEndOfSpeech,
+		internal_type.PacketNameModeSwitchInitializeDenoise,
+		internal_type.PacketNameModeSwitchFinalizeDenoise,
+		internal_type.PacketNameModeSwitchFinalizeVoiceActivityDetection,
+		internal_type.PacketNameModeSwitchFinalizeTextToSpeech,
+		internal_type.PacketNameModeSwitchFinalizeSpeechToText:
 		return RouteBootstrap
 
 	// Input — inbound audio pipeline, VAD, STT, EOS
-	case internal_type.UserAudioReceivedPacket,
-		internal_type.UserTextReceivedPacket,
-		internal_type.DenoiseAudioPacket,
-		internal_type.DenoisedAudioPacket,
-		internal_type.VadAudioPacket,
-		internal_type.VadSpeechActivityPacket,
-		internal_type.SpeechToTextPacket,
-		internal_type.SpeechToTextAudioPacket,
-		internal_type.EndOfSpeechAudioPacket,
-		internal_type.EndOfSpeechPacket,
-		internal_type.InterimEndOfSpeechPacket,
-		internal_type.UserInputPacket,
-		internal_type.LLMToolResultPacket:
+	case internal_type.PacketNameUserAudioReceived,
+		internal_type.PacketNameUserTextReceived,
+		internal_type.PacketNameDenoiseAudio,
+		internal_type.PacketNameDenoisedAudio,
+		internal_type.PacketNameVadAudio,
+		internal_type.PacketNameVadSpeechActivity,
+		internal_type.PacketNameSpeechToText,
+		internal_type.PacketNameSpeechToTextAudio,
+		internal_type.PacketNameEndOfSpeechAudio,
+		internal_type.PacketNameEndOfSpeech,
+		internal_type.PacketNameInterimEndOfSpeech,
+		internal_type.PacketNameUserInput,
+		internal_type.PacketNameLLMToolResult:
 		return RouteIngress
 
 	// Output — LLM generation, TTS, outbound pipeline
-	case internal_type.LLMResponseDeltaPacket,
-		internal_type.LLMResponseDonePacket,
-		internal_type.ErrorPacket,
-		internal_type.InjectMessagePacket,
-		internal_type.StartIdleTimeoutPacket,
-		internal_type.StopIdleTimeoutPacket,
-		internal_type.TextToSpeechTextPacket,
-		internal_type.TextToSpeechDonePacket,
-		internal_type.TextToSpeechAudioPacket,
-		internal_type.TextToSpeechEndPacket,
-		internal_type.LLMToolCallPacket:
+	case internal_type.PacketNameLLMResponseDelta,
+		internal_type.PacketNameLLMResponseDone,
+		internal_type.PacketNameSpeechToTextError,
+		internal_type.PacketNameLLMError,
+		internal_type.PacketNameTextToSpeechError,
+		internal_type.PacketNameModeSwitchError,
+		internal_type.PacketNameInjectMessage,
+		internal_type.PacketNameStartIdleTimeout,
+		internal_type.PacketNameStopIdleTimeout,
+		internal_type.PacketNameTextToSpeechText,
+		internal_type.PacketNameTextToSpeechDone,
+		internal_type.PacketNameTextToSpeechAudio,
+		internal_type.PacketNameTextToSpeechEnd,
+		internal_type.PacketNameLLMToolCall:
 		return RouteEgress
 
 	// Data — DB writes, recording, lifecycle orchestration. No observer dependency,
 	// dispatcher starts at NewGenericRequestor.
-	case internal_type.RecordUserAudioPacket,
-		internal_type.RecordAssistantAudioPacket,
-		internal_type.ConversationRecordingCompletedPacket,
-		internal_type.MessageCreatePacket,
-		internal_type.ToolLogCreatePacket,
-		internal_type.ToolLogUpdatePacket,
-		internal_type.HTTPLogCreatePacket,
-		internal_type.FinalizeBehaviorPacket,
-		internal_type.FinalizeEndOfSpeechPacket,
-		internal_type.FinalizeVoiceActivityDetectionPacket,
-		internal_type.FinalizeTextToSpeechPacket,
-		internal_type.FinalizeSpeechToTextPacket,
-		internal_type.FinalizeAuthenticationPacket,
-		internal_type.FinalizeSessionRuntimePacket,
-		internal_type.FinalizeConversationPacket,
-		internal_type.FinalizeAssistantPacket,
-		internal_type.FinalizationCompletedPacket,
-		internal_type.ExecuteAnalysisPacket,
-		internal_type.ExecuteWebhookPacket:
+	case internal_type.PacketNameRecordUserAudio,
+		internal_type.PacketNameRecordAssistantAudio,
+		internal_type.PacketNameConversationRecordingCompleted,
+		internal_type.PacketNameMessageCreate,
+		internal_type.PacketNameToolLogCreate,
+		internal_type.PacketNameToolLogUpdate,
+		internal_type.PacketNameHTTPLogCreate,
+		internal_type.PacketNameFinalizeBehavior,
+		internal_type.PacketNameFinalizeEndOfSpeech,
+		internal_type.PacketNameFinalizeVoiceActivityDetection,
+		internal_type.PacketNameFinalizeTextToSpeech,
+		internal_type.PacketNameFinalizeSpeechToText,
+		internal_type.PacketNameFinalizeAuthentication,
+		internal_type.PacketNameFinalizeSessionRuntime,
+		internal_type.PacketNameFinalizeConversation,
+		internal_type.PacketNameFinalizeAssistant,
+		internal_type.PacketNameFinalizationCompleted,
+		internal_type.PacketNameExecuteAnalysis,
+		internal_type.PacketNameExecuteWebhook:
 		return RouteData
 
 	// Background — observer-touching telemetry. Dispatcher starts after telemetry init.
-	case internal_type.ObservabilityRecordPacket:
+	case internal_type.PacketNameObservabilityLogRecord,
+		internal_type.PacketNameObservabilityEventRecord,
+		internal_type.PacketNameObservabilityMetricRecord,
+		internal_type.PacketNameObservabilityMetadataRecord,
+		internal_type.PacketNameObservabilityUsageRecord,
+		internal_type.PacketNameObservabilityWebhookRecord:
 		return RouteBackground
 	default:
 		return RouteBackground

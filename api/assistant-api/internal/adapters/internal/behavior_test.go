@@ -16,6 +16,7 @@ import (
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	gorm_model "github.com/rapidaai/pkg/models/gorm"
+	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
@@ -432,6 +433,60 @@ func TestBehavior_InitializeGreeting(t *testing.T) {
 		assert.Equal(t, "greeting", event.Record.Attributes["type"])
 		assert.Equal(t, "8", event.Record.Attributes["text_chars"])
 	})
+
+	t.Run("non-interruptible audio greeting applies dispatch policies before inject", func(t *testing.T) {
+		r := newBehaviorDisconnectTestRequestor(t, &behaviorCapturingStreamer{})
+		r.messageLifecycle.SetContextID("ctx-greeting")
+		r.messageLifecycle.SetMode(type_enums.AudioMode)
+		interruptible := false
+
+		r.initializeGreeting(context.Background(), &internal_assistant_entity.AssistantDeploymentBehavior{
+			Greeting:              behaviorStr("Welcome!"),
+			GreetingInterruptible: &interruptible,
+		})
+
+		userAudioPolicy := requireBehaviorPacketEventually[internal_type.DispatchPolicyPacket](
+			t, r.channels.ControlChannel(), time.Second,
+		)
+		assert.Equal(t, "ctx-greeting", userAudioPolicy.ContextID)
+		assert.Equal(t, internal_type.DispatchActionIgnore, userAudioPolicy.Policy.Action)
+		assert.Equal(t, internal_type.PacketNameUserAudioReceived, userAudioPolicy.Policy.Target)
+
+		interruptionPolicy := requireBehaviorPacketEventually[internal_type.DispatchPolicyPacket](
+			t, r.channels.ControlChannel(), time.Second,
+		)
+		assert.Equal(t, "ctx-greeting", interruptionPolicy.ContextID)
+		assert.Equal(t, internal_type.DispatchActionIgnore, interruptionPolicy.Policy.Action)
+		assert.Equal(t, internal_type.PacketNameInterruptionDetected, interruptionPolicy.Policy.Target)
+
+		inject := requireBehaviorPacketEventually[internal_type.InjectMessagePacket](
+			t, r.channels.EgressChannel(), time.Second,
+		)
+		assert.Equal(t, "ctx-greeting", inject.ContextID)
+		assert.Equal(t, "Welcome!", inject.Text)
+	})
+}
+
+func TestHandleTextToSpeechEnd_RestoresGreetingDispatchPolicies(t *testing.T) {
+	r := newBehaviorDisconnectTestRequestor(t, &behaviorCapturingStreamer{})
+	r.messageLifecycle.SetContextID("ctx-tts-end")
+	h := requestorDispatchHandler{r: r}
+
+	h.HandleTextToSpeechEnd(context.Background(), internal_type.TextToSpeechEndPacket{ContextID: "ctx-tts-end"})
+
+	userAudioPolicy := requireBehaviorPacketEventually[internal_type.DispatchPolicyPacket](
+		t, r.channels.ControlChannel(), time.Second,
+	)
+	assert.Equal(t, "ctx-tts-end", userAudioPolicy.ContextID)
+	assert.Equal(t, internal_type.DispatchActionPassthrough, userAudioPolicy.Policy.Action)
+	assert.Equal(t, internal_type.PacketNameUserAudioReceived, userAudioPolicy.Policy.Target)
+
+	interruptionPolicy := requireBehaviorPacketEventually[internal_type.DispatchPolicyPacket](
+		t, r.channels.ControlChannel(), time.Second,
+	)
+	assert.Equal(t, "ctx-tts-end", interruptionPolicy.ContextID)
+	assert.Equal(t, internal_type.DispatchActionPassthrough, interruptionPolicy.Policy.Action)
+	assert.Equal(t, internal_type.PacketNameInterruptionDetected, interruptionPolicy.Policy.Target)
 }
 
 // Idle timeout initialization should only enqueue a timer start when configured.

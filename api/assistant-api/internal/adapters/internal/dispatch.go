@@ -7,11 +7,9 @@ package adapter_internal
 
 import (
 	"context"
-	"fmt"
 
 	adapter_channel "github.com/rapidaai/api/assistant-api/internal/adapters/channel"
 	adapter_router "github.com/rapidaai/api/assistant-api/internal/adapters/router"
-	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/utils"
 )
@@ -88,50 +86,14 @@ func (r *genericRequestor) runLowDispatcher(ctx context.Context) {
 // =============================================================================
 
 func (r *genericRequestor) dispatch(ctx context.Context, p internal_type.Packet) {
-	switch p.(type) {
-	case internal_type.AsyncPacket:
-		utils.Go(ctx, func() {
-			if err := adapter_router.DispatchPacket(ctx, p, requestorDispatchHandler{r: r}); err != nil {
-				if _, ok := p.(internal_type.ObservabilityRecordPacket); !ok {
-					r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-						ContextID: p.ContextId(),
-						Scope:     internal_type.ObservabilityRecordScopeConversation,
-						Record: observability.RecordLog{
-							Level:   observability.LevelError,
-							Message: "unknown packet type received in dispatcher",
-							Attributes: observability.Attributes{
-								"component":  observability.ConversationCompleted.String(),
-								"operation":  "dispatch",
-								"context_id": p.ContextId(),
-								"packet":     fmt.Sprintf("%T", p),
-								"error":      err.Error(),
-								"error_type": fmt.Sprintf("%T", err),
-							},
-						},
-					})
-				}
-			}
-		})
-	default:
-		if err := adapter_router.DispatchPacket(ctx, p, requestorDispatchHandler{r: r}); err != nil {
-			if _, ok := p.(internal_type.ObservabilityRecordPacket); !ok {
-				r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-					ContextID: p.ContextId(),
-					Scope:     internal_type.ObservabilityRecordScopeConversation,
-					Record: observability.RecordLog{
-						Level:   observability.LevelError,
-						Message: "unknown packet type received in dispatcher",
-						Attributes: observability.Attributes{
-							"component":  observability.ComponentConversation.String(),
-							"operation":  "dispatch",
-							"context_id": p.ContextId(),
-							"packet":     fmt.Sprintf("%T", p),
-							"error":      err.Error(),
-							"error_type": fmt.Sprintf("%T", err),
-						},
-					},
-				})
-			}
+	r.dispatchRoute.Route(ctx, p, func(ctx context.Context, p internal_type.Packet) {
+		switch p.(type) {
+		case internal_type.AsyncPacket:
+			utils.Go(ctx, func() {
+				_ = adapter_router.DispatchPacket(ctx, p, requestorDispatchHandler{r: r})
+			})
+		default:
+			_ = adapter_router.DispatchPacket(ctx, p, requestorDispatchHandler{r: r})
 		}
-	}
+	})
 }

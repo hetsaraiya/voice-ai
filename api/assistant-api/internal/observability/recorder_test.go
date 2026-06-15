@@ -86,6 +86,41 @@ func (c *blockingCollector) Close(context.Context) error {
 	return nil
 }
 
+type blockingKeyCollector struct {
+	key     string
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (c *blockingKeyCollector) Key() string {
+	c.once.Do(func() { close(c.started) })
+	<-c.release
+	return c.key
+}
+
+func (c *blockingKeyCollector) Collect(context.Context, Scope, Context, Record) error {
+	return nil
+}
+
+func (c *blockingKeyCollector) Close(context.Context) error {
+	return nil
+}
+
+func waitForRecorderDone(t *testing.T, observabilityRecorder Recorder) error {
+	t.Helper()
+	concreteRecorder, ok := observabilityRecorder.(*recorder)
+	if !ok {
+		t.Fatalf("unexpected recorder type: %T", observabilityRecorder)
+	}
+	select {
+	case <-concreteRecorder.done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for recorder close")
+	}
+	return concreteRecorder.errors()
+}
+
 func TestRecorder_RecordMetric_FansOutAndInjectsGlobalScope(t *testing.T) {
 	now := time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC)
 	first := &recordingCollector{key: "first"}
@@ -110,6 +145,9 @@ func TestRecorder_RecordMetric_FansOutAndInjectsGlobalScope(t *testing.T) {
 	}
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
 	}
 
 	if len(first.metrics) != 1 || len(second.metrics) != 1 {
@@ -157,6 +195,9 @@ func TestRecorder_RecordInjectsAuthIntoObservationContext(t *testing.T) {
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
 
 	if len(collector.contexts) != 1 || collector.contexts[0].Auth != auth {
 		t.Fatalf("expected recorder auth in observation context, got %+v", collector.contexts)
@@ -184,6 +225,9 @@ func TestRecorder_RecordUsesRequestIDFromRecordContext(t *testing.T) {
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
 
 	if collector.contexts[0].TraceID != "record-trace" {
 		t.Fatalf("unexpected trace id: %s", collector.contexts[0].TraceID)
@@ -205,6 +249,9 @@ func TestRecorder_RecordUsesCanceledContextValues(t *testing.T) {
 	}
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
 	}
 
 	if len(collector.logs) != 1 {
@@ -228,6 +275,9 @@ func TestRecorder_RecordFallsBackToGeneratedTraceID(t *testing.T) {
 	}
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
 	}
 
 	if collector.contexts[0].TraceID == "" {
@@ -254,6 +304,9 @@ func TestRecorder_RecordLog_ProjectScope(t *testing.T) {
 	}
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
 	}
 
 	if len(collector.logs) != 1 {
@@ -302,6 +355,9 @@ func TestRecorder_RecordEvent_UsesExplicitMessageScope(t *testing.T) {
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
 
 	if len(collector.events) != 1 {
 		t.Fatalf("expected one event, got %d", len(collector.events))
@@ -348,6 +404,9 @@ func TestRecorder_RecordWebhook_FansOut(t *testing.T) {
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
 	if len(first.webhooks) != 1 || len(second.webhooks) != 1 {
 		t.Fatalf("expected both collectors to receive webhook record, got first=%d second=%d", len(first.webhooks), len(second.webhooks))
 	}
@@ -374,6 +433,9 @@ func TestRecorder_RecordUsage_AllowsMessageScope(t *testing.T) {
 	}
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
 	}
 	if len(collector.usage) != 1 {
 		t.Fatalf("expected usage record, got %d", len(collector.usage))
@@ -406,6 +468,9 @@ func TestRecorder_RecordVariadicRecords_AllCollected(t *testing.T) {
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
 
 	if len(collector.events) != 1 {
 		t.Fatalf("expected event to be collected, got %d", len(collector.events))
@@ -418,6 +483,98 @@ func TestRecorder_RecordVariadicRecords_AllCollected(t *testing.T) {
 	}
 }
 
+func TestRecorder_NewDoesNotWaitForCollectorRegistration(t *testing.T) {
+	collector := &blockingKeyCollector{
+		key:     "collector",
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	startedAt := time.Now()
+	recorder := New(WithCollector(collector))
+	if elapsed := time.Since(startedAt); elapsed > 100*time.Millisecond {
+		t.Fatalf("New waited for collector registration: %s", elapsed)
+	}
+
+	select {
+	case <-collector.started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for collector registration")
+	}
+	close(collector.release)
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
+}
+
+func TestRecorder_AddCollectorsDoesNotWaitForCollectorRegistration(t *testing.T) {
+	recorder := New()
+	collector := &blockingKeyCollector{
+		key:     "collector",
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	startedAt := time.Now()
+	if err := recorder.AddCollectors(collector); err != nil {
+		t.Fatalf("AddCollectors returned error: %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 100*time.Millisecond {
+		t.Fatalf("AddCollectors waited for collector registration: %s", elapsed)
+	}
+
+	select {
+	case <-collector.started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for collector registration")
+	}
+	close(collector.release)
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
+}
+
+func TestRecorder_RecordDoesNotWaitForCollectorCollect(t *testing.T) {
+	blocked := &blockingCollector{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	recorder := New(WithCollector(blocked))
+
+	startedAt := time.Now()
+	if err := recorder.Record(context.Background(), ConversationScope{
+		AssistantScope: AssistantScope{AssistantID: 10},
+		ConversationID: 20,
+	}, RecordEvent{
+		Component: ComponentConversation,
+		Event:     ConversationStarted,
+	}); err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 100*time.Millisecond {
+		t.Fatalf("Record waited for collector collect: %s", elapsed)
+	}
+
+	select {
+	case <-blocked.started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for collector collect")
+	}
+	close(blocked.release)
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
+}
+
 func TestRecorder_CloseGraceAcceptsLateRecords(t *testing.T) {
 	collector := &recordingCollector{key: "collector"}
 	observabilityRecorder := New(WithGracePeriod(), WithCollector(collector))
@@ -425,16 +582,21 @@ func TestRecorder_CloseGraceAcceptsLateRecords(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected recorder type: %T", observabilityRecorder)
 	}
-	concreteRecorder.closeGracePeriod = 50 * time.Millisecond
+	concreteRecorder.closeGracePeriod = 200 * time.Millisecond
 	scope := ConversationScope{
 		AssistantScope: AssistantScope{AssistantID: 10},
 		ConversationID: 20,
 	}
-	closeDone := make(chan error, 1)
 
-	go func() {
-		closeDone <- observabilityRecorder.Close(context.Background())
-	}()
+	closeStarted := time.Now()
+	closeContext, cancelCloseContext := context.WithCancel(context.Background())
+	cancelCloseContext()
+	if err := observabilityRecorder.Close(closeContext); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if elapsed := time.Since(closeStarted); elapsed > 100*time.Millisecond {
+		t.Fatalf("Close waited for grace period: %s", elapsed)
+	}
 	time.Sleep(10 * time.Millisecond)
 
 	if err := observabilityRecorder.Record(context.Background(), scope, RecordEvent{
@@ -443,8 +605,8 @@ func TestRecorder_CloseGraceAcceptsLateRecords(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("late record during close grace failed: %v", err)
 	}
-	if err := <-closeDone; err != nil {
-		t.Fatalf("Close returned error: %v", err)
+	if err := waitForRecorderDone(t, observabilityRecorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
 	}
 
 	if len(collector.events) != 1 {
@@ -470,6 +632,9 @@ func TestRecorder_DefaultGracePeriodIsZero(t *testing.T) {
 	if err := concreteRecorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
+	if err := waitForRecorderDone(t, observabilityRecorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
 }
 
 func TestRecorder_WithGracePeriodUsesConfiguredGracePeriod(t *testing.T) {
@@ -485,14 +650,17 @@ func TestRecorder_WithGracePeriodUsesConfiguredGracePeriod(t *testing.T) {
 	if err := concreteRecorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
+	if err := waitForRecorderDone(t, observabilityRecorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
 }
 
-func TestRecorder_Record_ReturnsBufferFull(t *testing.T) {
+func TestRecorder_Record_ReturnsBufferFullWhenOperationQueueIsFull(t *testing.T) {
 	blocked := &blockingCollector{
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	recorder := New(WithBuffer(1), WithCollector(blocked))
+	recorder := New(WithCollector(blocked))
 	scope := ConversationScope{
 		AssistantScope: AssistantScope{AssistantID: 10},
 		ConversationID: 20,
@@ -506,8 +674,10 @@ func TestRecorder_Record_ReturnsBufferFull(t *testing.T) {
 	}
 	<-blocked.started
 
-	if err := recorder.Record(context.Background(), scope, record); err != nil {
-		t.Fatalf("second record failed: %v", err)
+	for recordIndex := 0; recordIndex < recorderQueueSize; recordIndex++ {
+		if err := recorder.Record(context.Background(), scope, record); err != nil {
+			t.Fatalf("queued record %d failed: %v", recordIndex, err)
+		}
 	}
 	err := recorder.Record(context.Background(), scope, record)
 	if !errors.Is(err, ErrBufferFull) {
@@ -517,6 +687,41 @@ func TestRecorder_Record_ReturnsBufferFull(t *testing.T) {
 	close(blocked.release)
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("close failed: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
+}
+
+func TestRecorder_CloseDoesNotWaitForInflightCollect(t *testing.T) {
+	blocked := &blockingCollector{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	recorder := New(WithCollector(blocked))
+
+	if err := recorder.Record(context.Background(), ConversationScope{
+		AssistantScope: AssistantScope{AssistantID: 10},
+		ConversationID: 20,
+	}, RecordEvent{
+		Component: ComponentConversation,
+		Event:     ConversationStarted,
+	}); err != nil {
+		t.Fatalf("record failed: %v", err)
+	}
+	<-blocked.started
+
+	closeStarted := time.Now()
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if elapsed := time.Since(closeStarted); elapsed > 100*time.Millisecond {
+		t.Fatalf("Close waited for inflight collect: %s", elapsed)
+	}
+
+	close(blocked.release)
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
 	}
 }
 
@@ -541,6 +746,10 @@ func TestRecorder_Close_JoinsCollectorErrors(t *testing.T) {
 	}
 
 	err = recorder.Close(context.Background())
+	if err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	err = waitForRecorderDone(t, recorder)
 	if !errors.Is(err, collectErr) || !errors.Is(err, closeErr) {
 		t.Fatalf("expected joined collect+close errors, got %v", err)
 	}
@@ -568,6 +777,9 @@ func TestRecorder_AddCollectors_DeduplicatesByKey(t *testing.T) {
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
 	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
 	if len(first.events) != 1 || len(second.events) != 1 {
 		t.Fatalf("expected original and new collectors to receive event, got first=%d second=%d", len(first.events), len(second.events))
 	}
@@ -580,6 +792,9 @@ func TestRecorder_AddCollectors_ReturnsClosedError(t *testing.T) {
 	recorder := New()
 	if err := recorder.Close(context.Background()); err != nil {
 		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
 	}
 	if err := recorder.AddCollectors(&recordingCollector{key: "collector"}); !errors.Is(err, ErrRecorderClosed) {
 		t.Fatalf("expected ErrRecorderClosed, got %v", err)

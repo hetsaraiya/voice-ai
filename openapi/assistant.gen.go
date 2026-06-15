@@ -32,6 +32,21 @@ type Assistant struct {
 	Visibility                 *string                     `json:"visibility,omitempty"`
 }
 
+// AssistantDebuggerDeployment defines model for AssistantDebuggerDeployment.
+type AssistantDebuggerDeployment struct {
+	AssistantId         *Uint64String            `json:"assistantId,omitempty"`
+	Greeting            *string                  `json:"greeting,omitempty"`
+	Id                  *Uint64String            `json:"id,omitempty"`
+	IdealTimeout        *uint64                  `json:"idealTimeout,omitempty"`
+	IdealTimeoutBackoff *uint64                  `json:"idealTimeoutBackoff,omitempty"`
+	IdealTimeoutMessage *string                  `json:"idealTimeoutMessage,omitempty"`
+	InputAudio          *DeploymentAudioProvider `json:"inputAudio,omitempty"`
+	MaxSessionDuration  *uint64                  `json:"maxSessionDuration,omitempty"`
+	Mistake             *string                  `json:"mistake,omitempty"`
+	OutputAudio         *DeploymentAudioProvider `json:"outputAudio,omitempty"`
+	Status              *string                  `json:"status,omitempty"`
+}
+
 // AssistantKnowledge defines model for AssistantKnowledge.
 type AssistantKnowledge struct {
 	AssistantKnowledgeRerankerOptions *[]Metadata   `json:"assistantKnowledgeRerankerOptions,omitempty"`
@@ -96,6 +111,19 @@ type AssistantTool struct {
 	Id               *Uint64String           `json:"id,omitempty"`
 	Name             *string                 `json:"name,omitempty"`
 	Status           *string                 `json:"status,omitempty"`
+}
+
+// CreateAssistantDebuggerDeploymentRequest defines model for CreateAssistantDebuggerDeploymentRequest.
+type CreateAssistantDebuggerDeploymentRequest struct {
+	AssistantId         Uint64String                    `json:"assistantId"`
+	Greeting            *string                         `json:"greeting,omitempty"`
+	IdealTimeout        *uint64                         `json:"idealTimeout,omitempty"`
+	IdealTimeoutBackoff *uint64                         `json:"idealTimeoutBackoff,omitempty"`
+	IdealTimeoutMessage *string                         `json:"idealTimeoutMessage,omitempty"`
+	InputAudio          *DeploymentAudioProviderRequest `json:"inputAudio,omitempty"`
+	MaxSessionDuration  *uint64                         `json:"maxSessionDuration,omitempty"`
+	Mistake             *string                         `json:"mistake,omitempty"`
+	OutputAudio         *DeploymentAudioProviderRequest `json:"outputAudio,omitempty"`
 }
 
 // CreateAssistantKnowledgeRequest defines model for CreateAssistantKnowledgeRequest.
@@ -165,6 +193,34 @@ type CreateAssistantToolRequest struct {
 	Name             *string                 `json:"name,omitempty"`
 }
 
+// DeploymentAudioProvider defines model for DeploymentAudioProvider.
+type DeploymentAudioProvider struct {
+	AudioOptions  *[]Metadata   `json:"audioOptions,omitempty"`
+	AudioProvider *string       `json:"audioProvider,omitempty"`
+	AudioType     *string       `json:"audioType,omitempty"`
+	Id            *Uint64String `json:"id,omitempty"`
+	Status        *string       `json:"status,omitempty"`
+}
+
+// DeploymentAudioProviderRequest defines model for DeploymentAudioProviderRequest.
+type DeploymentAudioProviderRequest struct {
+	AudioOptions  *[]Metadata `json:"audioOptions,omitempty"`
+	AudioProvider string      `json:"audioProvider"`
+	AudioType     *string     `json:"audioType,omitempty"`
+	Status        *string     `json:"status,omitempty"`
+}
+
+// GetAssistantDebuggerDeploymentResponse defines model for GetAssistantDebuggerDeploymentResponse.
+type GetAssistantDebuggerDeploymentResponse struct {
+	Code *int32                       `json:"code,omitempty"`
+	Data *AssistantDebuggerDeployment `json:"data,omitempty"`
+
+	// Error Platform error response details. `errorCode` is a stable platform error code.
+	// See `PlatformErrorCode` for documented code/message mappings.
+	Error   *Error `json:"error,omitempty"`
+	Success *bool  `json:"success,omitempty"`
+}
+
 // GetAssistantResponse defines model for GetAssistantResponse.
 type GetAssistantResponse struct {
 	Code *int32     `json:"code,omitempty"`
@@ -195,6 +251,9 @@ type Variable struct {
 	Name         *string       `json:"name,omitempty"`
 	Type         *string       `json:"type,omitempty"`
 }
+
+// CreateAssistantDebuggerDeploymentJSONRequestBody defines body for CreateAssistantDebuggerDeployment for application/json ContentType.
+type CreateAssistantDebuggerDeploymentJSONRequestBody = CreateAssistantDebuggerDeploymentRequest
 
 // CreateAssistantJSONRequestBody defines body for CreateAssistant for application/json ContentType.
 type CreateAssistantJSONRequestBody = CreateAssistantRequest

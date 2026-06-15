@@ -11,6 +11,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rapidaai/api/assistant-api/internal/observability"
@@ -32,8 +33,12 @@ type Config struct {
 }
 
 type Collector struct {
-	exporter telemetry.Exporter
-	key      string
+	logger      commons.Logger
+	provider    Provider
+	exporter    telemetry.Exporter
+	initialized bool
+	mu          sync.Mutex
+	key         string
 }
 
 func New(ctx context.Context, cfg Config) (observability.Collector, error) {
@@ -42,16 +47,30 @@ func New(ctx context.Context, cfg Config) (observability.Collector, error) {
 		key = "telemetry:" + providerName
 	}
 	if validator.NonNil(cfg.Exporters) {
-		return &Collector{exporter: cfg.Exporters, key: key}, nil
+		return &Collector{exporter: cfg.Exporters, initialized: true, key: key}, nil
 	}
-	exporter, err := newExporter(ctx, cfg.Logger, cfg.Providers)
-	if err != nil {
-		return nil, err
-	}
-	if !validator.NonNil(exporter) {
+	providerName := strings.TrimSpace(cfg.Providers.Name)
+	if !validator.NotBlank(providerName) {
 		return observability.NoopCollector{}, nil
 	}
-	return &Collector{exporter: exporter, key: key}, nil
+	switch telemetry.ExporterType(providerName) {
+	case telemetry.OTLP_HTTP, telemetry.OTLP_GRPC, telemetry.XRAY, telemetry.GOOGLE_TRACE,
+		telemetry.AZURE_MONITOR, telemetry.DATADOG, telemetry.OPENSEARCH, telemetry.LOGGING:
+	default:
+		return nil, errors.New("telemetry: unknown exporter type " + strconv.Quote(providerName))
+	}
+	options := make(map[string]interface{}, len(cfg.Providers.Options))
+	for key, value := range cfg.Providers.Options {
+		options[key] = value
+	}
+	return &Collector{
+		logger: cfg.Logger,
+		provider: Provider{
+			Name:    providerName,
+			Options: options,
+		},
+		key: key,
+	}, nil
 }
 
 func (c *Collector) Key() string {
@@ -59,7 +78,19 @@ func (c *Collector) Key() string {
 }
 
 func (c *Collector) Collect(ctx context.Context, scope observability.Scope, observationContext observability.Context, record observability.Record) error {
-	if !validator.NonNil(c.exporter) {
+	c.mu.Lock()
+	if !c.initialized {
+		exporter, err := newExporter(ctx, c.logger, c.provider)
+		if err != nil {
+			c.mu.Unlock()
+			return err
+		}
+		c.exporter = exporter
+		c.initialized = true
+	}
+	exporter := c.exporter
+	c.mu.Unlock()
+	if !validator.NonNil(exporter) {
 		return nil
 	}
 
@@ -73,7 +104,7 @@ func (c *Collector) Collect(ctx context.Context, scope observability.Scope, obse
 		for key, value := range typed.Attributes {
 			attributes[key] = value
 		}
-		return c.exporter.Export(ctx, c.toTelemetryScope(scope), telemetry.LogRecord{
+		return exporter.Export(ctx, c.toTelemetryScope(scope), telemetry.LogRecord{
 			ID:         typed.ID,
 			Context:    map[string]string{"traceId": observationContext.TraceID},
 			Level:      string(typed.Level),
@@ -90,7 +121,7 @@ func (c *Collector) Collect(ctx context.Context, scope observability.Scope, obse
 		for key, value := range typed.Attributes {
 			attributes[key] = value
 		}
-		return c.exporter.Export(ctx, c.toTelemetryScope(scope), telemetry.EventRecord{
+		return exporter.Export(ctx, c.toTelemetryScope(scope), telemetry.EventRecord{
 			ID:         typed.ID,
 			Context:    map[string]string{"traceId": observationContext.TraceID},
 			Event:      typed.Event.String(),
@@ -115,7 +146,7 @@ func (c *Collector) Collect(ctx context.Context, scope observability.Scope, obse
 			if metric == nil {
 				continue
 			}
-			if err := c.exporter.Export(ctx, c.toTelemetryScope(scope), telemetry.MetricRecord{
+			if err := exporter.Export(ctx, c.toTelemetryScope(scope), telemetry.MetricRecord{
 				ID:          typed.ID,
 				Context:     map[string]string{"traceId": observationContext.TraceID},
 				Name:        metric.GetName(),
@@ -158,8 +189,16 @@ func (c *Collector) toTelemetryScope(scope observability.Scope) telemetry.Scope 
 
 func (c *Collector) Close(ctx context.Context) error {
 	var errs []error
-	if validator.NonNil(c.exporter) {
-		if err := c.exporter.Close(ctx); err != nil {
+	c.mu.Lock()
+	if !c.initialized {
+		c.initialized = true
+		c.mu.Unlock()
+		return nil
+	}
+	exporter := c.exporter
+	c.mu.Unlock()
+	if validator.NonNil(exporter) {
+		if err := exporter.Close(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}

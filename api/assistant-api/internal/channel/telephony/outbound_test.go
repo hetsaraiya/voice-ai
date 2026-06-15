@@ -2,6 +2,7 @@ package channel_telephony
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,11 +31,15 @@ type outboundDispatcherConversationServiceStub struct {
 	metricAssistantID    uint64
 	metricConversationID uint64
 	metrics              []*protos.Metric
+	metricRecorded       chan struct{}
+	metricOnce           sync.Once
 
 	metadataAuth           types.SimplePrinciple
 	metadataAssistantID    uint64
 	metadataConversationID uint64
 	metadata               []*protos.Metadata
+	metadataRecorded       chan struct{}
+	metadataOnce           sync.Once
 }
 
 func (s *outboundDispatcherConversationServiceStub) CreateOrUpdateConversationMetrics(
@@ -48,6 +53,9 @@ func (s *outboundDispatcherConversationServiceStub) CreateOrUpdateConversationMe
 	s.metricAssistantID = assistantID
 	s.metricConversationID = conversationID
 	s.metrics = metrics
+	if s.metricRecorded != nil {
+		s.metricOnce.Do(func() { close(s.metricRecorded) })
+	}
 	return nil, nil
 }
 
@@ -62,6 +70,9 @@ func (s *outboundDispatcherConversationServiceStub) CreateOrUpdateConversationMe
 	s.metadataAssistantID = assistantID
 	s.metadataConversationID = conversationID
 	s.metadata = metadata
+	if s.metadataRecorded != nil {
+		s.metadataOnce.Do(func() { close(s.metadataRecorded) })
+	}
 	return nil, nil
 }
 
@@ -244,7 +255,10 @@ func TestOutboundDispatcher_StatusReporterPersistsFailureDetails(t *testing.T) {
 func TestOutboundDispatcher_StatusReporterRecordsTerminalObservability(t *testing.T) {
 	organizationID := uint64(11)
 	projectID := uint64(22)
-	service := &outboundDispatcherConversationServiceStub{}
+	service := &outboundDispatcherConversationServiceStub{
+		metricRecorded:   make(chan struct{}),
+		metadataRecorded: make(chan struct{}),
+	}
 	store := &outboundDispatcherTestStore{
 		callContext: &callcontext.CallContext{
 			ContextID:      "ctx-provider-terminal",
@@ -272,6 +286,17 @@ func TestOutboundDispatcher_StatusReporterRecordsTerminalObservability(t *testin
 		DisconnectReason:   "outbound_rejected",
 		ProviderStatusCode: 486,
 	})
+
+	select {
+	case <-service.metricRecorded:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for terminal status metric")
+	}
+	select {
+	case <-service.metadataRecorded:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for terminal status metadata")
+	}
 
 	if service.metricAuth == nil {
 		t.Fatal("expected terminal status metric to be recorded")
@@ -315,7 +340,9 @@ func TestOutboundDispatcher_StatusReporterRecordsTerminalObservability(t *testin
 }
 
 func TestOutboundDispatcher_StatusReporterRecordsRingingProgressObservability(t *testing.T) {
-	service := &outboundDispatcherConversationServiceStub{}
+	service := &outboundDispatcherConversationServiceStub{
+		metricRecorded: make(chan struct{}),
+	}
 	store := &outboundDispatcherTestStore{
 		callContext: &callcontext.CallContext{
 			ContextID:      "ctx-provider-ringing",
@@ -341,6 +368,11 @@ func TestOutboundDispatcher_StatusReporterRecordsRingingProgressObservability(t 
 
 	if store.callContext.CallStatus != callcontext.CallStatusRinging {
 		t.Fatalf("expected ringing call status, got %q", store.callContext.CallStatus)
+	}
+	select {
+	case <-service.metricRecorded:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for ringing metric")
 	}
 	if service.metricAuth == nil {
 		t.Fatal("expected ringing metric to be recorded")

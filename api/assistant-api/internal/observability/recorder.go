@@ -25,13 +25,19 @@ type Recorder interface {
 	Close(ctx context.Context) error
 }
 
+const (
+	// Queue capacity is fixed by platform contract.
+	recorderQueueSize                      = 2048
+	defaultCloseGracePeriod  time.Duration = 0
+	recorderCloseGracePeriod               = 5 * time.Second
+)
+
 type recorderOptions struct {
 	logger           commons.Logger
 	auth             types.SimplePrinciple
 	globalScope      GlobalScope
 	context          Context
 	clock            func() time.Time
-	buffer           int
 	closeGracePeriod *time.Duration
 	collectors       []Collector
 }
@@ -90,12 +96,6 @@ func WithClock(clock func() time.Time) Option {
 	})
 }
 
-func WithBuffer(buffer int) Option {
-	return newOption(func(recorderOptions *recorderOptions) {
-		recorderOptions.buffer = buffer
-	})
-}
-
 func WithGracePeriod() Option {
 	return newOption(func(recorderOptions *recorderOptions) {
 		closeGracePeriod := recorderCloseGracePeriod
@@ -127,7 +127,7 @@ type recorder struct {
 	clock            func() time.Time
 	closeGracePeriod time.Duration
 	fanout           *Collectors
-	queue            chan observation
+	operationQueue   chan interface{}
 	done             chan struct{}
 	closeRequested   bool
 	closed           bool
@@ -136,17 +136,21 @@ type recorder struct {
 	errs             []error
 }
 
+type addCollectorOperation struct {
+	collector Collector
+}
+
+type recordOperation struct {
+	observation observation
+}
+
+type closeOperation struct{}
+
 type observation struct {
 	scope   Scope
 	context Context
 	record  Record
 }
-
-const defaultBufferSize = 1024
-
-const defaultCloseGracePeriod time.Duration = 0
-
-const recorderCloseGracePeriod = 5 * time.Second
 
 var (
 	ErrRecorderClosed = errors.New("observability: recorder is closed")
@@ -175,10 +179,6 @@ func New(options ...Option) Recorder {
 	if clock == nil {
 		clock = time.Now
 	}
-	buffer := resolvedOptions.buffer
-	if buffer <= 0 {
-		buffer = defaultBufferSize
-	}
 	closeGracePeriod := defaultCloseGracePeriod
 	if resolvedOptions.closeGracePeriod != nil {
 		closeGracePeriod = *resolvedOptions.closeGracePeriod
@@ -190,36 +190,39 @@ func New(options ...Option) Recorder {
 		context:          resolvedOptions.context,
 		clock:            clock,
 		closeGracePeriod: closeGracePeriod,
-		fanout:           NewCollectors(resolvedOptions.collectors...),
-		queue:            make(chan observation, buffer),
+		fanout:           NewCollectors(),
+		operationQueue:   make(chan interface{}, recorderQueueSize),
 		done:             make(chan struct{}),
 	}
 	go r.run()
+	for _, collector := range resolvedOptions.collectors {
+		r.operationQueue <- addCollectorOperation{collector: collector}
+	}
 	return r
 }
 
 func (r *recorder) Record(ctx context.Context, scope Scope, records ...Record) error {
 	for _, record := range records {
-		item, err := r.normalize(scope, record)
+		normalizedObservation, err := r.normalize(scope, record)
 		if err != nil {
 			return err
 		}
-		item.context = r.context
-		item.context.Auth = r.auth
+		normalizedObservation.context = r.context
+		normalizedObservation.context.Auth = r.auth
 		if traceID, ok := ctx.Value(types.REQUEST_ID_KEY).(string); ok && traceID != "" {
-			item.context.TraceID = traceID
+			normalizedObservation.context.TraceID = traceID
 		}
-		if item.context.TraceID == "" {
-			item.context.TraceID = uuid.New().String()
+		if normalizedObservation.context.TraceID == "" {
+			normalizedObservation.context.TraceID = uuid.New().String()
 		}
 
 		r.mu.RLock()
-		if r.closed {
+		if r.closed || (r.closeRequested && r.closeGracePeriod <= 0) {
 			r.mu.RUnlock()
 			return ErrRecorderClosed
 		}
 		select {
-		case r.queue <- item:
+		case r.operationQueue <- recordOperation{observation: normalizedObservation}:
 			r.mu.RUnlock()
 		default:
 			r.mu.RUnlock()
@@ -232,10 +235,16 @@ func (r *recorder) Record(ctx context.Context, scope Scope, records ...Record) e
 func (r *recorder) AddCollectors(collectors ...Collector) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.closed {
+	if r.closeRequested || r.closed {
 		return ErrRecorderClosed
 	}
-	r.fanout.AddCollectors(collectors...)
+	for _, collector := range collectors {
+		select {
+		case r.operationQueue <- addCollectorOperation{collector: collector}:
+		default:
+			return ErrBufferFull
+		}
+	}
 	return nil
 }
 
@@ -337,19 +346,33 @@ func (r *recorder) normalize(scope Scope, record Record) (observation, error) {
 }
 
 func (r *recorder) run() {
+	// The worker is the only place that touches collectors, preserving operation order.
 	defer close(r.done)
-	for item := range r.queue {
+	for queuedOperation := range r.operationQueue {
 		ctx := context.Background()
-		err := r.fanout.Collect(ctx, item.scope, item.context, item.record)
-		if err != nil {
-			r.addError(err)
+		switch typedOperation := queuedOperation.(type) {
+		case addCollectorOperation:
+			r.fanout.AddCollectors(typedOperation.collector)
+		case recordOperation:
+			normalizedObservation := typedOperation.observation
+			err := r.fanout.Collect(ctx, normalizedObservation.scope, normalizedObservation.context, normalizedObservation.record)
+			if err != nil {
+				r.addError(err)
+			}
+		case closeOperation:
+			if err := r.fanout.Close(ctx); err != nil {
+				r.addError(err)
+			}
+			return
+		default:
+			r.addError(fmt.Errorf("observability: unsupported recorder operation %T", queuedOperation))
 		}
 	}
 }
 
 func (r *recorder) Close(ctx context.Context) error {
+	// Close is best-effort async; caller context must not shorten the grace period.
 	ownsClose := false
-	var closeGracePeriodContextError error
 	r.mu.Lock()
 	if !r.closeRequested && !r.closed {
 		r.closeRequested = true
@@ -358,52 +381,37 @@ func (r *recorder) Close(ctx context.Context) error {
 	r.mu.Unlock()
 
 	if !ownsClose {
+		return nil
+	}
+
+	go func() {
+		if r.closeGracePeriod > 0 {
+			closeGracePeriodTimer := time.NewTimer(r.closeGracePeriod)
+			<-closeGracePeriodTimer.C
+		}
+
+		r.mu.Lock()
+		if !r.closed {
+			r.closed = true
+		}
+		r.mu.Unlock()
+
 		select {
+		case r.operationQueue <- closeOperation{}:
 		case <-r.done:
-			return r.errors()
-		case <-ctx.Done():
-			return ctx.Err()
 		}
-	}
-
-	if r.closeGracePeriod > 0 {
-		closeGracePeriodTimer := time.NewTimer(r.closeGracePeriod)
-		select {
-		case <-closeGracePeriodTimer.C:
-		case <-ctx.Done():
-			if !closeGracePeriodTimer.Stop() {
-				select {
-				case <-closeGracePeriodTimer.C:
-				default:
-				}
-			}
-			closeGracePeriodContextError = ctx.Err()
-		}
-	}
-
-	r.mu.Lock()
-	if !r.closed {
-		close(r.queue)
-		r.closed = true
-	}
-	r.mu.Unlock()
-
-	select {
-	case <-r.done:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	if err := r.fanout.Close(ctx); err != nil {
-		r.addError(err)
-	}
-	return errors.Join(closeGracePeriodContextError, r.errors())
+	}()
+	return nil
 }
 
 func (r *recorder) addError(err error) {
+	// Observability failures are absorbed by contract and logged when possible.
 	r.errMu.Lock()
 	defer r.errMu.Unlock()
 	r.errs = append(r.errs, err)
+	if validator.NonNil(r.logger) {
+		r.logger.Warnf("observability recorder absorbed failure: %v", err)
+	}
 }
 
 func (r *recorder) errors() error {

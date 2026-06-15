@@ -31,6 +31,7 @@ type DispatchHandler interface {
 
 	HandleTextToSpeechInterrupt(context.Context, internal_type.TextToSpeechInterruptPacket)
 	HandleLLMInterrupt(context.Context, internal_type.LLMInterruptPacket)
+	HandleDispatchPolicy(context.Context, internal_type.DispatchPolicyPacket)
 	HandleSpeechToTextEnd(context.Context, internal_type.SpeechToTextEndPacket)
 	HandleSpeechToTextStart(context.Context, internal_type.SpeechToTextStartPacket)
 	HandleTurnChange(context.Context, internal_type.TurnChangePacket)
@@ -128,6 +129,8 @@ func DispatchPacket(ctx context.Context, p internal_type.Packet, handler Dispatc
 		handler.HandleTextToSpeechInterrupt(ctx, vl)
 	case internal_type.LLMInterruptPacket:
 		handler.HandleLLMInterrupt(ctx, vl)
+	case internal_type.DispatchPolicyPacket:
+		handler.HandleDispatchPolicy(ctx, vl)
 	case internal_type.SpeechToTextEndPacket:
 		handler.HandleSpeechToTextEnd(ctx, vl)
 	case internal_type.SpeechToTextStartPacket:

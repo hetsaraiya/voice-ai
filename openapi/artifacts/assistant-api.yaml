@@ -38,6 +38,48 @@ paths:
             application/json:
               schema:
                 $ref: "./common.yaml#/components/schemas/ErrorResponse"
+  /v1/assistant-deployment/create-debugger-deployment:
+    post:
+      operationId: createAssistantDebuggerDeployment
+      summary: Create assistant debugger deployment
+      description: Creates a debugger deployment for an assistant. This endpoint requires user authentication with organization and project scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAssistantDebuggerDeploymentRequest"
+      responses:
+        "200":
+          description: Assistant debugger deployment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantDebuggerDeploymentResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/ErrorResponse"
+        "401":
+          description: Unauthenticated request
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/ErrorResponse"
+        "403":
+          description: Missing authentication scope
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to create assistant debugger deployment
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/ErrorResponse"
 components:
   schemas:
     CreateAssistantRequest:
@@ -71,6 +113,53 @@ components:
           items:
             type: string
         name:
+          type: string
+    CreateAssistantDebuggerDeploymentRequest:
+      type: object
+      required:
+        - assistantId
+      properties:
+        assistantId:
+          $ref: "./common.yaml#/components/schemas/Uint64String"
+        greeting:
+          type: string
+        mistake:
+          type: string
+        idealTimeout:
+          type: integer
+          format: uint64
+          minimum: 15
+          maximum: 120
+        idealTimeoutBackoff:
+          type: integer
+          format: uint64
+          minimum: 0
+          maximum: 5
+        idealTimeoutMessage:
+          type: string
+        maxSessionDuration:
+          type: integer
+          format: uint64
+          minimum: 180
+          maximum: 600
+        inputAudio:
+          $ref: "#/components/schemas/DeploymentAudioProviderRequest"
+        outputAudio:
+          $ref: "#/components/schemas/DeploymentAudioProviderRequest"
+    DeploymentAudioProviderRequest:
+      type: object
+      required:
+        - audioProvider
+      properties:
+        audioProvider:
+          type: string
+        audioOptions:
+          type: array
+          items:
+            $ref: "./common.yaml#/components/schemas/Metadata"
+        status:
+          type: string
+        audioType:
           type: string
     CreateAssistantProviderRequest:
       type: object
@@ -210,6 +299,67 @@ components:
           $ref: "#/components/schemas/Assistant"
         error:
           $ref: "./common.yaml#/components/schemas/Error"
+    GetAssistantDebuggerDeploymentResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          format: int32
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/AssistantDebuggerDeployment"
+        error:
+          $ref: "./common.yaml#/components/schemas/Error"
+    AssistantDebuggerDeployment:
+      type: object
+      properties:
+        id:
+          $ref: "./common.yaml#/components/schemas/Uint64String"
+        assistantId:
+          $ref: "./common.yaml#/components/schemas/Uint64String"
+        greeting:
+          type: string
+        mistake:
+          type: string
+        inputAudio:
+          $ref: "#/components/schemas/DeploymentAudioProvider"
+        outputAudio:
+          $ref: "#/components/schemas/DeploymentAudioProvider"
+        status:
+          type: string
+        maxSessionDuration:
+          type: integer
+          format: uint64
+          minimum: 180
+          maximum: 600
+        idealTimeout:
+          type: integer
+          format: uint64
+          minimum: 15
+          maximum: 120
+        idealTimeoutBackoff:
+          type: integer
+          format: uint64
+          minimum: 0
+          maximum: 5
+        idealTimeoutMessage:
+          type: string
+    DeploymentAudioProvider:
+      type: object
+      properties:
+        id:
+          $ref: "./common.yaml#/components/schemas/Uint64String"
+        audioType:
+          type: string
+        audioProvider:
+          type: string
+        audioOptions:
+          type: array
+          items:
+            $ref: "./common.yaml#/components/schemas/Metadata"
+        status:
+          type: string
     Assistant:
       type: object
       properties:

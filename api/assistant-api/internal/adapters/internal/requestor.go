@@ -8,12 +8,12 @@ package adapter_internal
 import (
 	"context"
 	"errors"
-	"sync"
 	"time"
 
 	"github.com/rapidaai/api/assistant-api/config"
 	adapter_channel "github.com/rapidaai/api/assistant-api/internal/adapters/channel"
 	adapter_lifecycle "github.com/rapidaai/api/assistant-api/internal/adapters/lifecycle"
+	adapter_router "github.com/rapidaai/api/assistant-api/internal/adapters/router"
 	"github.com/rapidaai/protos"
 
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
@@ -89,7 +89,7 @@ type genericRequestor struct {
 	// interaction/session lifecycle owners.
 	messageLifecycle adapter_lifecycle.MessageLifecycle
 	sessionLifecycle adapter_lifecycle.SessionLifecycle
-	inputStart       sync.Once
+	dispatchRoute    *adapter_router.DispatchRoute
 
 	// listening
 	speechToTextTransformer internal_type.SpeechToTextTransformer
@@ -144,6 +144,7 @@ func NewGenericRequestor(
 	observer observability.Recorder,
 ) *genericRequestor {
 	sessionCtx, cancelSession := context.WithCancel(context.Background())
+	channels := adapter_channel.NewRequestorChannels()
 	gr := &genericRequestor{
 		logger:   logger,
 		config:   config,
@@ -172,6 +173,7 @@ func NewGenericRequestor(
 
 		messageLifecycle: adapter_lifecycle.NewMessageLifecycle(),
 		sessionLifecycle: adapter_lifecycle.NewSessionLifecycle(),
+		dispatchRoute:    adapter_router.NewDispatchRoute(adapter_router.NewRoutePolicy(), channels),
 
 		inputNormalizer:  internal_input_normalizer.NewInputNormalizer(logger),
 		outputNormalizer: internal_output_normalizer.NewOutputNormalizer(logger),
@@ -185,7 +187,7 @@ func NewGenericRequestor(
 		assistantWebhookExecutors: make([]internal_type.WebhookExecutor, 0),
 		sessionCtx:                sessionCtx,
 		cancelSession:             cancelSession,
-		channels:                  adapter_channel.NewRequestorChannels(),
+		channels:                  channels,
 	}
 
 	go gr.runBootstrapDispatcher(sessionCtx)
@@ -320,10 +322,6 @@ func (r *genericRequestor) Transition(newState adapter_lifecycle.MessageState) e
 
 func (r *genericRequestor) getSessionState() adapter_lifecycle.SessionState {
 	return r.sessionLifecycle.Current()
-}
-
-func (r *genericRequestor) canAcceptInput() bool {
-	return r.getSessionState() == adapter_lifecycle.StateReady
 }
 
 func (r *genericRequestor) canSwitchSession() bool {

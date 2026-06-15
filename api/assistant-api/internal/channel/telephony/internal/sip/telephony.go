@@ -45,11 +45,9 @@ func (t *sipTelephony) parseConfig(vaultCredential *protos.VaultCredential) (*si
 	if err != nil {
 		return nil, err
 	}
-
 	if cfg.Port <= 0 {
 		cfg.Port = internal_sip.DefaultOutboundSIPPort
 	}
-
 	if t.appCfg.SIPConfig != nil {
 		cfg.ApplyOperationalDefaults(
 			t.appCfg.SIPConfig.Port,
@@ -128,7 +126,6 @@ func (t *sipTelephony) OutboundCall(
 	opts utils.Option,
 ) (*internal_type.CallInfo, error) {
 	info := &internal_type.CallInfo{Provider: internal_sip.Provider}
-
 	cfg, err := t.parseConfig(vaultCredential)
 	if err != nil {
 		info.Status = "FAILED"
@@ -146,20 +143,13 @@ func (t *sipTelephony) OutboundCall(
 
 	contextID, _ := opts.GetString("rapida.context_id")
 	fromUser := strings.TrimSpace(fromPhone)
-	assistantID := outboundAssistantID(assistant)
-	if assistant != nil && assistant.AssistantPhoneDeployment != nil {
-		if deploymentPhone, phoneErr := assistant.AssistantPhoneDeployment.GetOptions().GetString("phone"); phoneErr == nil && deploymentPhone != "" {
-			fromUser = strings.TrimSpace(deploymentPhone)
-		}
-	}
-
 	if t.sharedServer == nil {
 		err := fmt.Errorf("shared SIP server not available")
 		info.Status = "FAILED"
 		info.ErrorMessage = "SIP server not initialized"
 		t.logger.Warnw("SIP outbound call blocked before setup",
 			"context_id", contextID,
-			"assistant_id", assistantID,
+			"assistant_id", assistant.Id,
 			"conversation_id", assistantConversationId,
 			"to_user", strings.TrimSpace(toPhone),
 			"from_user", fromUser,
@@ -181,7 +171,7 @@ func (t *sipTelephony) OutboundCall(
 		info.ErrorMessage = "SIP server not running"
 		t.logger.Warnw("SIP outbound call blocked before setup",
 			"context_id", contextID,
-			"assistant_id", assistantID,
+			"assistant_id", assistant.Id,
 			"conversation_id", assistantConversationId,
 			"to_user", strings.TrimSpace(toPhone),
 			"from_user", fromUser,
@@ -200,7 +190,7 @@ func (t *sipTelephony) OutboundCall(
 
 	t.logger.Infow("SIP outbound call setup requested",
 		"context_id", contextID,
-		"assistant_id", assistantID,
+		"assistant_id", assistant.Id,
 		"conversation_id", assistantConversationId,
 		"to_user", strings.TrimSpace(toPhone),
 		"from_user", fromUser,
@@ -209,9 +199,9 @@ func (t *sipTelephony) OutboundCall(
 		"transport", cfg.GetTransport(),
 		"ringing_timeout_ms", cfg.InviteTimeout.Milliseconds(),
 		"max_call_duration_ms", cfg.SessionTimeout.Milliseconds(),
-		"outbound_health_gate", outboundHealthGateEnabled(t.appCfg))
+		"outbound_health_gate", t.outboundHealthGateEnabled(t.appCfg))
 
-	if outboundHealthGateEnabled(t.appCfg) {
+	if t.outboundHealthGateEnabled(t.appCfg) {
 		healthSnapshot := t.sharedServer.HealthSnapshot()
 		if !healthSnapshot.Ready {
 			err := fmt.Errorf("SIP outbound health gate failed: %s", healthSnapshot.Reason)
@@ -219,7 +209,7 @@ func (t *sipTelephony) OutboundCall(
 			info.ErrorMessage = err.Error()
 			t.logger.Warnw("SIP outbound call blocked by health gate",
 				"context_id", contextID,
-				"assistant_id", assistantID,
+				"assistant_id", assistant.Id,
 				"conversation_id", assistantConversationId,
 				"to_user", strings.TrimSpace(toPhone),
 				"from_user", fromUser,
@@ -268,21 +258,14 @@ func (t *sipTelephony) OutboundCall(
 		"trunk_port", cfg.Port,
 		"transport", cfg.GetTransport(),
 		"call_id", session.GetCallID(),
-		"assistant_id", assistantID,
+		"assistant_id", assistant.Id,
 		"conversation_id", assistantConversationId)
 
-	return newOutboundInitiatedCallInfo(session, toPhone, fromUser, assistantID, assistantConversationId), nil
+	return newOutboundInitiatedCallInfo(session, toPhone, fromUser, assistant.Id, assistantConversationId), nil
 }
 
-func outboundAssistantID(assistant *internal_assistant_entity.Assistant) uint64 {
-	if assistant == nil {
-		return 0
-	}
-	return assistant.Id
-}
-
-func outboundHealthGateEnabled(appCfg *config.AssistantConfig) bool {
-	if appCfg == nil || appCfg.SIPConfig == nil || appCfg.SIPConfig.OutboundHealthGate == nil {
+func (t *sipTelephony) outboundHealthGateEnabled(appCfg *config.AssistantConfig) bool {
+	if appCfg.SIPConfig.OutboundHealthGate == nil {
 		return true
 	}
 	return *appCfg.SIPConfig.OutboundHealthGate

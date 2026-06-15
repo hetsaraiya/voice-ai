@@ -52,6 +52,7 @@ func AssistantApiRoute(
 
 func AssistantDeploymentApiRoute(Cfg *config.AssistantConfig,
 	S *grpc.Server,
+	engine *gin.Engine,
 	Logger commons.Logger,
 	Postgres connectors.PostgresConnector) {
 	workflow_api.RegisterAssistantDeploymentServiceServer(S,
@@ -59,6 +60,10 @@ func AssistantDeploymentApiRoute(Cfg *config.AssistantConfig,
 			Logger,
 			Postgres,
 		))
+
+	apiv1 := engine.Group("v1/assistant-deployment")
+	deploymentApi := assistantDeploymentApi.NewAssistantDeploymentApi(Cfg, Logger, Postgres)
+	apiv1.POST("/create-debugger-deployment", deploymentApi.CreateAssistantDebuggerDeploymentRest)
 }
 
 func AssistantConversationApiRoute(

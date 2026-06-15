@@ -42,6 +42,12 @@ type ChannelFlusher interface {
 	FlushEgress() int
 	FlushData() int
 	FlushBackground() int
+	FlushControlMatching(func(internal_type.Packet) bool) int
+	FlushBootstrapMatching(func(internal_type.Packet) bool) int
+	FlushIngressMatching(func(internal_type.Packet) bool) int
+	FlushEgressMatching(func(internal_type.Packet) bool) int
+	FlushDataMatching(func(internal_type.Packet) bool) int
+	FlushBackgroundMatching(func(internal_type.Packet) bool) int
 	FlushAll() int
 }
 
@@ -91,7 +97,7 @@ type RequestorChannels struct {
 }
 
 func NewRequestorChannels() *RequestorChannels {
-	return &RequestorChannels{
+	channels := &RequestorChannels{
 		controlChannel: make(chan Envelope, 256),
 		bootstrapCh:    make(chan Envelope, 512),
 		ingressCh:      make(chan Envelope, 4096),
@@ -99,6 +105,7 @@ func NewRequestorChannels() *RequestorChannels {
 		dataCh:         make(chan Envelope, 2048),
 		backgroundCh:   make(chan Envelope, 2048),
 	}
+	return channels
 }
 
 func (c *RequestorChannels) ControlChannel() chan Envelope    { return c.controlChannel }
@@ -122,7 +129,12 @@ func (c *RequestorChannels) OnBootstrap(e Envelope) {
 
 // OnIngress routes an envelope to the ingress channel.
 func (c *RequestorChannels) OnIngress(e Envelope) {
-	c.ingressCh <- e
+	select {
+	case c.ingressCh <- e:
+	default:
+		c.FlushIngress()
+		c.ingressCh <- e
+	}
 }
 
 // OnEgress routes an envelope to the egress channel.
@@ -175,7 +187,7 @@ func (c *RequestorChannels) RunBackground(ctx context.Context, onEnvelope func(E
 	run(ctx, c.backgroundCh, onEnvelope)
 }
 
-func flushChannel(ch chan Envelope) int {
+func (c *RequestorChannels) flushChannel(ch chan Envelope) int {
 	dropped := 0
 	for {
 		select {
@@ -187,34 +199,85 @@ func flushChannel(ch chan Envelope) int {
 	}
 }
 
+func (c *RequestorChannels) flushChannelMatching(ch chan Envelope, match func(internal_type.Packet) bool) int {
+	dropped := 0
+	keep := make([]Envelope, 0, len(ch))
+	count := len(ch)
+	for i := 0; i < count; i++ {
+		select {
+		case e := <-ch:
+			if match != nil && match(e.Pkt) {
+				dropped++
+				continue
+			}
+			keep = append(keep, e)
+		default:
+		}
+	}
+	for _, e := range keep {
+		ch <- e
+	}
+	return dropped
+}
+
 // FlushControl drains queued control packets and returns dropped count.
 func (c *RequestorChannels) FlushControl() int {
-	return flushChannel(c.controlChannel)
+	return c.flushChannel(c.controlChannel)
 }
 
 // FlushBootstrap drains queued bootstrap packets and returns dropped count.
 func (c *RequestorChannels) FlushBootstrap() int {
-	return flushChannel(c.bootstrapCh)
+	return c.flushChannel(c.bootstrapCh)
 }
 
 // FlushIngress drains queued ingress packets and returns dropped count.
 func (c *RequestorChannels) FlushIngress() int {
-	return flushChannel(c.ingressCh)
+	return c.flushChannel(c.ingressCh)
 }
 
 // FlushEgress drains queued egress packets and returns dropped count.
 func (c *RequestorChannels) FlushEgress() int {
-	return flushChannel(c.egressCh)
+	return c.flushChannel(c.egressCh)
 }
 
 // FlushData drains queued data packets and returns dropped count.
 func (c *RequestorChannels) FlushData() int {
-	return flushChannel(c.dataCh)
+	return c.flushChannel(c.dataCh)
 }
 
 // FlushBackground drains queued background packets and returns dropped count.
 func (c *RequestorChannels) FlushBackground() int {
-	return flushChannel(c.backgroundCh)
+	return c.flushChannel(c.backgroundCh)
+}
+
+// FlushControlMatching drains matching queued control packets.
+func (c *RequestorChannels) FlushControlMatching(match func(internal_type.Packet) bool) int {
+	return c.flushChannelMatching(c.controlChannel, match)
+}
+
+// FlushBootstrapMatching drains matching queued bootstrap packets.
+func (c *RequestorChannels) FlushBootstrapMatching(match func(internal_type.Packet) bool) int {
+	return c.flushChannelMatching(c.bootstrapCh, match)
+}
+
+// FlushIngressMatching drains matching queued ingress packets.
+func (c *RequestorChannels) FlushIngressMatching(match func(internal_type.Packet) bool) int {
+	return c.flushChannelMatching(c.ingressCh, match)
+}
+
+// FlushEgressMatching drains matching queued egress packets.
+func (c *RequestorChannels) FlushEgressMatching(match func(internal_type.Packet) bool) int {
+	return c.flushChannelMatching(c.egressCh, match)
+}
+
+// FlushDataMatching drains matching queued data packets.
+func (c *RequestorChannels) FlushDataMatching(match func(internal_type.Packet) bool) int {
+	return c.flushChannelMatching(c.dataCh, match)
+}
+
+// FlushBackgroundMatching drains matching queued background packets.
+func (c *RequestorChannels) FlushBackgroundMatching(match func(internal_type.Packet) bool) int {
+	return c.flushChannelMatching(c.backgroundCh, match)
 }
 
 // FlushAll drains all channels and returns total dropped packets.
