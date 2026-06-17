@@ -69,7 +69,7 @@ func TestCollector_ReturnsNotifierError(t *testing.T) {
 	collector := New(Config{Notifier: &notifierStub{err: notifyErr}})
 
 	err := collector.Collect(context.Background(), observability.AssistantScope{AssistantID: 10}, observability.Context{}, observability.RecordEvent{
-		Event: observability.ErrorRaised,
+		Event: observability.CallFailed,
 	})
 	if !errors.Is(err, notifyErr) {
 		t.Fatalf("expected notifier error, got %v", err)

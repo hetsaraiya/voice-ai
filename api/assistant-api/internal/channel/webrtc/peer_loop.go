@@ -168,7 +168,7 @@ func (s *webrtcStreamer) handlePeerICEConnectionState(mediaSessionID uint64, sta
 	s.Mu.Unlock()
 
 	eventType := webrtc_internal.EventICEConnectionState
-	eventName := observability.EventName("webrtc.ice_connection_state")
+	eventName := observability.WebRTCICEConnectionState
 	if state == pionwebrtc.ICEConnectionStateConnected || state == pionwebrtc.ICEConnectionStateCompleted {
 		eventType = "ice_connected"
 		eventName = observability.WebRTCICEConnected
@@ -217,7 +217,7 @@ func (s *webrtcStreamer) reportSelectedICECandidatePair(peerConnection *pionwebr
 
 	_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordEvent{
 		Component: observability.ComponentWebRTC,
-		Event:     observability.EventName("webrtc.selected_ice_candidate_pair"),
+		Event:     observability.WebRTCSelectedICECandidatePair,
 		Attributes: observability.Attributes{
 			"component":                                     observability.ComponentWebRTC.String(),
 			webrtc_internal.DataType:                        webrtc_internal.EventSelectedICECandidatePair,

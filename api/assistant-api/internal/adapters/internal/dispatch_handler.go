@@ -588,7 +588,7 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 			internal_type.ObservabilityEventRecordPacket{
 				ContextID: p.ContextId(),
 				Scope:     internal_type.ObservabilityRecordScopeAssistant,
-				Record: observability.NewConversationEventRecord(observability.ConversationFailed, observability.Attributes{
+				Record: observability.NewConversationEventRecord(observability.ConversationError, observability.Attributes{
 					"message": p.ErrMessage(),
 				}),
 			},
@@ -710,7 +710,7 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 			internal_type.ObservabilityEventRecordPacket{
 				ContextID: h.r.GetID(),
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.NewConversationEventRecord(observability.ConversationFailed, observability.Attributes{
+				Record: observability.NewConversationEventRecord(observability.ConversationError, observability.Attributes{
 					"reason": protos.ConversationDisconnection_DISCONNECTION_TYPE_ERROR.String(),
 				}),
 			},
@@ -1283,6 +1283,11 @@ func (h requestorDispatchHandler) HandleRecordAssistantAudio(ctx context.Context
 	}
 }
 func (h requestorDispatchHandler) HandleConversationRecordingCompleted(ctx context.Context, p internal_type.ConversationRecordingCompletedPacket) {
+	h.r.OnPacket(ctx, internal_type.ObservabilityEventRecordPacket{
+		ContextID: p.ContextID,
+		Scope:     internal_type.ObservabilityRecordScopeConversation,
+		Record:    observability.NewConversationEventRecord(observability.RecordingCompleted, nil),
+	})
 	if err := h.r.CreateConversationRecording(ctx, p.Audio.UserAudio, p.Audio.AssistantAudio, p.Audio.MixedAudio); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
 			ContextID: p.ContextID,

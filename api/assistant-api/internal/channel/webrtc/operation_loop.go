@@ -389,13 +389,13 @@ func (s *webrtcStreamer) handleICEGatheringCompleteOperation(operation webrtc_in
 	}
 }
 
-func (s *webrtcStreamer) emitWebRTCNegotiationEvent(eventType string, operation webrtc_internal.WebRTCOperation, iceRestart bool, retryPending bool, occurredAt time.Time) {
+func (s *webrtcStreamer) emitWebRTCNegotiationEvent(eventType observability.EventName, operation webrtc_internal.WebRTCOperation, iceRestart bool, retryPending bool, occurredAt time.Time) {
 	if occurredAt.IsZero() {
 		occurredAt = time.Now()
 	}
 	eventData := observability.Attributes{
 		"component":                        observability.ComponentWebRTC.String(),
-		webrtc_internal.DataType:           eventType,
+		webrtc_internal.DataType:           eventType.String(),
 		webrtc_internal.DataSessionID:      s.sessionID,
 		webrtc_internal.DataMediaSessionID: fmt.Sprintf("%d", operation.MediaSessionID),
 		webrtc_internal.DataOperation:      operation.Kind.String(),
@@ -407,7 +407,7 @@ func (s *webrtcStreamer) emitWebRTCNegotiationEvent(eventType string, operation 
 	}
 	_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordEvent{
 		Component:  observability.ComponentWebRTC,
-		Event:      observability.EventName("webrtc." + eventType),
+		Event:      eventType,
 		Attributes: eventData,
 	})
 }

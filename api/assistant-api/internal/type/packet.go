@@ -687,7 +687,7 @@ const (
 )
 
 // InitializationFailedPacket signals that initialization failed.
-// The handler notifies the client and fires ConversationFailed webhooks.
+// The handler notifies the client and fires conversation error handling.
 type InitializationFailedPacket struct {
 	ContextID string
 	Stage     InitializationStage

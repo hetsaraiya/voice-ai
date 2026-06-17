@@ -76,10 +76,7 @@ func (c *Collector) Close(context.Context) error {
 func DefaultSelector(record observability.RecordEvent) bool {
 	switch record.Event {
 	case observability.CallFailed,
-		observability.ConversationFailed,
-		observability.ConversationError,
-		observability.WebhookFailed,
-		observability.ErrorRaised:
+		observability.ConversationError:
 		return true
 	default:
 		return false

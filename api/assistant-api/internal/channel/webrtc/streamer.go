@@ -492,7 +492,7 @@ func (s *webrtcStreamer) bindPeerHandlers(peerConnection *pionwebrtc.PeerConnect
 
 		_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordEvent{
 			Component: observability.ComponentWebRTC,
-			Event:     observability.EventName("webrtc.audio_track_received"),
+			Event:     observability.WebRTCAudioTrackReceived,
 			Attributes: observability.Attributes{
 				"component":                   observability.ComponentWebRTC.String(),
 				webrtc_internal.DataType:      "audio_track_received",

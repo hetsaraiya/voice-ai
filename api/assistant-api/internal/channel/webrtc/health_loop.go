@@ -132,7 +132,7 @@ func (s *webrtcStreamer) runOutputHealthReporter() {
 			})
 			_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordEvent{
 				Component:  observability.ComponentWebRTC,
-				Event:      observability.EventName("webrtc.peer_quality"),
+				Event:      observability.WebRTCPeerQuality,
 				Attributes: observability.Attributes(qualityData),
 			})
 			previousReceiverReports = mediaHealthState.ReceiverReports

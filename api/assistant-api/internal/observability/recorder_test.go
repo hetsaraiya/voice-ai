@@ -395,7 +395,7 @@ func TestRecorder_RecordWebhook_FansOut(t *testing.T) {
 
 	err := recorder.Record(context.Background(), AssistantScope{AssistantID: 10}, RecordWebhook{
 		ID:      "wh-1",
-		Event:   WebhookDispatched,
+		Event:   CallReceived,
 		Payload: map[string]interface{}{"status": "ok"},
 	})
 	if err != nil {
@@ -453,7 +453,7 @@ func TestRecorder_RecordVariadicRecords_AllCollected(t *testing.T) {
 	err := recorder.Record(context.Background(), scope,
 		RecordEvent{
 			Component: ComponentConversation,
-			Event:     ConversationStarted,
+			Event:     ConversationInitializing,
 		},
 		RecordMetric{
 			Metrics: []*protos.Metric{{Name: MetricCallStatus, Value: "started"}},
@@ -553,7 +553,7 @@ func TestRecorder_RecordDoesNotWaitForCollectorCollect(t *testing.T) {
 		ConversationID: 20,
 	}, RecordEvent{
 		Component: ComponentConversation,
-		Event:     ConversationStarted,
+		Event:     ConversationInitializing,
 	}); err != nil {
 		t.Fatalf("Record returned error: %v", err)
 	}
@@ -705,7 +705,7 @@ func TestRecorder_CloseDoesNotWaitForInflightCollect(t *testing.T) {
 		ConversationID: 20,
 	}, RecordEvent{
 		Component: ComponentConversation,
-		Event:     ConversationStarted,
+		Event:     ConversationInitializing,
 	}); err != nil {
 		t.Fatalf("record failed: %v", err)
 	}
@@ -739,7 +739,7 @@ func TestRecorder_Close_JoinsCollectorErrors(t *testing.T) {
 		ConversationID: 20,
 	}, RecordEvent{
 		Component: ComponentConversation,
-		Event:     ConversationStarted,
+		Event:     ConversationInitializing,
 	})
 	if err != nil {
 		t.Fatalf("record failed: %v", err)
@@ -769,7 +769,7 @@ func TestRecorder_AddCollectors_DeduplicatesByKey(t *testing.T) {
 		ConversationID: 20,
 	}, RecordEvent{
 		Component: ComponentConversation,
-		Event:     ConversationStarted,
+		Event:     ConversationInitializing,
 	})
 	if err != nil {
 		t.Fatalf("Record returned error: %v", err)
