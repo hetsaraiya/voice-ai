@@ -128,7 +128,7 @@ const (
 
 const (
 	RecordingStarted   EventName = "recording.started"
-	RecordingCompleted EventName = "recording.call_completed"
+	RecordingCompleted EventName = "recording.completed"
 )
 
 const (

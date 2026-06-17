@@ -4,7 +4,6 @@ import { useConfirmDialog } from '@/app/pages/assistant/actions/hooks/use-confir
 import { useGlobalNavigation } from '@/hooks/use-global-navigator';
 import { PrimaryButton, SecondaryButton } from '@/app/components/carbon/button';
 import { TextInput, TextArea, Stack } from '@/app/components/carbon/form';
-import { MultiSelect } from '@/app/components/carbon/dropdown';
 import { InputGroup } from '@/app/components/input-group';
 import {
   ButtonSet,
@@ -17,14 +16,6 @@ import {
 import { Information } from '@carbon/icons-react';
 import { Slider } from '@/app/components/form/slider';
 import { APiHeader } from '@/app/components/external-api/api-header';
-import { AssistantMappingTable } from '@/app/components/tools/common';
-import {
-  ASSISTANT_CONDITION_KEY_OPTIONS,
-  ASSISTANT_CONDITION_OPERATOR_OPTIONS,
-  ASSISTANT_CONDITION_SOURCE_OPTIONS,
-  ASSISTANT_CONDITION_VALUE_OPTIONS_BY_KEY,
-  normalizeAssistantConditionEntries,
-} from '@/app/components/tools/common';
 import {
   GetAssistantWebhook,
   GetAssistantWebhookRequest,
@@ -37,25 +28,8 @@ import toast from 'react-hot-toast/headless';
 import { useRapidaStore } from '@/hooks';
 import { connectionConfig } from '@/configs';
 import { TabForm } from '@/app/components/form/tab-form';
-import { SourceConditionRule } from '@/app/components/conditions/source-condition-rule';
-
-const webhookEvents = [
-  {
-    id: 'conversation.begin',
-    name: 'conversation.begin',
-    description: 'Triggered when a new conversation begins.',
-  },
-  {
-    id: 'conversation.completed',
-    name: 'conversation.completed',
-    description: 'Triggered when a conversation ends successfully.',
-  },
-  {
-    id: 'conversation.failed',
-    name: 'conversation.failed',
-    description: 'Triggered when a conversation fails.',
-  },
-];
+import { WebhookEventSelector } from './webhook-event-selector';
+import { WebhookEventGroup, webhookEvents } from './webhook-events';
 
 const renderLabelWithTooltip = (label: string, tooltip: string) => (
   <span className="inline-flex items-center gap-1">
@@ -65,67 +39,6 @@ const renderLabelWithTooltip = (label: string, tooltip: string) => (
     </Tooltip>
   </span>
 );
-
-type WebhookParameterType =
-  | 'event'
-  | 'assistant'
-  | 'client'
-  | 'conversation'
-  | 'argument'
-  | 'metadata'
-  | 'option'
-  | 'analysis'
-  | 'custom';
-
-const WEBHOOK_TYPE_OPTIONS = [
-  { value: 'event', name: 'Event' },
-  { value: 'assistant', name: 'Assistant' },
-  { value: 'client', name: 'Client' },
-  { value: 'conversation', name: 'Conversation' },
-  { value: 'argument', name: 'Argument' },
-  { value: 'metadata', name: 'Metadata' },
-  { value: 'option', name: 'Option' },
-  { value: 'analysis', name: 'Analysis' },
-  { value: 'custom', name: 'Custom' },
-];
-
-const WEBHOOK_KEY_OPTIONS_BY_TYPE = {
-  event: [
-    { value: 'type', name: 'Type' },
-    { value: 'data', name: 'Data' },
-  ],
-  assistant: [
-    { value: 'id', name: 'ID' },
-    { value: 'name', name: 'Name' },
-    { value: 'version', name: 'Version' },
-  ],
-  client: [
-    { value: 'phone', name: 'Phone' },
-    { value: 'assistantPhone', name: 'Assistant Phone' },
-    { value: 'direction', name: 'Direction' },
-    { value: 'provider', name: 'Provider' },
-    { value: 'providerCallId', name: 'Provider Call ID' },
-  ],
-  conversation: [
-    { value: 'messages', name: 'Messages' },
-    { value: 'id', name: 'ID' },
-  ],
-};
-
-const getDefaultParameterKey = (type: WebhookParameterType): string => {
-  switch (type) {
-    case 'event':
-      return 'type';
-    case 'assistant':
-      return 'id';
-    case 'client':
-      return 'phone';
-    case 'conversation':
-      return 'messages';
-    default:
-      return '';
-  }
-};
 
 const getWebhookOptionMap = (webhook: any): Map<string, string> => {
   const map = new Map<string, string>();
@@ -170,19 +83,21 @@ const WEBHOOK_OPTION_KEYS = {
   method: 'http_method',
   url: 'http_url',
   headers: 'http_headers',
-  body: 'http_body',
-  condition: 'webhook.condition',
   retryStatusCodes: 'retry_status_codes',
   maxRetryCount: 'max_retry_count',
   timeoutSeconds: 'timeout_seconds',
 };
-const DEFAULT_SOURCE_CONDITIONS = [
-  {
-    key: 'source',
-    condition: '=',
-    value: 'all',
-  },
-];
+
+const getEventGroupTitle = (
+  group: WebhookEventGroup,
+  selectedEvents: string[],
+) => {
+  const groupEvents = webhookEvents.filter(event => event.group === group);
+  const selectedCount = groupEvents.filter(event =>
+    selectedEvents.includes(event.id),
+  ).length;
+  return `${group} Events (${selectedCount}/${groupEvents.length})`;
+};
 
 const toJsonMap = (rows: { key: string; value: string }[]) => {
   return JSON.stringify(
@@ -200,37 +115,21 @@ const buildWebhookOptions = ({
   method,
   endpoint,
   headers,
-  parameterKeyValuePairs,
   retryOnStatus,
   maxRetries,
   requestTimeout,
-  sourceConditions,
 }: {
   method: string;
   endpoint: string;
   headers: { key: string; value: string }[];
-  parameterKeyValuePairs: { key: string; value: string }[];
   retryOnStatus: string[];
   maxRetries: number;
   requestTimeout: number;
-  sourceConditions: Array<{
-    key: string;
-    condition: string;
-    value: string;
-  }>;
 }): Metadata[] => {
   return [
     { key: WEBHOOK_OPTION_KEYS.method, value: method || 'POST' },
     { key: WEBHOOK_OPTION_KEYS.url, value: endpoint || '' },
     { key: WEBHOOK_OPTION_KEYS.headers, value: toJsonMap(headers) },
-    {
-      key: WEBHOOK_OPTION_KEYS.body,
-      value: toJsonMap(parameterKeyValuePairs),
-    },
-    {
-      key: WEBHOOK_OPTION_KEYS.condition,
-      value: JSON.stringify(sourceConditions),
-    },
     {
       key: WEBHOOK_OPTION_KEYS.retryStatusCodes,
       value: JSON.stringify(retryOnStatus || []),
@@ -257,7 +156,7 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
   const { showDialog, ConfirmDialogComponent } = useConfirmDialog({});
   const { loading, showLoader, hideLoader } = useRapidaStore();
 
-  const [activeTab, setActiveTab] = useState('destination');
+  const [activeTab, setActiveTab] = useState('events');
   const [errorMessage, setErrorMessage] = useState('');
 
   const [method, setMethod] = useState('POST');
@@ -267,22 +166,19 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
   const [maxRetries, setMaxRetries] = useState(3);
   const [requestTimeout, setRequestTimeout] = useState(180);
   const [headers, setHeaders] = useState<{ key: string; value: string }[]>([]);
-  const [sourceConditions, setSourceConditions] = useState<
-    Array<{
-      key: string;
-      condition: string;
-      value: string;
-    }>
-  >(DEFAULT_SOURCE_CONDITIONS);
   const [priority, setPriority] = useState<number>(0);
-  const [parameters, setParameters] = useState<
-    {
-      type: WebhookParameterType;
-      key: string;
-      value: string;
-    }[]
-  >([]);
   const [events, setEvents] = useState<string[]>([]);
+
+  const validateEvents = (): boolean => {
+    setErrorMessage('');
+    if (events.length === 0) {
+      setErrorMessage(
+        'Please select at least one event when the webhook will get triggered.',
+      );
+      return false;
+    }
+    return true;
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -306,8 +202,12 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
         const wb = res.getData();
         if (wb) {
           const optionMap = getWebhookOptionMap(wb as any);
-          const optionsRetryCount = Number(optionMap.get('max_retry_count') || '0');
-          const optionsTimeout = Number(optionMap.get('timeout_seconds') || '0');
+          const optionsRetryCount = Number(
+            optionMap.get('max_retry_count') || '0',
+          );
+          const optionsTimeout = Number(
+            optionMap.get('timeout_seconds') || '0',
+          );
 
           setMethod(optionMap.get('http_method') || 'POST');
           setEndpoint(optionMap.get('http_url') || '');
@@ -315,39 +215,19 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
           setRetryOnStatus(
             parseStringList(optionMap.get('retry_status_codes')),
           );
-          setMaxRetries(Number.isFinite(optionsRetryCount) ? optionsRetryCount : 0);
-          setRequestTimeout(Number.isFinite(optionsTimeout) ? optionsTimeout : 0);
+          setMaxRetries(
+            Number.isFinite(optionsRetryCount) ? optionsRetryCount : 0,
+          );
+          setRequestTimeout(
+            Number.isFinite(optionsTimeout) ? optionsTimeout : 0,
+          );
           setPriority(wb.getExecutionpriority());
           const optionsHeaders = parseStringMap(optionMap.get('http_headers'));
-          const rawCondition = optionMap.get(WEBHOOK_OPTION_KEYS.condition);
-          if (rawCondition) {
-            try {
-              setSourceConditions(
-                normalizeAssistantConditionEntries(JSON.parse(rawCondition)),
-              );
-            } catch {
-              setSourceConditions(DEFAULT_SOURCE_CONDITIONS);
-            }
-          } else {
-            setSourceConditions(DEFAULT_SOURCE_CONDITIONS);
-          }
-
           setHeaders(
             Object.entries(optionsHeaders).map(([key, value]) => ({
               key,
               value,
             })),
-          );
-          const bodyMap = parseStringMap(optionMap.get('http_body'));
-          setParameters(
-            Object.entries(bodyMap).map(([key, value]) => {
-              const [type, paramKey] = key.split('.');
-              return {
-                type: type as WebhookParameterType,
-                key: paramKey,
-                value,
-              };
-            }),
           );
           setEvents(wb.getAssistanteventsList());
         }
@@ -373,7 +253,7 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
     return true;
   };
 
-  const validatePayload = (): boolean => {
+  const validateHeaders = (): boolean => {
     setErrorMessage('');
     const headersMissingValue = headers.some(
       header => header.key.trim() !== '' && header.value.trim() === '',
@@ -382,47 +262,15 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
       setErrorMessage('Headers with a key must also include a value.');
       return false;
     }
-    if (parameters.length === 0) {
-      setErrorMessage(
-        'Please provide one or more parameters which can be passed as data to your server.',
-      );
-      return false;
-    }
-    const keys = parameters.map(param => `${param.type}.${param.key}`);
-    const uniqueKeys = new Set(keys);
-    if (keys.length !== uniqueKeys.size) {
-      setErrorMessage('Duplicate parameter keys are not allowed.');
-      return false;
-    }
-    const emptyKeysOrValues = parameters.filter(
-      param => param.key.trim() === '' || param.value.trim() === '',
-    );
-    if (emptyKeysOrValues.length > 0) {
-      setErrorMessage('Empty parameter keys or values are not allowed.');
-      return false;
-    }
-    const values = parameters.map(param => param.value.trim());
-    const uniqueValues = new Set(values);
-    if (values.length !== uniqueValues.size) {
-      setErrorMessage('Duplicate parameter values are not allowed.');
-      return false;
-    }
     return true;
   };
 
   const onSubmit = async () => {
     setErrorMessage('');
-    if (events.length === 0) {
-      setErrorMessage(
-        'Please select at least one event when the webhook will get triggered.',
-      );
+    if (!validateEvents() || !validateDestination() || !validateHeaders()) {
       return;
     }
     showLoader();
-    const parameterKeyValuePairs = parameters.map(param => ({
-      key: `${param.type}.${param.key}`,
-      value: param.value,
-    }));
     const request = new UpdateAssistantWebhookRequest();
     request.setAssistantid(assistantId);
     request.setId(webhookId!);
@@ -435,11 +283,9 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
         method,
         endpoint,
         headers,
-        parameterKeyValuePairs,
         retryOnStatus,
         maxRetries,
         requestTimeout,
-        sourceConditions,
       }),
     );
 
@@ -484,10 +330,10 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
         errorMessage={errorMessage}
         form={[
           {
-            code: 'destination',
-            name: 'Destination',
+            code: 'events',
+            name: 'Events',
             description:
-              'Configure the HTTP endpoint that will receive webhook events.',
+              'Choose which call and conversation events trigger the webhook.',
             actions: [
               <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
                 <SecondaryButton
@@ -499,8 +345,7 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
                 <PrimaryButton
                   size="lg"
                   onClick={() => {
-                    if (validateDestination() && validatePayload())
-                      setActiveTab('events');
+                    if (validateEvents()) setActiveTab('delivery');
                   }}
                 >
                   Continue
@@ -508,19 +353,55 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
               </ButtonSet>,
             ],
             body: (
-              <div className="pb-8 flex flex-col">
-                <InputGroup title="Condition">
-                  <SourceConditionRule
-                    conditions={sourceConditions}
-                    onChangeConditions={setSourceConditions}
-                    conditionOptions={ASSISTANT_CONDITION_OPERATOR_OPTIONS}
-                    sourceOptions={ASSISTANT_CONDITION_SOURCE_OPTIONS}
-                    keyOptions={ASSISTANT_CONDITION_KEY_OPTIONS}
-                    valueOptionsByKey={ASSISTANT_CONDITION_VALUE_OPTIONS_BY_KEY}
-                    keyTooltipText="The variable to evaluate before triggering this webhook."
+              <div className="pb-8 flex flex-col gap-6">
+                <InputGroup
+                  title={renderLabelWithTooltip(
+                    getEventGroupTitle('Call', events),
+                    'Choose which call lifecycle events trigger this webhook.',
+                  )}
+                >
+                  <WebhookEventSelector
+                    group="Call"
+                    selectedEvents={events}
+                    onChange={setEvents}
                   />
                 </InputGroup>
 
+                <InputGroup
+                  title={renderLabelWithTooltip(
+                    getEventGroupTitle('Conversation', events),
+                    'Choose which conversation lifecycle events trigger this webhook.',
+                  )}
+                >
+                  <WebhookEventSelector
+                    group="Conversation"
+                    selectedEvents={events}
+                    onChange={setEvents}
+                  />
+                </InputGroup>
+              </div>
+            ),
+          },
+          {
+            code: 'delivery',
+            name: 'Delivery',
+            description:
+              'Configure the HTTP destination, headers, and delivery behavior.',
+            actions: [
+              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
+                <SecondaryButton
+                  size="lg"
+                  onClick={() => showDialog(navigator.goBack)}
+                >
+                  Cancel
+                </SecondaryButton>
+                <PrimaryButton size="lg" isLoading={loading} onClick={onSubmit}>
+                  Update webhook
+                </PrimaryButton>
+              </ButtonSet>,
+            ],
+            body: (
+              <div className="pb-8 flex flex-col">
                 <InputGroup
                   title={renderLabelWithTooltip(
                     'Destination',
@@ -561,6 +442,7 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
                     />
                   </Stack>
                 </InputGroup>
+
                 <InputGroup
                   title={renderLabelWithTooltip(
                     `Headers (${headers.length})`,
@@ -568,79 +450,6 @@ export const UpdateAssistantWebhook: FC<{ assistantId: string }> = ({
                   )}
                 >
                   <APiHeader headers={headers} setHeaders={setHeaders} />
-                </InputGroup>
-
-                <InputGroup
-                  title={renderLabelWithTooltip(
-                    `Payload Mapping (${parameters.length})`,
-                    'Map assistant, client, event, and conversation values into the webhook request body.',
-                  )}
-                  childClass="space-y-4"
-                >
-                  <AssistantMappingTable
-                    parameters={parameters}
-                    onChange={setParameters}
-                    typeOptions={WEBHOOK_TYPE_OPTIONS}
-                    getDefaultParameterKey={type =>
-                      getDefaultParameterKey(type as WebhookParameterType)
-                    }
-                    keyOptionsByType={WEBHOOK_KEY_OPTIONS_BY_TYPE}
-                    includeEmptyKeyOption
-                    resetValueOnTypeChange
-                    createNewParameter={() => ({
-                      type: 'assistant',
-                      key: 'id',
-                      value: '',
-                    })}
-                    title="Payload Mapping"
-                    addButtonLabel="Add parameter"
-                    valuePlaceholder="Value"
-                    removeButtonKind="danger--ghost"
-                  />
-                </InputGroup>
-              </div>
-            ),
-          },
-          {
-            code: 'events',
-            name: 'Events & Settings',
-            description:
-              'Choose which events trigger the webhook and configure retry behavior.',
-            actions: [
-              <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
-                <SecondaryButton
-                  size="lg"
-                  onClick={() => showDialog(navigator.goBack)}
-                >
-                  Cancel
-                </SecondaryButton>
-                <PrimaryButton size="lg" isLoading={loading} onClick={onSubmit}>
-                  Update webhook
-                </PrimaryButton>
-              </ButtonSet>,
-            ],
-            body: (
-              <div className="pb-8 flex flex-col">
-                <InputGroup
-                  title={renderLabelWithTooltip(
-                    'Events',
-                    'Choose which assistant lifecycle events trigger this webhook.',
-                  )}
-                >
-                  <MultiSelect
-                    id="webhook-events"
-                    titleText="Select events"
-                    label="Select events"
-                    items={webhookEvents}
-                    selectedItems={webhookEvents.filter(event =>
-                      events.includes(event.id),
-                    )}
-                    itemToString={item => item?.name || ''}
-                    onChange={({ selectedItems }) =>
-                      setEvents((selectedItems || []).map(event => event.id))
-                    }
-                    helperText="Select which assistant lifecycle events should send a webhook."
-                  />
                 </InputGroup>
 
                 <div className="grid lg:grid-cols-2">
