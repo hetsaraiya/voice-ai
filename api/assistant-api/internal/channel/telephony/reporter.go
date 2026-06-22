@@ -14,7 +14,9 @@ import (
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
-	observability_collector_conversationdb "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationdb"
+	observability_collector_conversationmetadata "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetadata"
+	observability_collector_conversationmetric "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetric"
+	observability_collector_requestlog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/requestlog"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/protos"
 )
@@ -112,18 +114,41 @@ func (d *OutboundDispatcher) NewStatusReporter(contextID string) internal_type.P
 			metricReason = update.CallStatus
 		}
 
+		auth := currentCallContext.ToAuth()
 		observer := observability.New(
 			observability.WithLogger(d.logger),
-			observability.WithAuth(currentCallContext.ToAuth()),
+			observability.WithAuth(auth),
 			observability.WithContext(ctx),
 			observability.WithCustomGracePeriod(2*time.Second),
 			observability.WithCollectors(append([]observability.Collector{
-				observability_collector_conversationdb.New(observability_collector_conversationdb.Config{
+				observability_collector_conversationmetric.New(observability_collector_conversationmetric.Config{
+					Logger:              d.logger,
+					ConversationService: d.conversationService,
+				}),
+				observability_collector_conversationmetadata.New(observability_collector_conversationmetadata.Config{
 					Logger:              d.logger,
 					ConversationService: d.conversationService,
 				}),
 			}, collectors.NewWithEnv(ctx, d.logger, d.cfg)...)...),
 		)
+		assistantScopedCollectors := make([]observability.Collector, 0)
+		assistantScopedCollectors = append(assistantScopedCollectors,
+			observability_collector_requestlog.New(observability_collector_requestlog.Config{
+				Logger:         d.logger,
+				HTTPLogService: d.httpLogService,
+			}),
+		)
+		assistantScopedCollectors = append(assistantScopedCollectors, collectors.NewWithAssistantWebhook(ctx, d.logger, auth, currentCallContext.AssistantID, d.webhookService, observer)...)
+		if err := observer.AddCollectors(assistantScopedCollectors...); err != nil {
+			d.logger.Warnw("observability collector registration failed",
+				"component", "call",
+				"operation", "add_assistant_collectors",
+				"assistant_id", currentCallContext.AssistantID,
+				"context_id", currentCallContext.ContextID,
+				"error", err,
+			)
+		}
+
 		if err := observer.Record(ctx,
 			observability.ConversationScope{
 				AssistantScope: observability.AssistantScope{AssistantID: currentCallContext.AssistantID},
@@ -160,6 +185,34 @@ func (d *OutboundDispatcher) NewStatusReporter(contextID string) internal_type.P
 					"disconnect_reason":    update.DisconnectReason,
 					"provider_status_code": strconv.Itoa(update.ProviderStatusCode),
 					"retryable":            strconv.FormatBool(update.Retryable),
+				},
+			},
+			observability.RecordWebhook{
+				Event:     eventName,
+				ContextID: currentCallContext.ContextID,
+				Payload: map[string]interface{}{
+					"event": eventName.String(),
+					"assistant": map[string]interface{}{
+						"id": currentCallContext.AssistantID,
+					},
+					"conversation": map[string]interface{}{
+						"id": currentCallContext.ConversationID,
+					},
+					"data": map[string]interface{}{
+						"context_id":           currentCallContext.ContextID,
+						"provider":             currentCallContext.Provider,
+						"direction":            currentCallContext.Direction,
+						"caller":               currentCallContext.CallerNumber,
+						"from":                 currentCallContext.FromNumber,
+						"channel_uuid":         currentCallContext.ChannelUUID,
+						"call_status":          update.CallStatus,
+						"failure_class":        update.FailureClass,
+						"failure_reason":       update.FailureReason,
+						"disconnect_reason":    update.DisconnectReason,
+						"provider_status_code": update.ProviderStatusCode,
+						"retryable":            update.Retryable,
+						"error":                update.ErrorMessage,
+					},
 				},
 			},
 			observability.RecordMetric{

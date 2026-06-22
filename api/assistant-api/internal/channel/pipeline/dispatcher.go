@@ -35,6 +35,8 @@ type Dispatcher struct {
 	outboundDispatcher  *channel_telephony.OutboundDispatcher
 	conversationService internal_services.AssistantConversationService
 	assistantService    internal_services.AssistantService
+	webhookService      internal_services.AssistantWebhookService
+	httpLogService      internal_services.AssistantHTTPLogService
 }
 
 // DispatcherOptions holds dependencies for creating a channel dispatcher.
@@ -44,6 +46,8 @@ type DispatcherOptions struct {
 	outboundDispatcher  *channel_telephony.OutboundDispatcher
 	conversationService internal_services.AssistantConversationService
 	assistantService    internal_services.AssistantService
+	webhookService      internal_services.AssistantWebhookService
+	httpLogService      internal_services.AssistantHTTPLogService
 }
 
 type FuncOption func(*DispatcherOptions)
@@ -78,6 +82,18 @@ func WithAssistantService(assistantService internal_services.AssistantService) F
 	}
 }
 
+func WithWebhookService(webhookService internal_services.AssistantWebhookService) FuncOption {
+	return func(options *DispatcherOptions) {
+		options.webhookService = webhookService
+	}
+}
+
+func WithHTTPLogService(httpLogService internal_services.AssistantHTTPLogService) FuncOption {
+	return func(options *DispatcherOptions) {
+		options.httpLogService = httpLogService
+	}
+}
+
 func NewDispatcher(opts ...FuncOption) *Dispatcher {
 	var cfg DispatcherOptions
 	for _, opt := range opts {
@@ -89,6 +105,8 @@ func NewDispatcher(opts ...FuncOption) *Dispatcher {
 		outboundDispatcher:  cfg.outboundDispatcher,
 		conversationService: cfg.conversationService,
 		assistantService:    cfg.assistantService,
+		webhookService:      cfg.webhookService,
+		httpLogService:      cfg.httpLogService,
 	}
 }
 

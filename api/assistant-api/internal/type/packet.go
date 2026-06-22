@@ -70,7 +70,6 @@ const (
 	PacketNameInitializeDenoise                          PacketName = "InitializeDenoisePacket"
 	PacketNameInitializeBehavior                         PacketName = "InitializeBehaviorPacket"
 	PacketNameInitializationCompleted                    PacketName = "InitializationCompletedPacket"
-	PacketNameInitializeTelemetry                        PacketName = "InitializeTelemetryPacket"
 	PacketNameInitializeInboundDispatcher                PacketName = "InitializeInboundDispatcherPacket"
 	PacketNameInitializationFailed                       PacketName = "InitializationFailedPacket"
 	PacketNameModeSwitchRequested                        PacketName = "ModeSwitchRequestedPacket"
@@ -628,15 +627,6 @@ type AsyncPacket interface {
 	Packet
 	IsAsync() bool
 }
-
-// InitializeTelemetryPacket initializes the conversation observer (collectors, exporters).
-type InitializeTelemetryPacket struct {
-	ContextID string
-}
-
-func (p InitializeTelemetryPacket) ContextId() string      { return p.ContextID }
-func (p InitializeTelemetryPacket) PacketName() PacketName { return PacketNameInitializeTelemetry }
-func (p InitializeTelemetryPacket) IsAsync() bool          { return true }
 
 // InitializeInboundDispatcherPacket starts the ingress dispatcher.
 type InitializeInboundDispatcherPacket struct {
@@ -1284,7 +1274,7 @@ type ToolLogUpdatePacket struct {
 func (f ToolLogUpdatePacket) ContextId() string      { return f.ContextID }
 func (f ToolLogUpdatePacket) PacketName() PacketName { return PacketNameToolLogUpdate }
 
-// HTTPLogCreatePacket persists generic HTTP execution logs (webhook, authentication, analysis).
+// HTTPLogCreatePacket emits a generic request log for HTTP-backed execution.
 type HTTPLogCreatePacket struct {
 	ContextID       string
 	Source          string

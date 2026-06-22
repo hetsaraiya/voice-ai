@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/rapidaai/pkg/types"
+	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/pkg/validator"
 	"github.com/rapidaai/protos"
@@ -391,8 +392,47 @@ func (RecordUsage) isRecord() {}
 type RecordWebhook struct {
 	ID         string
 	Event      EventName
+	ContextID  string
 	Payload    map[string]interface{}
 	OccurredAt time.Time
 }
 
 func (RecordWebhook) isRecord() {}
+
+type ToolLogOperation string
+
+const (
+	ToolLogOperationCreate ToolLogOperation = "create"
+	ToolLogOperationUpdate ToolLogOperation = "update"
+)
+
+type RecordToolLog struct {
+	Operation       ToolLogOperation
+	ToolCallID      string
+	ToolName        string
+	Status          type_enums.RecordState
+	RequestPayload  []byte
+	ResponsePayload []byte
+	OccurredAt      time.Time
+}
+
+func (RecordToolLog) isRecord() {}
+
+type RecordRequestLog struct {
+	Source          string
+	SourceRefID     uint64
+	SourceEvent     string
+	ContextID       string
+	HTTPURL         string
+	HTTPMethod      string
+	ResponseStatus  int64
+	TimeTaken       int64
+	RetryCount      uint32
+	Status          type_enums.RecordState
+	ErrorMessage    *string
+	RequestPayload  []byte
+	ResponsePayload []byte
+	OccurredAt      time.Time
+}
+
+func (RecordRequestLog) isRecord() {}

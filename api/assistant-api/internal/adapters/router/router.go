@@ -56,7 +56,6 @@ func ClassifyName(name internal_type.PacketName) Route {
 		internal_type.PacketNameInitializeBehavior,
 		internal_type.PacketNameInitializationCompleted,
 		internal_type.PacketNameInitializationFailed,
-		internal_type.PacketNameInitializeTelemetry,
 		internal_type.PacketNameInitializeInboundDispatcher,
 		internal_type.PacketNameModeSwitchRequested,
 		internal_type.PacketNameModeSwitchCompleted,

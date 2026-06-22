@@ -30,6 +30,7 @@ type Config struct {
 	Logger    commons.Logger
 	Providers Provider
 	Exporters telemetry.Exporter
+	Key       string
 }
 
 type Collector struct {
@@ -45,6 +46,9 @@ func New(ctx context.Context, cfg Config) (observability.Collector, error) {
 	key := "telemetry"
 	if providerName := strings.TrimSpace(cfg.Providers.Name); validator.NotBlank(providerName) {
 		key = "telemetry:" + providerName
+	}
+	if validator.NotBlank(cfg.Key) {
+		key = cfg.Key
 	}
 	if validator.NonNil(cfg.Exporters) {
 		return &Collector{exporter: cfg.Exporters, initialized: true, key: key}, nil

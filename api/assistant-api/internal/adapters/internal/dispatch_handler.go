@@ -26,7 +26,10 @@ import (
 	internal_llm "github.com/rapidaai/api/assistant-api/internal/llm"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
-	observability_collector_conversationdb "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationdb"
+	observability_collector_conversationmetadata "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetadata"
+	observability_collector_conversationmetric "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetric"
+	observability_collector_requestlog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/requestlog"
+	observability_collector_toollog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/toollog"
 	internal_transformer "github.com/rapidaai/api/assistant-api/internal/transformer"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	internal_vad "github.com/rapidaai/api/assistant-api/internal/vad"
@@ -1359,6 +1362,11 @@ func (h requestorDispatchHandler) HandleMessageCreate(ctx context.Context, p int
 
 func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Context, p internal_type.ObservabilityRecordPacket) {
 	if h.r.observabilityRecorder != nil {
+		observabilityRecord := p.GetRecord()
+		if webhookRecord, ok := observabilityRecord.(observability.RecordWebhook); ok && !validator.NotBlank(webhookRecord.ContextID) && validator.NotBlank(p.ContextId()) {
+			webhookRecord.ContextID = p.ContextId()
+			observabilityRecord = webhookRecord
+		}
 		switch p.GetScope() {
 		case internal_type.ObservabilityRecordScopeAssistant:
 			if h.r.Assistant() == nil {
@@ -1367,7 +1375,7 @@ func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Co
 			}
 			if err := h.r.observabilityRecorder.Record(ctx, observability.AssistantScope{
 				AssistantID: h.r.Assistant().Id,
-			}, p.GetRecord()); err != nil {
+			}, observabilityRecord); err != nil {
 				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
 		case internal_type.ObservabilityRecordScopeConversation:
@@ -1380,7 +1388,7 @@ func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Co
 					AssistantID: h.r.Assistant().Id,
 				},
 				ConversationID: h.r.Conversation().Id,
-			}, p.GetRecord()); err != nil {
+			}, observabilityRecord); err != nil {
 				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
 		case internal_type.ObservabilityRecordScopeUserMessage:
@@ -1397,7 +1405,7 @@ func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Co
 				},
 				MessageID: p.ContextId(),
 				Role:      observability.MessageRoleUser,
-			}, p.GetRecord()); err != nil {
+			}, observabilityRecord); err != nil {
 				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
 		case internal_type.ObservabilityRecordScopeAssistantMessage:
@@ -1414,7 +1422,7 @@ func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Co
 				},
 				MessageID: p.ContextId(),
 				Role:      observability.MessageRoleAssistant,
-			}, p.GetRecord()); err != nil {
+			}, observabilityRecord); err != nil {
 				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
 		default:
@@ -1446,7 +1454,22 @@ func (h requestorDispatchHandler) HandleToolLogCreate(ctx context.Context, p int
 		})
 		return
 	}
-	if err := h.r.CreateToolLog(ctx, p.ContextID, p.ToolID, p.Name, type_enums.RECORD_IN_PROGRESS, p.Request); err != nil {
+	if err := h.r.observabilityRecorder.Record(ctx, observability.MessageScope{
+		ConversationScope: observability.ConversationScope{
+			AssistantScope: observability.AssistantScope{
+				AssistantID: h.r.assistant.Id,
+			},
+			ConversationID: h.r.assistantConversation.Id,
+		},
+		MessageID: p.ContextID,
+		Role:      observability.MessageRoleAssistant,
+	}, observability.RecordToolLog{
+		Operation:      observability.ToolLogOperationCreate,
+		ToolCallID:     p.ToolID,
+		ToolName:       p.Name,
+		Status:         type_enums.RECORD_IN_PROGRESS,
+		RequestPayload: p.Request,
+	}); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
 			ContextID: p.ContextID,
 			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
@@ -1488,7 +1511,21 @@ func (h requestorDispatchHandler) HandleToolLogUpdate(ctx context.Context, p int
 		})
 		return
 	}
-	if err := h.r.UpdateToolLog(ctx, p.ToolID, type_enums.RECORD_COMPLETE, p.Response); err != nil {
+	if err := h.r.observabilityRecorder.Record(ctx, observability.MessageScope{
+		ConversationScope: observability.ConversationScope{
+			AssistantScope: observability.AssistantScope{
+				AssistantID: h.r.assistant.Id,
+			},
+			ConversationID: h.r.assistantConversation.Id,
+		},
+		MessageID: p.ContextID,
+		Role:      observability.MessageRoleAssistant,
+	}, observability.RecordToolLog{
+		Operation:       observability.ToolLogOperationUpdate,
+		ToolCallID:      p.ToolID,
+		Status:          type_enums.RECORD_COMPLETE,
+		ResponsePayload: p.Response,
+	}); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
 			ContextID: p.ContextID,
 			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
@@ -1510,31 +1547,35 @@ func (h requestorDispatchHandler) HandleToolLogUpdate(ctx context.Context, p int
 	}
 }
 func (h requestorDispatchHandler) HandleHTTPLogCreate(ctx context.Context, p internal_type.HTTPLogCreatePacket) {
-	if err := h.r.CreateHTTPLog(
-		ctx,
-		p.Source,
-		p.SourceRefID,
-		p.SourceEvent,
-		p.ContextID,
-		p.HTTPURL,
-		p.HTTPMethod,
-		p.ResponseStatus,
-		p.TimeTaken,
-		p.RetryCount,
-		p.Status,
-		p.ErrorMessage,
-		p.RequestPayload,
-		p.ResponsePayload,
-	); err != nil {
+	if err := h.r.observabilityRecorder.Record(ctx, observability.ConversationScope{
+		AssistantScope: observability.AssistantScope{
+			AssistantID: h.r.assistant.Id,
+		},
+		ConversationID: h.r.assistantConversation.Id,
+	}, observability.RecordRequestLog{
+		Source:          p.Source,
+		SourceRefID:     p.SourceRefID,
+		SourceEvent:     p.SourceEvent,
+		ContextID:       p.ContextID,
+		HTTPURL:         p.HTTPURL,
+		HTTPMethod:      p.HTTPMethod,
+		ResponseStatus:  p.ResponseStatus,
+		TimeTaken:       p.TimeTaken,
+		RetryCount:      p.RetryCount,
+		Status:          p.Status,
+		ErrorMessage:    p.ErrorMessage,
+		RequestPayload:  p.RequestPayload,
+		ResponsePayload: p.ResponsePayload,
+	}); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
 			ContextID: p.ContextID,
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "HTTP log persistence failed; webhook trace may be incomplete",
+				Message: "Request log persistence failed; request trace may be incomplete",
 				Attributes: observability.Attributes{
-					"component":     observability.ComponentWebhook.String(),
-					"operation":     "persist_http_log",
+					"component":     observability.ComponentLog.String(),
+					"operation":     "persist_request_log",
 					"packet":        "HTTPLogCreatePacket",
 					"context_id":    p.ContextID,
 					"source":        p.Source,
@@ -1562,6 +1603,37 @@ func (h requestorDispatchHandler) HandleInitializeAssistant(ctx context.Context,
 		return
 	}
 	h.r.assistant = assistant
+	configuredCollectors := make([]observability.Collector, 0)
+	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantTelemetry(ctx, h.r.logger, h.r.assistant.AssistantTelemetryProviders)...)
+	configuredCollectors = append(configuredCollectors,
+		observability_collector_toollog.New(observability_collector_toollog.Config{
+			Logger:      h.r.logger,
+			ToolService: h.r.assistantToolService,
+		}),
+		observability_collector_requestlog.New(observability_collector_requestlog.Config{
+			Logger:         h.r.logger,
+			HTTPLogService: h.r.httpLogService,
+		}),
+	)
+	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantWebhook(ctx, h.r.logger, h.r.auth, h.r.assistant.Id, h.r.webhookService, h.r.observabilityRecorder)...)
+	configuredCollectors = append(configuredCollectors,
+		observability_collector_conversationmetric.New(observability_collector_conversationmetric.Config{
+			Logger:              h.r.logger,
+			ConversationService: h.r.conversationService,
+		}),
+		observability_collector_conversationmetadata.New(observability_collector_conversationmetadata.Config{
+			Logger:              h.r.logger,
+			ConversationService: h.r.conversationService,
+		}),
+	)
+	if err := h.r.observabilityRecorder.AddCollectors(configuredCollectors...); err != nil {
+		h.r.logger.Warnw(
+			"platform observability collector registration failed",
+			"component", "platform",
+			"operation", "initialize_observability_collectors",
+			"error", err,
+		)
+	}
 	h.r.OnPacket(ctx, internal_type.InitializeConversationPacket{ContextID: p.ContextID, Config: p.Config})
 }
 func (h requestorDispatchHandler) HandleInitializeConversation(ctx context.Context, vl internal_type.InitializeConversationPacket) {
@@ -1606,8 +1678,7 @@ func (h requestorDispatchHandler) HandleInitializeConversation(ctx context.Conte
 		})
 	}
 	h.r.OnPacket(ctx,
-		internal_type.InitializeSessionRuntimePacket{ContextID: vl.ContextID, Config: vl.Config},
-		internal_type.InitializeTelemetryPacket{ContextID: vl.ContextID})
+		internal_type.InitializeSessionRuntimePacket{ContextID: vl.ContextID, Config: vl.Config})
 }
 func (h requestorDispatchHandler) HandleInitializeSessionRuntime(ctx context.Context, p internal_type.InitializeSessionRuntimePacket) {
 	recordingExecutor, err := internal_audio_recorder.GetConversationRecordingExecutor(p.ContextID, h.r.OnPacket)
@@ -2587,31 +2658,6 @@ func (h requestorDispatchHandler) HandleInitializationCompleted(ctx context.Cont
 
 }
 
-func (h requestorDispatchHandler) HandleInitializeTelemetry(ctx context.Context, p internal_type.InitializeTelemetryPacket) {
-	configuredCollectors := make([]observability.Collector, 0)
-
-	// Platform telemetry collectors attach configured assistant/webhook sinks and the conversation DB sink.
-	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantTelemetry(ctx, h.r.logger, h.r.assistant.AssistantTelemetryProviders)...)
-
-	// adding webhook collectors
-	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantWebhook(h.r.logger, h.r.assistant.AssistantWebhooks)...)
-
-	// adding conversationdb collector
-	configuredCollectors = append(configuredCollectors, observability_collector_conversationdb.New(observability_collector_conversationdb.Config{
-		Logger:              h.r.logger,
-		ConversationService: h.r.conversationService,
-	}))
-
-	if err := h.r.observabilityRecorder.AddCollectors(configuredCollectors...); err != nil {
-		h.r.logger.Error(
-			"platform observability collector registration failed",
-			"component", "platform",
-			"operation", "initialize_observability_collectors",
-			"error", err,
-		)
-	}
-}
-
 func (h requestorDispatchHandler) HandleInitializeInboundDispatcher(ctx context.Context, p internal_type.InitializeInboundDispatcherPacket) {
 	go h.r.runInputDispatcher(h.r.sessionCtx)
 }
@@ -2902,7 +2948,8 @@ func (h requestorDispatchHandler) HandleFinalizeConversation(ctx context.Context
 			},
 			ConversationID: h.r.Conversation().Id,
 		}, observability.RecordWebhook{
-			Event: observability.ConversationCompleted,
+			Event:     observability.ConversationCompleted,
+			ContextID: p.ContextID,
 			Payload: map[string]interface{}{
 				"event":     observability.ConversationCompleted.String(),
 				"assistant": assistantPayload,

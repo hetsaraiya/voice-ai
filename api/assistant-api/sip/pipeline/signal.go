@@ -87,6 +87,10 @@ func (d *Dispatcher) handleCallFailed(ctx context.Context, v sip_infra.CallFaile
 		"direction": string(v.Session.GetInfo().Direction),
 		"call_id":   v.ID,
 	}
+	contextID := v.Session.GetContextID()
+	if contextID == "" {
+		contextID = v.ID
+	}
 	if v.SIPCode > 0 {
 		attributes["sip_code"] = fmt.Sprintf("%d", v.SIPCode)
 	}
@@ -105,6 +109,28 @@ func (d *Dispatcher) handleCallFailed(ctx context.Context, v sip_infra.CallFaile
 			Component:  observability.ComponentCall,
 			Event:      observability.CallFailed,
 			Attributes: attributes,
+		},
+		observability.RecordWebhook{
+			Event:     observability.CallFailed,
+			ContextID: contextID,
+			Payload: map[string]interface{}{
+				"event": observability.CallFailed.String(),
+				"assistant": map[string]interface{}{
+					"id": assistantID,
+				},
+				"conversation": map[string]interface{}{
+					"id": convID,
+				},
+				"data": map[string]interface{}{
+					"context_id": contextID,
+					"provider":   "sip",
+					"reason":     reason,
+					"direction":  string(v.Session.GetInfo().Direction),
+					"call_id":    v.ID,
+					"sip_code":   v.SIPCode,
+					"error":      fmt.Sprintf("%v", v.Error),
+				},
+			},
 		},
 		observability.RecordMetric{
 			Metrics: []*protos.Metric{{

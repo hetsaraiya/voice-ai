@@ -29,6 +29,8 @@ type OutboundDispatcherOptions struct {
 	VaultClient         web_client.VaultClient
 	AssistantService    internal_services.AssistantService
 	ConversationService internal_services.AssistantConversationService
+	WebhookService      internal_services.AssistantWebhookService
+	HTTPLogService      internal_services.AssistantHTTPLogService
 	TelephonyOption     TelephonyOption
 }
 
@@ -70,6 +72,18 @@ func WithOutboundConversationService(conversationService internal_services.Assis
 	}
 }
 
+func WithOutboundWebhookService(webhookService internal_services.AssistantWebhookService) OutboundDispatcherFuncOption {
+	return func(options *OutboundDispatcherOptions) {
+		options.WebhookService = webhookService
+	}
+}
+
+func WithOutboundHTTPLogService(httpLogService internal_services.AssistantHTTPLogService) OutboundDispatcherFuncOption {
+	return func(options *OutboundDispatcherOptions) {
+		options.HTTPLogService = httpLogService
+	}
+}
+
 func WithOutboundTelephonyOption(telephonyOpt TelephonyOption) OutboundDispatcherFuncOption {
 	return func(options *OutboundDispatcherOptions) {
 		options.TelephonyOption = telephonyOpt
@@ -83,6 +97,8 @@ type OutboundDispatcher struct {
 	vaultClient            web_client.VaultClient
 	assistantService       internal_services.AssistantService
 	conversationService    internal_services.AssistantConversationService
+	webhookService         internal_services.AssistantWebhookService
+	httpLogService         internal_services.AssistantHTTPLogService
 	telephonyOpt           TelephonyOption
 	outboundConnectTimeout time.Duration
 }
@@ -99,6 +115,8 @@ func NewOutboundDispatcher(opts ...OutboundDispatcherFuncOption) *OutboundDispat
 		vaultClient:            options.VaultClient,
 		assistantService:       options.AssistantService,
 		conversationService:    options.ConversationService,
+		webhookService:         options.WebhookService,
+		httpLogService:         options.HTTPLogService,
 		telephonyOpt:           options.TelephonyOption,
 		outboundConnectTimeout: defaultOutboundConnectTimeout,
 	}

@@ -152,7 +152,6 @@ func TestInitializationPackets_RouteToBootstrapChannel(t *testing.T) {
 		internal_type.InitializeBehaviorPacket{ContextID: "ctx", Config: conversationInitialization},
 		internal_type.InitializationCompletedPacket{ContextID: "ctx", Config: conversationInitialization},
 		internal_type.InitializationFailedPacket{ContextID: "ctx", Stage: internal_type.InitializationStageService, Error: initializationError},
-		internal_type.InitializeTelemetryPacket{ContextID: "ctx"},
 		internal_type.InitializeInboundDispatcherPacket{ContextID: "ctx"},
 	}
 

@@ -99,10 +99,43 @@ func (base *BaseTelephonyStreamer) Record(records ...observability.Record) error
 	if base.observer == nil {
 		return nil
 	}
+	callRecords := make([]observability.Record, 0, len(records)+1)
+	for _, record := range records {
+		callRecords = append(callRecords, record)
+		eventRecord, ok := record.(observability.RecordEvent)
+		if !ok || eventRecord.Event != observability.CallHangup {
+			continue
+		}
+		webhookData := map[string]interface{}{
+			"context_id":   base.callCtx.ContextID,
+			"provider":     base.callCtx.Provider,
+			"direction":    base.callCtx.Direction,
+			"caller":       base.callCtx.CallerNumber,
+			"from":         base.callCtx.FromNumber,
+			"channel_uuid": base.callCtx.ChannelUUID,
+		}
+		for key, value := range eventRecord.Attributes {
+			webhookData[key] = value
+		}
+		callRecords = append(callRecords, observability.RecordWebhook{
+			Event:     observability.CallHangup,
+			ContextID: base.callCtx.ContextID,
+			Payload: map[string]interface{}{
+				"event": observability.CallHangup.String(),
+				"assistant": map[string]interface{}{
+					"id": base.callCtx.AssistantID,
+				},
+				"conversation": map[string]interface{}{
+					"id": base.callCtx.ConversationID,
+				},
+				"data": webhookData,
+			},
+		})
+	}
 	return base.observer.Record(base.Ctx, observability.ConversationScope{
 		AssistantScope: observability.AssistantScope{AssistantID: base.GetAssistantDefinition().AssistantId},
 		ConversationID: base.GetConversationId(),
-	}, records...)
+	}, callRecords...)
 }
 
 // CreateConnectionRequest builds the initial ConversationInitialization message.
