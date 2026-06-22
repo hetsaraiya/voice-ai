@@ -58,12 +58,34 @@ func (t *genericRequestor) Talk(_ context.Context, auth types.SimplePrinciple) e
 		case *protos.ConversationBridgeOperatorAudio:
 			t.OnPacket(t.streamer.Context(), internal_type.RecordAssistantAudioPacket{ContextID: t.GetID(), Audio: payload.Audio, Timestamp: payload.Time.AsTime()})
 		case *protos.ConversationMetadata:
+			if t.metadata == nil {
+				t.metadata = make(map[string]interface{})
+			}
+			for _, metadata := range payload.GetMetadata() {
+				if metadata == nil {
+					continue
+				}
+				t.metadata[metadata.GetKey()] = metadata.GetValue()
+			}
 			t.OnPacket(t.streamer.Context(), internal_type.ObservabilityMetadataRecordPacket{
 				ContextID: fmt.Sprintf("%d", payload.GetAssistantConversationId()),
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
 				Record:    observability.NewConversationMetadataRecord(payload.GetMetadata()),
 			})
 		case *protos.ConversationMetric:
+			if t.metrics == nil {
+				t.metrics = make(map[string]*protos.Metric)
+			}
+			for _, metric := range payload.GetMetrics() {
+				if metric == nil {
+					continue
+				}
+				t.metrics[metric.GetName()] = &protos.Metric{
+					Name:        metric.GetName(),
+					Value:       metric.GetValue(),
+					Description: metric.GetDescription(),
+				}
+			}
 			t.OnPacket(t.streamer.Context(), internal_type.ObservabilityMetricRecordPacket{
 				ContextID: fmt.Sprintf("%d", payload.GetAssistantConversationId()),
 				Scope:     internal_type.ObservabilityRecordScopeConversation,
@@ -143,6 +165,19 @@ func (t *genericRequestor) OnCallCompletion(startTime time.Time) {
 		return
 	}
 	duration := time.Since(startTime)
+	if t.metrics == nil {
+		t.metrics = make(map[string]*protos.Metric)
+	}
+	t.metrics[type_enums.CONVERSATION_STATUS.String()] = &protos.Metric{
+		Name:        type_enums.CONVERSATION_STATUS.String(),
+		Value:       type_enums.CONVERSATION_COMPLETE.String(),
+		Description: "Status of current conversation",
+	}
+	t.metrics[type_enums.CONVERSATION_DURATION.String()] = &protos.Metric{
+		Name:        type_enums.CONVERSATION_DURATION.String(),
+		Value:       fmt.Sprintf("%d", duration),
+		Description: "Conversation duration from first message to end",
+	}
 	t.OnPacket(context.Background(),
 		internal_type.ObservabilityMetricRecordPacket{
 			ContextID: fmt.Sprintf("%d", conv.Id),

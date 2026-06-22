@@ -13,7 +13,6 @@ import (
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/pkg/types"
 	type_enums "github.com/rapidaai/pkg/types/enums"
-	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 )
 
@@ -61,7 +60,6 @@ const (
 	PacketNameInitializeConversation                     PacketName = "InitializeConversationPacket"
 	PacketNameInitializeSessionRuntime                   PacketName = "InitializeSessionRuntimePacket"
 	PacketNameInitializeAuthentication                   PacketName = "InitializeAuthenticationPacket"
-	PacketNameExecuteSessionAuthentication               PacketName = "ExecuteSessionAuthenticationPacket"
 	PacketNameSessionAuthenticationSucceeded             PacketName = "SessionAuthenticationSucceededPacket"
 	PacketNameSessionAuthenticationFailed                PacketName = "SessionAuthenticationFailedPacket"
 	PacketNameInitializeSpeechToText                     PacketName = "InitializeSpeechToTextPacket"
@@ -72,7 +70,6 @@ const (
 	PacketNameInitializeDenoise                          PacketName = "InitializeDenoisePacket"
 	PacketNameInitializeBehavior                         PacketName = "InitializeBehaviorPacket"
 	PacketNameInitializationCompleted                    PacketName = "InitializationCompletedPacket"
-	PacketNameInitializeTelemetry                        PacketName = "InitializeTelemetryPacket"
 	PacketNameInitializeInboundDispatcher                PacketName = "InitializeInboundDispatcherPacket"
 	PacketNameInitializationFailed                       PacketName = "InitializationFailedPacket"
 	PacketNameModeSwitchRequested                        PacketName = "ModeSwitchRequestedPacket"
@@ -98,8 +95,6 @@ const (
 	PacketNameFinalizeConversation                       PacketName = "FinalizeConversationPacket"
 	PacketNameFinalizeAssistant                          PacketName = "FinalizeAssistantPacket"
 	PacketNameFinalizationCompleted                      PacketName = "FinalizationCompletedPacket"
-	PacketNameExecuteAnalysis                            PacketName = "ExecuteAnalysisPacket"
-	PacketNameExecuteWebhook                             PacketName = "ExecuteWebhookPacket"
 	PacketNameStartIdleTimeout                           PacketName = "StartIdleTimeoutPacket"
 	PacketNameStopIdleTimeout                            PacketName = "StopIdleTimeoutPacket"
 	PacketNameIdleTimeoutExpired                         PacketName = "IdleTimeoutExpiredPacket"
@@ -510,18 +505,6 @@ func (f InitializeAuthenticationPacket) PacketName() PacketName {
 	return PacketNameInitializeAuthentication
 }
 
-// ExecuteSessionAuthenticationPacket triggers authentication against the configured endpoint.
-type ExecuteSessionAuthenticationPacket struct {
-	ContextID      string
-	Arguments      map[string]interface{}
-	Initialization *protos.ConversationInitialization
-}
-
-func (f ExecuteSessionAuthenticationPacket) ContextId() string { return f.ContextID }
-func (f ExecuteSessionAuthenticationPacket) PacketName() PacketName {
-	return PacketNameExecuteSessionAuthentication
-}
-
 // SessionAuthenticationSucceededPacket carries successful auth output.
 // Authenticated can be false when fail_behavior=allow is applied.
 type SessionAuthenticationSucceededPacket struct {
@@ -645,15 +628,6 @@ type AsyncPacket interface {
 	IsAsync() bool
 }
 
-// InitializeTelemetryPacket initializes the conversation observer (collectors, exporters).
-type InitializeTelemetryPacket struct {
-	ContextID string
-}
-
-func (p InitializeTelemetryPacket) ContextId() string      { return p.ContextID }
-func (p InitializeTelemetryPacket) PacketName() PacketName { return PacketNameInitializeTelemetry }
-func (p InitializeTelemetryPacket) IsAsync() bool          { return true }
-
 // InitializeInboundDispatcherPacket starts the ingress dispatcher.
 type InitializeInboundDispatcherPacket struct {
 	ContextID string
@@ -679,7 +653,6 @@ const (
 	InitializationStageEndOfSpeech         InitializationStage = "eos"
 	InitializationStageBehavior            InitializationStage = "behavior"
 	InitializationStageAnalysis            InitializationStage = "analysis"
-	InitializationStageWebhook             InitializationStage = "webhook"
 	InitializationStageRecording           InitializationStage = "recording"
 	InitializationStageInputNormalizer     InitializationStage = "input_normalizer"
 	InitializationStageOutputNormalizer    InitializationStage = "output_normalizer"
@@ -896,7 +869,6 @@ func (f ModeSwitchFinalizeDenoisePacket) IsAsync() bool { return true }
 // FinalizeBehavior → FinalizeEndOfSpeech → FinalizeVoiceActivityDetection
 // → FinalizeTextToSpeech → FinalizeSpeechToText → FinalizeAuthentication
 // → FinalizeSessionRuntime → AnalysisStart → ExecuteAnalysis* → AnalysisDone
-// → WebhookStart → ExecuteWebhook* → WebhookDone
 // → FinalizeConversation → FinalizeAssistant → FinalizationCompleted
 // Each handler enqueues the next phase to backgroundCh, forming an ordered chain.
 // =============================================================================
@@ -986,27 +958,6 @@ type FinalizationCompletedPacket struct {
 
 func (f FinalizationCompletedPacket) ContextId() string      { return f.ContextID }
 func (f FinalizationCompletedPacket) PacketName() PacketName { return PacketNameFinalizationCompleted }
-
-// ExecuteAnalysisPacket triggers a single analysis execution.
-type ExecuteAnalysisPacket struct {
-	ContextID      string
-	Arguments      map[string]interface{}
-	ConversationID uint64
-	Auth           types.SimplePrinciple
-}
-
-func (f ExecuteAnalysisPacket) ContextId() string      { return f.ContextID }
-func (f ExecuteAnalysisPacket) PacketName() PacketName { return PacketNameExecuteAnalysis }
-
-// ExecuteWebhookPacket triggers a single webhook execution.
-type ExecuteWebhookPacket struct {
-	ContextID string
-	Event     utils.AssistantWebhookEvent
-	Arguments map[string]interface{}
-}
-
-func (f ExecuteWebhookPacket) ContextId() string      { return f.ContextID }
-func (f ExecuteWebhookPacket) PacketName() PacketName { return PacketNameExecuteWebhook }
 
 // StartIdleTimeoutPacket explicitly (re)starts the idle timeout timer.
 // Routed on outputCh so producers can order it relative to InjectMessagePacket
@@ -1323,7 +1274,7 @@ type ToolLogUpdatePacket struct {
 func (f ToolLogUpdatePacket) ContextId() string      { return f.ContextID }
 func (f ToolLogUpdatePacket) PacketName() PacketName { return PacketNameToolLogUpdate }
 
-// HTTPLogCreatePacket persists generic HTTP execution logs (webhook, authentication, analysis).
+// HTTPLogCreatePacket emits a generic request log for HTTP-backed execution.
 type HTTPLogCreatePacket struct {
 	ContextID       string
 	Source          string

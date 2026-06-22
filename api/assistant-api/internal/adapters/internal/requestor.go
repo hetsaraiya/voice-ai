@@ -70,6 +70,7 @@ type genericRequestor struct {
 	// service
 	assistantService     internal_services.AssistantService
 	conversationService  internal_services.AssistantConversationService
+	webhookService       internal_services.AssistantWebhookService
 	httpLogService       internal_services.AssistantHTTPLogService
 	knowledgeService     internal_services.KnowledgeService
 	assistantToolService internal_services.AssistantToolService
@@ -106,7 +107,6 @@ type genericRequestor struct {
 
 	// executor
 	assistantAnalyseExecutors []internal_type.AnalysisExecutor
-	assistantWebhookExecutors []internal_type.WebhookExecutor
 	authenticationExecutor    internal_type.AuthenticationExecutor
 	assistantExecutor         internal_llm.AssistantExecutor
 	endOfSpeechExecutor       internal_type.EndOfSpeechExecutor
@@ -119,6 +119,7 @@ type genericRequestor struct {
 
 	args     map[string]interface{}
 	metadata map[string]interface{}
+	metrics  map[string]*protos.Metric
 	options  map[string]interface{}
 
 	// experience
@@ -154,6 +155,7 @@ func NewGenericRequestor(
 		assistantService:     internal_assistant_service.NewAssistantService(config, logger, postgres, opensearch),
 		knowledgeService:     internal_knowledge_service.NewKnowledgeService(config, logger, postgres, storage),
 		conversationService:  internal_assistant_service.NewAssistantConversationService(logger, postgres, storage),
+		webhookService:       internal_assistant_service.NewAssistantWebhookService(logger, postgres, storage),
 		httpLogService:       internal_assistant_service.NewAssistantHTTPLogService(logger, postgres, storage),
 		assistantToolService: internal_assistant_service.NewAssistantToolService(logger, postgres, storage),
 		//
@@ -181,10 +183,10 @@ func NewGenericRequestor(
 		//
 		histories:                 make([]internal_type.MessagePacket, 0),
 		metadata:                  make(map[string]interface{}),
+		metrics:                   make(map[string]*protos.Metric),
 		args:                      make(map[string]interface{}),
 		options:                   make(map[string]interface{}),
 		assistantAnalyseExecutors: make([]internal_type.AnalysisExecutor, 0),
-		assistantWebhookExecutors: make([]internal_type.WebhookExecutor, 0),
 		sessionCtx:                sessionCtx,
 		cancelSession:             cancelSession,
 		channels:                  channels,
@@ -252,6 +254,17 @@ func (talking *genericRequestor) ResumeConversation(ctx context.Context, assista
 	talking.args = conversation.GetArguments()
 	talking.options = conversation.GetOptions()
 	talking.metadata = conversation.GetMetadatas()
+	talking.metrics = make(map[string]*protos.Metric)
+	for _, metric := range conversation.Metrics {
+		if metric == nil {
+			continue
+		}
+		talking.metrics[metric.Name] = &protos.Metric{
+			Name:        metric.Name,
+			Value:       metric.Value,
+			Description: metric.Description,
+		}
+	}
 	if extra, err := utils.AnyMapToInterfaceMap(config.GetMetadata()); err == nil {
 		talking.applyMetadata(extra)
 	}

@@ -26,13 +26,15 @@ import (
 	internal_llm "github.com/rapidaai/api/assistant-api/internal/llm"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
-	observability_collector_conversationdb "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationdb"
+	observability_collector_conversationmetadata "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetadata"
+	observability_collector_conversationmetric "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetric"
+	observability_collector_requestlog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/requestlog"
+	observability_collector_toollog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/toollog"
 	internal_transformer "github.com/rapidaai/api/assistant-api/internal/transformer"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	internal_vad "github.com/rapidaai/api/assistant-api/internal/vad"
 	"github.com/rapidaai/api/assistant-api/internal/variable"
 	internal_namespace "github.com/rapidaai/api/assistant-api/internal/variable/namespace"
-	internal_webhook "github.com/rapidaai/api/assistant-api/internal/webhook"
 	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/pkg/validator"
@@ -702,10 +704,34 @@ func (h requestorDispatchHandler) HandleError(ctx context.Context, p internal_ty
 		if h.r.Conversation() != nil {
 			conversationId = h.r.Conversation().Id
 		}
+		webhookScope := internal_type.ObservabilityRecordScopeAssistant
+		if h.r.Conversation() != nil {
+			webhookScope = internal_type.ObservabilityRecordScopeConversation
+		}
+		assistantPayload := map[string]interface{}{}
+		if h.r.Assistant() != nil {
+			assistantPayload["id"] = h.r.Assistant().Id
+		}
+		conversationPayload := map[string]interface{}{}
+		if h.r.Conversation() != nil {
+			conversationPayload["id"] = h.r.Conversation().Id
+		}
 		h.r.OnPacket(ctx,
-			internal_type.ExecuteWebhookPacket{
+			internal_type.ObservabilityWebhookRecordPacket{
 				ContextID: p.ContextId(),
-				Event:     utils.ConversationFailed,
+				Scope:     webhookScope,
+				Record: observability.RecordWebhook{
+					Event: observability.ConversationError,
+					Payload: map[string]interface{}{
+						"event":        observability.ConversationError.String(),
+						"assistant":    assistantPayload,
+						"conversation": conversationPayload,
+						"data": map[string]interface{}{
+							"reason":  protos.ConversationDisconnection_DISCONNECTION_TYPE_ERROR.String(),
+							"message": p.ErrMessage(),
+						},
+					},
+				},
 			},
 			internal_type.ObservabilityEventRecordPacket{
 				ContextID: h.r.GetID(),
@@ -1336,6 +1362,11 @@ func (h requestorDispatchHandler) HandleMessageCreate(ctx context.Context, p int
 
 func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Context, p internal_type.ObservabilityRecordPacket) {
 	if h.r.observabilityRecorder != nil {
+		observabilityRecord := p.GetRecord()
+		if webhookRecord, ok := observabilityRecord.(observability.RecordWebhook); ok && !validator.NotBlank(webhookRecord.ContextID) && validator.NotBlank(p.ContextId()) {
+			webhookRecord.ContextID = p.ContextId()
+			observabilityRecord = webhookRecord
+		}
 		switch p.GetScope() {
 		case internal_type.ObservabilityRecordScopeAssistant:
 			if h.r.Assistant() == nil {
@@ -1344,7 +1375,7 @@ func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Co
 			}
 			if err := h.r.observabilityRecorder.Record(ctx, observability.AssistantScope{
 				AssistantID: h.r.Assistant().Id,
-			}, p.GetRecord()); err != nil {
+			}, observabilityRecord); err != nil {
 				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
 		case internal_type.ObservabilityRecordScopeConversation:
@@ -1357,7 +1388,7 @@ func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Co
 					AssistantID: h.r.Assistant().Id,
 				},
 				ConversationID: h.r.Conversation().Id,
-			}, p.GetRecord()); err != nil {
+			}, observabilityRecord); err != nil {
 				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
 		case internal_type.ObservabilityRecordScopeUserMessage:
@@ -1374,7 +1405,7 @@ func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Co
 				},
 				MessageID: p.ContextId(),
 				Role:      observability.MessageRoleUser,
-			}, p.GetRecord()); err != nil {
+			}, observabilityRecord); err != nil {
 				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
 		case internal_type.ObservabilityRecordScopeAssistantMessage:
@@ -1391,7 +1422,7 @@ func (h requestorDispatchHandler) HandleObservabilityRecordPacket(ctx context.Co
 				},
 				MessageID: p.ContextId(),
 				Role:      observability.MessageRoleAssistant,
-			}, p.GetRecord()); err != nil {
+			}, observabilityRecord); err != nil {
 				h.r.logger.Errorw("observability record failed to persist", "error", err, "record", p)
 			}
 		default:
@@ -1423,7 +1454,22 @@ func (h requestorDispatchHandler) HandleToolLogCreate(ctx context.Context, p int
 		})
 		return
 	}
-	if err := h.r.CreateToolLog(ctx, p.ContextID, p.ToolID, p.Name, type_enums.RECORD_IN_PROGRESS, p.Request); err != nil {
+	if err := h.r.observabilityRecorder.Record(ctx, observability.MessageScope{
+		ConversationScope: observability.ConversationScope{
+			AssistantScope: observability.AssistantScope{
+				AssistantID: h.r.assistant.Id,
+			},
+			ConversationID: h.r.assistantConversation.Id,
+		},
+		MessageID: p.ContextID,
+		Role:      observability.MessageRoleAssistant,
+	}, observability.RecordToolLog{
+		Operation:      observability.ToolLogOperationCreate,
+		ToolCallID:     p.ToolID,
+		ToolName:       p.Name,
+		Status:         type_enums.RECORD_IN_PROGRESS,
+		RequestPayload: p.Request,
+	}); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
 			ContextID: p.ContextID,
 			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
@@ -1465,7 +1511,21 @@ func (h requestorDispatchHandler) HandleToolLogUpdate(ctx context.Context, p int
 		})
 		return
 	}
-	if err := h.r.UpdateToolLog(ctx, p.ToolID, type_enums.RECORD_COMPLETE, p.Response); err != nil {
+	if err := h.r.observabilityRecorder.Record(ctx, observability.MessageScope{
+		ConversationScope: observability.ConversationScope{
+			AssistantScope: observability.AssistantScope{
+				AssistantID: h.r.assistant.Id,
+			},
+			ConversationID: h.r.assistantConversation.Id,
+		},
+		MessageID: p.ContextID,
+		Role:      observability.MessageRoleAssistant,
+	}, observability.RecordToolLog{
+		Operation:       observability.ToolLogOperationUpdate,
+		ToolCallID:      p.ToolID,
+		Status:          type_enums.RECORD_COMPLETE,
+		ResponsePayload: p.Response,
+	}); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
 			ContextID: p.ContextID,
 			Scope:     internal_type.ObservabilityRecordScopeAssistantMessage,
@@ -1487,31 +1547,35 @@ func (h requestorDispatchHandler) HandleToolLogUpdate(ctx context.Context, p int
 	}
 }
 func (h requestorDispatchHandler) HandleHTTPLogCreate(ctx context.Context, p internal_type.HTTPLogCreatePacket) {
-	if err := h.r.CreateHTTPLog(
-		ctx,
-		p.Source,
-		p.SourceRefID,
-		p.SourceEvent,
-		p.ContextID,
-		p.HTTPURL,
-		p.HTTPMethod,
-		p.ResponseStatus,
-		p.TimeTaken,
-		p.RetryCount,
-		p.Status,
-		p.ErrorMessage,
-		p.RequestPayload,
-		p.ResponsePayload,
-	); err != nil {
+	if err := h.r.observabilityRecorder.Record(ctx, observability.ConversationScope{
+		AssistantScope: observability.AssistantScope{
+			AssistantID: h.r.assistant.Id,
+		},
+		ConversationID: h.r.assistantConversation.Id,
+	}, observability.RecordRequestLog{
+		Source:          p.Source,
+		SourceRefID:     p.SourceRefID,
+		SourceEvent:     p.SourceEvent,
+		ContextID:       p.ContextID,
+		HTTPURL:         p.HTTPURL,
+		HTTPMethod:      p.HTTPMethod,
+		ResponseStatus:  p.ResponseStatus,
+		TimeTaken:       p.TimeTaken,
+		RetryCount:      p.RetryCount,
+		Status:          p.Status,
+		ErrorMessage:    p.ErrorMessage,
+		RequestPayload:  p.RequestPayload,
+		ResponsePayload: p.ResponsePayload,
+	}); err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
 			ContextID: p.ContextID,
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
 			Record: observability.RecordLog{
 				Level:   observability.LevelError,
-				Message: "HTTP log persistence failed; webhook trace may be incomplete",
+				Message: "Request log persistence failed; request trace may be incomplete",
 				Attributes: observability.Attributes{
-					"component":     observability.ComponentWebhook.String(),
-					"operation":     "persist_http_log",
+					"component":     observability.ComponentLog.String(),
+					"operation":     "persist_request_log",
 					"packet":        "HTTPLogCreatePacket",
 					"context_id":    p.ContextID,
 					"source":        p.Source,
@@ -1539,6 +1603,37 @@ func (h requestorDispatchHandler) HandleInitializeAssistant(ctx context.Context,
 		return
 	}
 	h.r.assistant = assistant
+	configuredCollectors := make([]observability.Collector, 0)
+	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantTelemetry(ctx, h.r.logger, h.r.assistant.AssistantTelemetryProviders)...)
+	configuredCollectors = append(configuredCollectors,
+		observability_collector_toollog.New(observability_collector_toollog.Config{
+			Logger:      h.r.logger,
+			ToolService: h.r.assistantToolService,
+		}),
+		observability_collector_requestlog.New(observability_collector_requestlog.Config{
+			Logger:         h.r.logger,
+			HTTPLogService: h.r.httpLogService,
+		}),
+	)
+	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantWebhook(ctx, h.r.logger, h.r.auth, h.r.assistant.Id, h.r.webhookService, h.r.observabilityRecorder)...)
+	configuredCollectors = append(configuredCollectors,
+		observability_collector_conversationmetric.New(observability_collector_conversationmetric.Config{
+			Logger:              h.r.logger,
+			ConversationService: h.r.conversationService,
+		}),
+		observability_collector_conversationmetadata.New(observability_collector_conversationmetadata.Config{
+			Logger:              h.r.logger,
+			ConversationService: h.r.conversationService,
+		}),
+	)
+	if err := h.r.observabilityRecorder.AddCollectors(configuredCollectors...); err != nil {
+		h.r.logger.Warnw(
+			"platform observability collector registration failed",
+			"component", "platform",
+			"operation", "initialize_observability_collectors",
+			"error", err,
+		)
+	}
 	h.r.OnPacket(ctx, internal_type.InitializeConversationPacket{ContextID: p.ContextID, Config: p.Config})
 }
 func (h requestorDispatchHandler) HandleInitializeConversation(ctx context.Context, vl internal_type.InitializeConversationPacket) {
@@ -1583,8 +1678,7 @@ func (h requestorDispatchHandler) HandleInitializeConversation(ctx context.Conte
 		})
 	}
 	h.r.OnPacket(ctx,
-		internal_type.InitializeSessionRuntimePacket{ContextID: vl.ContextID, Config: vl.Config},
-		internal_type.InitializeTelemetryPacket{ContextID: vl.ContextID})
+		internal_type.InitializeSessionRuntimePacket{ContextID: vl.ContextID, Config: vl.Config})
 }
 func (h requestorDispatchHandler) HandleInitializeSessionRuntime(ctx context.Context, p internal_type.InitializeSessionRuntimePacket) {
 	recordingExecutor, err := internal_audio_recorder.GetConversationRecordingExecutor(p.ContextID, h.r.OnPacket)
@@ -1603,7 +1697,7 @@ func (h requestorDispatchHandler) HandleInitializeSessionRuntime(ctx context.Con
 		Record:    observability.NewConversationEventRecord(observability.RecordingStarted, nil),
 	})
 	for _, analysis := range h.r.assistant.AssistantAnalyses {
-		exec, err := internal_analysis.NewExecutor(h.r.logger, ctx, analysis, h.r, h.r)
+		exec, err := internal_analysis.NewExecutor(h.r.logger, ctx, analysis, h.r)
 		if err != nil {
 			h.r.OnPacket(ctx, internal_type.InitializationFailedPacket{
 				ContextID: p.ContextID,
@@ -1613,19 +1707,6 @@ func (h requestorDispatchHandler) HandleInitializeSessionRuntime(ctx context.Con
 			continue
 		}
 		h.r.assistantAnalyseExecutors = append(h.r.assistantAnalyseExecutors, exec)
-	}
-
-	for _, webhook := range h.r.assistant.AssistantWebhooks {
-		exec, err := internal_webhook.NewExecutor(h.r.logger, ctx, webhook, h.r)
-		if err != nil {
-			h.r.OnPacket(ctx, internal_type.InitializationFailedPacket{
-				ContextID: p.ContextID,
-				Stage:     internal_type.InitializationStageWebhook,
-				Error:     err,
-			})
-			continue
-		}
-		h.r.assistantWebhookExecutors = append(h.r.assistantWebhookExecutors, exec)
 	}
 
 	if h.r.assistant.AssistantAuthentication != nil {
@@ -1661,6 +1742,14 @@ func (h requestorDispatchHandler) HandleInitializeSessionRuntime(ctx context.Con
 
 	// start accepting input as conversation is inilize properly
 	go h.r.runLowDispatcher(h.r.sessionCtx)
+	if h.r.metrics == nil {
+		h.r.metrics = make(map[string]*protos.Metric)
+	}
+	h.r.metrics[type_enums.CONVERSATION_STATUS.String()] = &protos.Metric{
+		Name:        type_enums.CONVERSATION_STATUS.String(),
+		Value:       type_enums.CONVERSATION_IN_PROGRESS.String(),
+		Description: "Conversation is currently in progress",
+	}
 	h.r.OnPacket(ctx,
 		internal_type.ObservabilityMetricRecordPacket{
 			ContextID: p.ContextID,
@@ -1728,20 +1817,18 @@ func (h requestorDispatchHandler) HandleInitializeAuthentication(ctx context.Con
 		return
 	}
 	h.r.OnPacket(ctx,
-		internal_type.ExecuteSessionAuthenticationPacket{
-			ContextID:      p.ContextID,
-			Arguments:      registry.Apply(args, source, variable.ResolveContext{}),
-			Initialization: p.Config,
-		},
 		internal_type.ObservabilityEventRecordPacket{
 			ContextID: p.ContextID,
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
 			Record:    observability.NewConversationEventRecord(observability.ConversationAuthenticationStarted, nil),
 		},
 	)
-}
-func (h requestorDispatchHandler) HandleExecuteSessionAuthentication(ctx context.Context, p internal_type.ExecuteSessionAuthenticationPacket) {
-	if err := h.r.authenticationExecutor.Execute(ctx, p); err != nil {
+	output, err := h.r.authenticationExecutor.Execute(ctx, internal_type.AuthenticationInput{
+		ContextID:      p.ContextID,
+		Arguments:      registry.Apply(args, source, variable.ResolveContext{}),
+		Initialization: p.Config,
+	})
+	if err != nil {
 		h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
 			ContextID: p.ContextID,
 			Scope:     internal_type.ObservabilityRecordScopeConversation,
@@ -1751,14 +1838,28 @@ func (h requestorDispatchHandler) HandleExecuteSessionAuthentication(ctx context
 				Attributes: observability.Attributes{
 					"component":  observability.ComponentConversation.String(),
 					"operation":  "execute_authentication",
-					"packet":     "ExecuteSessionAuthenticationPacket",
+					"packet":     "InitializeAuthenticationPacket",
 					"context_id": p.ContextID,
 					"error":      err.Error(),
 					"error_type": fmt.Sprintf("%T", err),
 				},
 			},
 		})
+		h.r.OnPacket(ctx, internal_type.SessionAuthenticationFailedPacket{
+			ContextID:      p.ContextID,
+			Error:          fmt.Errorf("authentication: execution failed: %w", err),
+			Initialization: p.Config,
+		})
+		return
 	}
+	h.r.OnPacket(ctx, internal_type.SessionAuthenticationSucceededPacket{
+		ContextID:      p.ContextID,
+		Authenticated:  output.Authenticated,
+		Arguments:      output.Arguments,
+		Metadata:       output.Metadata,
+		Options:        output.Options,
+		Initialization: p.Config,
+	})
 }
 func (h requestorDispatchHandler) HandleSessionAuthenticationSucceeded(ctx context.Context, p internal_type.SessionAuthenticationSucceededPacket) {
 	if p.Authenticated {
@@ -2515,8 +2616,20 @@ func (h requestorDispatchHandler) HandleInitializationCompleted(ctx context.Cont
 	h.r.OnPacket(ctx, internal_type.InitializeInboundDispatcherPacket{ContextID: p.ContextID})
 
 	event := utils.ConversationResume
+	webhookEvent := observability.ConversationResume
+	webhookData := map[string]interface{}{
+		"source":        fmt.Sprintf("%v", h.r.source),
+		"identifier":    h.r.identifier(p.Config),
+		"message_count": fmt.Sprintf("%d", len(h.r.GetHistories())),
+	}
 	if p.Config.GetAssistantConversationId() == 0 {
 		event = utils.ConversationBegin
+		webhookEvent = observability.ConversationBegin
+		webhookData = map[string]interface{}{
+			"source":     fmt.Sprintf("%v", h.r.source),
+			"is_new":     "true",
+			"identifier": h.r.identifier(p.Config),
+		}
 	}
 	h.r.OnPacket(ctx, internal_type.ObservabilityEventRecordPacket{
 		ContextID: p.ContextID,
@@ -2525,36 +2638,24 @@ func (h requestorDispatchHandler) HandleInitializationCompleted(ctx context.Cont
 			"event": event.Get(),
 			"mode":  h.r.GetMode().String(),
 		}),
-	}, internal_type.ExecuteWebhookPacket{
+	}, internal_type.ObservabilityWebhookRecordPacket{
 		ContextID: p.ContextID,
-		Event:     event,
+		Scope:     internal_type.ObservabilityRecordScopeConversation,
+		Record: observability.RecordWebhook{
+			Event: webhookEvent,
+			Payload: map[string]interface{}{
+				"event": webhookEvent.String(),
+				"assistant": map[string]interface{}{
+					"id": h.r.assistant.Id,
+				},
+				"conversation": map[string]interface{}{
+					"id": h.r.assistantConversation.Id,
+				},
+				"data": webhookData,
+			},
+		},
 	})
 
-}
-
-func (h requestorDispatchHandler) HandleInitializeTelemetry(ctx context.Context, p internal_type.InitializeTelemetryPacket) {
-	configuredCollectors := make([]observability.Collector, 0)
-
-	// Platform telemetry collectors attach configured assistant/webhook sinks and the conversation DB sink.
-	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantTelemetry(ctx, h.r.logger, h.r.assistant.AssistantTelemetryProviders)...)
-
-	// adding webhook collectors
-	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantWebhook(h.r.logger, h.r.assistant.AssistantWebhooks)...)
-
-	// adding conversationdb collector
-	configuredCollectors = append(configuredCollectors, observability_collector_conversationdb.New(observability_collector_conversationdb.Config{
-		Logger:              h.r.logger,
-		ConversationService: h.r.conversationService,
-	}))
-
-	if err := h.r.observabilityRecorder.AddCollectors(configuredCollectors...); err != nil {
-		h.r.logger.Error(
-			"platform observability collector registration failed",
-			"component", "platform",
-			"operation", "initialize_observability_collectors",
-			"error", err,
-		)
-	}
 }
 
 func (h requestorDispatchHandler) HandleInitializeInboundDispatcher(ctx context.Context, p internal_type.InitializeInboundDispatcherPacket) {
@@ -2721,20 +2822,154 @@ func (h requestorDispatchHandler) HandleFinalizeSessionRuntime(ctx context.Conte
 		})
 	}
 	closeGroup.Wait()
-	h.r.OnPacket(ctx,
-		internal_type.ExecuteAnalysisPacket{
-			ContextID:      p.ContextID,
-			ConversationID: h.r.assistantConversation.Id,
-			Auth:           h.r.auth,
-		},
-		internal_type.ExecuteWebhookPacket{
-			ContextID: p.ContextID,
-			Event:     utils.ConversationCompleted,
-		},
-		internal_type.FinalizeConversationPacket{ContextID: p.ContextID})
+	h.r.OnPacket(ctx, internal_type.FinalizeConversationPacket{ContextID: p.ContextID})
 
 }
 func (h requestorDispatchHandler) HandleFinalizeConversation(ctx context.Context, p internal_type.FinalizeConversationPacket) {
+	if len(h.r.assistantAnalyseExecutors) > 0 {
+		conversationID := uint64(0)
+		if h.r.Conversation() != nil {
+			conversationID = h.r.Conversation().Id
+		}
+		source := variable.NewCommunicationSource(h.r)
+		registry := internal_namespace.NewDefaultRegistry().With("event", &internal_namespace.EventNamespace{})
+		for _, initializedAnalysis := range h.r.assistantAnalyseExecutors {
+			if h.r.IsConditionAllowed(initializedAnalysis.Options(), "analysis.condition") {
+				arguments, err := initializedAnalysis.Arguments()
+				if err != nil {
+					h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+						ContextID: p.ContextID,
+						Scope:     internal_type.ObservabilityRecordScopeConversation,
+						Record: observability.RecordLog{
+							Level:   observability.LevelError,
+							Message: "Analysis argument resolution failed; analysis cannot run",
+							Attributes: observability.Attributes{
+								"component":  observability.ComponentConversation.String(),
+								"operation":  "build_analysis_arguments",
+								"packet":     "FinalizeConversationPacket",
+								"context_id": p.ContextID,
+								"name":       initializedAnalysis.Name(),
+								"event":      utils.ConversationCompleted.Get(),
+								"error":      err.Error(),
+								"error_type": fmt.Sprintf("%T", err),
+							},
+						},
+					})
+					continue
+				}
+				input := internal_type.AnalysisInput{
+					ContextID:      p.ContextID,
+					Arguments:      registry.Apply(arguments, source, variable.ResolveContext{Event: utils.ConversationCompleted.Get()}),
+					ConversationID: conversationID,
+					Auth:           h.r.auth,
+				}
+				output, err := initializedAnalysis.Execute(ctx, input)
+				if err != nil {
+					h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+						ContextID: p.ContextID,
+						Scope:     internal_type.ObservabilityRecordScopeConversation,
+						Record: observability.RecordLog{
+							Level:   observability.LevelError,
+							Message: "Analysis execution failed; post-call analysis may be missing",
+							Attributes: observability.Attributes{
+								"component":  observability.ComponentConversation.String(),
+								"operation":  "execute_analysis",
+								"packet":     "FinalizeConversationPacket",
+								"context_id": p.ContextID,
+								"name":       initializedAnalysis.Name(),
+								"event":      utils.ConversationCompleted.Get(),
+								"error":      err.Error(),
+								"error_type": fmt.Sprintf("%T", err),
+							},
+						},
+					})
+					continue
+				}
+				metadata := output.Metadata
+				if metadata != nil && metadata.GetKey() != "" {
+					if h.r.metadata == nil {
+						h.r.metadata = make(map[string]interface{})
+					}
+					h.r.metadata[metadata.GetKey()] = metadata.GetValue()
+					metadataContextID := p.ContextID
+					if conversationID != 0 {
+						metadataContextID = fmt.Sprintf("%d", conversationID)
+					}
+					h.r.OnPacket(ctx, internal_type.ObservabilityMetadataRecordPacket{
+						ContextID: metadataContextID,
+						Scope:     internal_type.ObservabilityRecordScopeConversation,
+						Record:    observability.NewConversationMetadataRecord([]*protos.Metadata{metadata}),
+					})
+				}
+			}
+		}
+	}
+	if h.r.metrics == nil {
+		h.r.metrics = make(map[string]*protos.Metric)
+	}
+	h.r.metrics[type_enums.CONVERSATION_STATUS.String()] = &protos.Metric{
+		Name:        type_enums.CONVERSATION_STATUS.String(),
+		Value:       type_enums.CONVERSATION_COMPLETE.String(),
+		Description: "Status of current conversation",
+	}
+	if h.r.observabilityRecorder != nil && h.r.Assistant() != nil && h.r.Conversation() != nil {
+		assistantPayload := map[string]interface{}{
+			"id": h.r.Assistant().Id,
+		}
+		messagesPayload := make([]map[string]interface{}, 0, len(h.r.GetHistories()))
+		for _, message := range h.r.GetHistories() {
+			if message == nil {
+				continue
+			}
+			messagesPayload = append(messagesPayload, map[string]interface{}{
+				"id":      message.ContextId(),
+				"role":    message.Role(),
+				"content": message.Content(),
+			})
+		}
+		metadataPayload := make(map[string]interface{}, len(h.r.metadata))
+		for key, value := range h.r.metadata {
+			metadataPayload[key] = value
+		}
+		metricsPayload := make([]map[string]interface{}, 0, len(h.r.metrics))
+		for _, metric := range h.r.metrics {
+			if metric == nil {
+				continue
+			}
+			metricsPayload = append(metricsPayload, map[string]interface{}{
+				"name":        metric.GetName(),
+				"value":       metric.GetValue(),
+				"description": metric.GetDescription(),
+			})
+		}
+		if err := h.r.observabilityRecorder.Record(ctx, observability.ConversationScope{
+			AssistantScope: observability.AssistantScope{
+				AssistantID: h.r.Assistant().Id,
+			},
+			ConversationID: h.r.Conversation().Id,
+		}, observability.RecordWebhook{
+			Event:     observability.ConversationCompleted,
+			ContextID: p.ContextID,
+			Payload: map[string]interface{}{
+				"event":     observability.ConversationCompleted.String(),
+				"assistant": assistantPayload,
+				"conversation": map[string]interface{}{
+					"id": h.r.Conversation().Id,
+				},
+				"data": map[string]interface{}{
+					"reason":   "conversation_completed",
+					"status":   "completed",
+					"messages": messagesPayload,
+					"metadata": metadataPayload,
+					"metrics":  metricsPayload,
+				},
+			},
+		}); err != nil {
+			h.r.logger.Errorw("observability completed webhook failed to record", "error", err, "context_id", p.ContextID)
+		}
+	}
+
+	// running analysis to close
 	for _, analysis := range h.r.assistantAnalyseExecutors {
 		if err := analysis.Close(ctx); err != nil {
 			h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
@@ -2756,27 +2991,8 @@ func (h requestorDispatchHandler) HandleFinalizeConversation(ctx context.Context
 			})
 		}
 	}
-	for _, webhook := range h.r.assistantWebhookExecutors {
-		if err := webhook.Close(ctx); err != nil {
-			h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-				ContextID: p.ContextID,
-				Scope:     internal_type.ObservabilityRecordScopeConversation,
-				Record: observability.RecordLog{
-					Level:   observability.LevelError,
-					Message: "Webhook executor close failed; shutdown may leave resources open",
-					Attributes: observability.Attributes{
-						"component":  observability.ComponentWebhook.String(),
-						"operation":  "finalize",
-						"packet":     "FinalizeConversationPacket",
-						"context_id": p.ContextID,
-						"name":       webhook.Name(),
-						"error":      err.Error(),
-						"error_type": fmt.Sprintf("%T", err),
-					},
-				},
-			})
-		}
-	}
+
+	// assistant executor cleanup
 	if h.r.authenticationExecutor != nil {
 		if err := h.r.authenticationExecutor.Close(ctx); err != nil {
 			h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
@@ -2797,6 +3013,8 @@ func (h requestorDispatchHandler) HandleFinalizeConversation(ctx context.Context
 			})
 		}
 	}
+
+	// trigger finalize
 	h.r.OnPacket(ctx, internal_type.FinalizeAssistantPacket{ContextID: p.ContextID})
 }
 func (h requestorDispatchHandler) HandleFinalizeAssistant(ctx context.Context, p internal_type.FinalizeAssistantPacket) {
@@ -2826,117 +3044,6 @@ func (h requestorDispatchHandler) HandleFinalizeAssistant(ctx context.Context, p
 func (h requestorDispatchHandler) HandleFinalizationCompleted(ctx context.Context, p internal_type.FinalizationCompletedPacket) {
 	_ = h.r.sessionLifecycle.Transition(adapter_lifecycle.EventDisconnectCompleted)
 	h.r.cancelSession()
-}
-
-func (h requestorDispatchHandler) HandleExecuteAnalysis(ctx context.Context, p internal_type.ExecuteAnalysisPacket) {
-	if len(h.r.assistantAnalyseExecutors) == 0 {
-		return
-	}
-	source := variable.NewCommunicationSource(h.r)
-	registry := internal_namespace.NewDefaultRegistry().With("event", &internal_namespace.EventNamespace{})
-	for _, initializedAnalysis := range h.r.assistantAnalyseExecutors {
-		if h.r.IsConditionAllowed(initializedAnalysis.Options(), "analysis.condition") {
-			arguments, err := initializedAnalysis.Arguments()
-			if err != nil {
-				h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-					ContextID: p.ContextID,
-					Scope:     internal_type.ObservabilityRecordScopeConversation,
-					Record: observability.RecordLog{
-						Level:   observability.LevelError,
-						Message: "Analysis argument resolution failed; analysis cannot run",
-						Attributes: observability.Attributes{
-							"component":  observability.ComponentConversation.String(),
-							"operation":  "build_analysis_arguments",
-							"packet":     "ExecuteAnalysisPacket",
-							"context_id": p.ContextID,
-							"name":       initializedAnalysis.Name(),
-							"event":      utils.ConversationCompleted.Get(),
-							"error":      err.Error(),
-							"error_type": fmt.Sprintf("%T", err),
-						},
-					},
-				})
-				continue
-			}
-			p.Arguments = registry.Apply(arguments, source, variable.ResolveContext{Event: utils.ConversationCompleted.Get()})
-			if err := initializedAnalysis.Execute(ctx, p); err != nil {
-				h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-					ContextID: p.ContextID,
-					Scope:     internal_type.ObservabilityRecordScopeConversation,
-					Record: observability.RecordLog{
-						Level:   observability.LevelError,
-						Message: "Analysis execution failed; post-call analysis may be missing",
-						Attributes: observability.Attributes{
-							"component":  observability.ComponentConversation.String(),
-							"operation":  "execute_analysis",
-							"packet":     "ExecuteAnalysisPacket",
-							"context_id": p.ContextID,
-							"name":       initializedAnalysis.Name(),
-							"event":      utils.ConversationCompleted.Get(),
-							"error":      err.Error(),
-							"error_type": fmt.Sprintf("%T", err),
-						},
-					},
-				})
-			}
-		}
-
-	}
-}
-
-func (h requestorDispatchHandler) HandleExecuteWebhook(ctx context.Context, p internal_type.ExecuteWebhookPacket) {
-	if len(h.r.assistantWebhookExecutors) == 0 {
-		return
-	}
-	source := variable.NewCommunicationSource(h.r)
-	registry := internal_namespace.NewDefaultRegistry().With("event", &internal_namespace.EventNamespace{})
-	for _, initializedWebhook := range h.r.assistantWebhookExecutors {
-		if h.r.IsConditionAllowed(initializedWebhook.Options(), "webhook.condition") {
-			arguments, err := initializedWebhook.Arguments()
-			if err != nil {
-				h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-					ContextID: p.ContextID,
-					Scope:     internal_type.ObservabilityRecordScopeConversation,
-					Record: observability.RecordLog{
-						Level:   observability.LevelError,
-						Message: "Webhook argument resolution failed; webhook cannot run",
-						Attributes: observability.Attributes{
-							"component":  observability.ComponentWebhook.String(),
-							"operation":  "build_webhook_arguments",
-							"packet":     "ExecuteWebhookPacket",
-							"context_id": p.ContextID,
-							"webhook_id": initializedWebhook.Name(),
-							"event":      p.Event.Get(),
-							"error":      err.Error(),
-							"error_type": fmt.Sprintf("%T", err),
-						},
-					},
-				})
-				continue
-			}
-			p.Arguments = registry.Apply(arguments, source, variable.ResolveContext{Event: p.Event.Get()})
-			if err := initializedWebhook.Execute(ctx, p); err != nil {
-				h.r.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
-					ContextID: p.ContextID,
-					Scope:     internal_type.ObservabilityRecordScopeConversation,
-					Record: observability.RecordLog{
-						Level:   observability.LevelError,
-						Message: "Webhook execution failed; external callback did not complete",
-						Attributes: observability.Attributes{
-							"component":  observability.ComponentWebhook.String(),
-							"operation":  "execute_webhook",
-							"packet":     "ExecuteWebhookPacket",
-							"context_id": p.ContextID,
-							"webhook_id": initializedWebhook.Name(),
-							"event":      p.Event.Get(),
-							"error":      err.Error(),
-							"error_type": fmt.Sprintf("%T", err),
-						},
-					},
-				})
-			}
-		}
-	}
 }
 
 func (h requestorDispatchHandler) callInputNormalizer(ctx context.Context, vl internal_type.EndOfSpeechPacket) error {

@@ -182,6 +182,13 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 		startTime := time.Now()
 		reason := "talk_completed"
 		status := observability.MetricCallStatusComplete
+		contextID := v.Session.GetContextID()
+		if contextID == "" && setup.CallContext != nil {
+			contextID = setup.CallContext.ContextID
+		}
+		if contextID == "" {
+			contextID = v.ID
+		}
 		scope := observability.ConversationScope{
 			AssistantScope: observability.AssistantScope{AssistantID: setup.AssistantID},
 			ConversationID: setup.ConversationID,
@@ -198,6 +205,25 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 					"call_id":   v.ID,
 				},
 			},
+			observability.RecordWebhook{
+				Event:     observability.CallStarted,
+				ContextID: contextID,
+				Payload: map[string]interface{}{
+					"event": observability.CallStarted.String(),
+					"assistant": map[string]interface{}{
+						"id": setup.AssistantID,
+					},
+					"conversation": map[string]interface{}{
+						"id": setup.ConversationID,
+					},
+					"data": map[string]interface{}{
+						"context_id": contextID,
+						"provider":   "sip",
+						"direction":  string(v.Direction),
+						"call_id":    v.ID,
+					},
+				},
+			},
 			observability.RecordMetric{
 				Metrics: []*protos.Metric{{
 					Name:        observability.MetricCallStatus,
@@ -207,14 +233,11 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 			},
 		)
 		defer func() {
-			var panicRecord observability.RecordLog
-			hasPanic := false
 			if r := recover(); r != nil {
 				reason = fmt.Sprintf("panic: %v", r)
 				status = observability.MetricCallStatusFailed
 				d.logger.Error("Pipeline: onCallStart panicked", "call_id", v.ID, "panic", r)
-				hasPanic = true
-				panicRecord = observability.RecordLog{
+				_ = observer.Record(ctx, scope, observability.RecordLog{
 					Level:   observability.LevelError,
 					Message: "SIP pipeline call start panicked",
 					Attributes: observability.Attributes{
@@ -223,7 +246,7 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 						"call_id":   v.ID,
 						"panic":     fmt.Sprintf("%v", r),
 					},
-				}
+				})
 			}
 
 			durationMs := time.Since(startTime).Milliseconds()
@@ -231,34 +254,52 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 			if status == observability.MetricCallStatusFailed {
 				event = observability.CallFailed
 			}
-			eventRecord := observability.RecordEvent{
-				Component: observability.ComponentCall,
-				Event:     event,
-				Attributes: observability.Attributes{
-					"provider":    "sip",
-					"direction":   string(v.Direction),
-					"call_id":     v.ID,
-					"reason":      reason,
-					"status":      status,
-					"duration_ms": fmt.Sprintf("%d", durationMs),
+			_ = observer.Record(ctx, scope,
+				observability.RecordEvent{
+					Component: observability.ComponentCall,
+					Event:     event,
+					Attributes: observability.Attributes{
+						"provider":    "sip",
+						"direction":   string(v.Direction),
+						"call_id":     v.ID,
+						"reason":      reason,
+						"status":      status,
+						"duration_ms": fmt.Sprintf("%d", durationMs),
+					},
 				},
-			}
-			metricRecord := observability.RecordMetric{
-				Metrics: []*protos.Metric{{
-					Name:        observability.MetricCallStatus,
-					Value:       status,
-					Description: reason,
-				}, {
-					Name:        observability.MetricCallDurationMs,
-					Value:       fmt.Sprintf("%d", durationMs),
-					Description: "SIP call duration in milliseconds",
-				}},
-			}
-			if hasPanic {
-				_ = observer.Record(ctx, scope, panicRecord, eventRecord, metricRecord)
-			} else {
-				_ = observer.Record(ctx, scope, eventRecord, metricRecord)
-			}
+				observability.RecordWebhook{
+					Event:     event,
+					ContextID: contextID,
+					Payload: map[string]interface{}{
+						"event": event.String(),
+						"assistant": map[string]interface{}{
+							"id": setup.AssistantID,
+						},
+						"conversation": map[string]interface{}{
+							"id": setup.ConversationID,
+						},
+						"data": map[string]interface{}{
+							"context_id":  contextID,
+							"provider":    "sip",
+							"direction":   string(v.Direction),
+							"call_id":     v.ID,
+							"reason":      reason,
+							"status":      status,
+							"duration_ms": durationMs,
+						},
+					},
+				},
+				observability.RecordMetric{
+					Metrics: []*protos.Metric{{
+						Name:        observability.MetricCallStatus,
+						Value:       status,
+						Description: reason,
+					}, {
+						Name:        observability.MetricCallDurationMs,
+						Value:       fmt.Sprintf("%d", durationMs),
+						Description: "SIP call duration in milliseconds",
+					}},
+				})
 			_ = observer.Close(ctx)
 			d.endCall(v.Session, sip_infra.LifecycleReasonPipelineCallEnd)
 			d.OnPipeline(ctx, sip_infra.CallEndedPipeline{

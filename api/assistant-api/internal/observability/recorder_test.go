@@ -18,18 +18,20 @@ import (
 )
 
 type recordingCollector struct {
-	key        string
-	contexts   []Context
-	scopes     []Scope
-	logs       []RecordLog
-	events     []RecordEvent
-	metrics    []RecordMetric
-	metadata   []RecordMetadata
-	usage      []RecordUsage
-	webhooks   []RecordWebhook
-	collectErr error
-	closeErr   error
-	closed     bool
+	key         string
+	contexts    []Context
+	scopes      []Scope
+	logs        []RecordLog
+	events      []RecordEvent
+	metrics     []RecordMetric
+	metadata    []RecordMetadata
+	usage       []RecordUsage
+	webhooks    []RecordWebhook
+	toolLogs    []RecordToolLog
+	requestLogs []RecordRequestLog
+	collectErr  error
+	closeErr    error
+	closed      bool
 }
 
 func (c *recordingCollector) Key() string {
@@ -52,6 +54,10 @@ func (c *recordingCollector) Collect(_ context.Context, scope Scope, observation
 		c.usage = append(c.usage, typed)
 	case RecordWebhook:
 		c.webhooks = append(c.webhooks, typed)
+	case RecordToolLog:
+		c.toolLogs = append(c.toolLogs, typed)
+	case RecordRequestLog:
+		c.requestLogs = append(c.requestLogs, typed)
 	}
 	return c.collectErr
 }
@@ -483,6 +489,113 @@ func TestRecorder_RecordVariadicRecords_AllCollected(t *testing.T) {
 	}
 }
 
+func TestRecorder_RecordSnapshotsMutablePayloads(t *testing.T) {
+	collector := &recordingCollector{key: "collector"}
+	recorder := New()
+	scope := ConversationScope{
+		AssistantScope: AssistantScope{AssistantID: 10},
+		ConversationID: 20,
+	}
+	metric := &protos.Metric{Name: MetricConversationDuration, Value: "1000", Description: "before"}
+	metadata := &protos.Metadata{Key: MetadataLanguage, Value: "en"}
+	webhookNestedPayload := map[string]interface{}{"value": "before"}
+	webhookListPayload := []interface{}{map[string]interface{}{"value": "before"}}
+	webhookBytesPayload := []byte("before")
+	webhookPayload := map[string]interface{}{
+		"status": "before",
+		"nested": webhookNestedPayload,
+		"list":   webhookListPayload,
+		"bytes":  webhookBytesPayload,
+	}
+	toolRequestPayload := []byte("tool-request-before")
+	toolResponsePayload := []byte("tool-response-before")
+	requestLogError := "request-log-before"
+	requestLogRequestPayload := []byte("request-log-request-before")
+	requestLogResponsePayload := []byte("request-log-response-before")
+
+	if err := recorder.Record(context.Background(), scope,
+		RecordMetric{Metrics: []*protos.Metric{metric}},
+		RecordMetadata{Metadata: []*protos.Metadata{metadata}},
+		RecordWebhook{Event: CallRinging, Payload: webhookPayload},
+		RecordToolLog{
+			Operation:       ToolLogOperationCreate,
+			ToolCallID:      "tool-1",
+			ToolName:        "lookup",
+			Status:          "in_progress",
+			RequestPayload:  toolRequestPayload,
+			ResponsePayload: toolResponsePayload,
+		},
+		RecordRequestLog{
+			Source:          "webhook",
+			SourceEvent:     CallRinging.String(),
+			ContextID:       "ctx-1",
+			Status:          "complete",
+			ErrorMessage:    &requestLogError,
+			RequestPayload:  requestLogRequestPayload,
+			ResponsePayload: requestLogResponsePayload,
+		},
+	); err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+
+	metric.Value = "2000"
+	metric.Description = "after"
+	metadata.Value = "fr"
+	webhookPayload["status"] = "after"
+	webhookNestedPayload["value"] = "after"
+	webhookListPayload[0].(map[string]interface{})["value"] = "after"
+	webhookBytesPayload[0] = 'x'
+	toolRequestPayload[0] = 'x'
+	toolResponsePayload[0] = 'x'
+	requestLogError = "request-log-after"
+	requestLogRequestPayload[0] = 'x'
+	requestLogResponsePayload[0] = 'x'
+
+	if err := recorder.AddCollectors(collector); err != nil {
+		t.Fatalf("AddCollectors returned error: %v", err)
+	}
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
+
+	if got := collector.metrics[0].Metrics[0]; got.GetValue() != "1000" || got.GetDescription() != "before" {
+		t.Fatalf("metric was not snapshotted: %+v", got)
+	}
+	if got := collector.metadata[0].Metadata[0]; got.GetValue() != "en" {
+		t.Fatalf("metadata was not snapshotted: %+v", got)
+	}
+	if got := collector.webhooks[0].Payload["status"]; got != "before" {
+		t.Fatalf("webhook payload was not snapshotted: %v", got)
+	}
+	if got := collector.webhooks[0].Payload["nested"].(map[string]interface{})["value"]; got != "before" {
+		t.Fatalf("webhook nested payload was not snapshotted: %v", got)
+	}
+	if got := collector.webhooks[0].Payload["list"].([]interface{})[0].(map[string]interface{})["value"]; got != "before" {
+		t.Fatalf("webhook list payload was not snapshotted: %v", got)
+	}
+	if got := string(collector.webhooks[0].Payload["bytes"].([]byte)); got != "before" {
+		t.Fatalf("webhook bytes payload was not snapshotted: %s", got)
+	}
+	if got := string(collector.toolLogs[0].RequestPayload); got != "tool-request-before" {
+		t.Fatalf("tool request payload was not snapshotted: %s", got)
+	}
+	if got := string(collector.toolLogs[0].ResponsePayload); got != "tool-response-before" {
+		t.Fatalf("tool response payload was not snapshotted: %s", got)
+	}
+	if got := *collector.requestLogs[0].ErrorMessage; got != "request-log-before" {
+		t.Fatalf("request log error was not snapshotted: %s", got)
+	}
+	if got := string(collector.requestLogs[0].RequestPayload); got != "request-log-request-before" {
+		t.Fatalf("request log request payload was not snapshotted: %s", got)
+	}
+	if got := string(collector.requestLogs[0].ResponsePayload); got != "request-log-response-before" {
+		t.Fatalf("request log response payload was not snapshotted: %s", got)
+	}
+}
+
 func TestRecorder_NewDoesNotWaitForCollectorRegistration(t *testing.T) {
 	collector := &blockingKeyCollector{
 		key:     "collector",
@@ -575,6 +688,76 @@ func TestRecorder_RecordDoesNotWaitForCollectorCollect(t *testing.T) {
 	}
 }
 
+func TestRecorder_AddCollectors_ReplaysBufferedRecords(t *testing.T) {
+	collector := &recordingCollector{key: "collector"}
+	recorder := New()
+
+	err := recorder.Record(context.Background(), ConversationScope{
+		AssistantScope: AssistantScope{AssistantID: 10},
+		ConversationID: 20,
+	}, RecordEvent{
+		Component: ComponentConversation,
+		Event:     ConversationInitializing,
+	})
+	if err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+	if err := recorder.AddCollectors(collector); err != nil {
+		t.Fatalf("AddCollectors returned error: %v", err)
+	}
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
+	if len(collector.events) != 1 {
+		t.Fatalf("expected replayed event, got %d", len(collector.events))
+	}
+}
+
+func TestRecorder_CollectorWorkersDoNotBlockEachOther(t *testing.T) {
+	blocked := &blockingCollector{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	fast := &recordingCollector{key: "fast"}
+	recorder := New(WithCollectors(blocked, fast))
+
+	if err := recorder.Record(context.Background(), ConversationScope{
+		AssistantScope: AssistantScope{AssistantID: 10},
+		ConversationID: 20,
+	}, RecordEvent{
+		Component: ComponentConversation,
+		Event:     ConversationInitializing,
+	}); err != nil {
+		t.Fatalf("Record returned error: %v", err)
+	}
+
+	select {
+	case <-blocked.started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for blocking collector")
+	}
+	deadline := time.After(time.Second)
+	for len(fast.events) == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("fast collector did not receive event while slow collector was blocked")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	close(blocked.release)
+	if err := recorder.Close(context.Background()); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := waitForRecorderDone(t, recorder); err != nil {
+		t.Fatalf("recorder close returned error: %v", err)
+	}
+}
+
 func TestRecorder_CloseGraceAcceptsLateRecords(t *testing.T) {
 	collector := &recordingCollector{key: "collector"}
 	observabilityRecorder := New(WithGracePeriod(), WithCollector(collector))
@@ -656,7 +839,8 @@ func TestRecorder_WithGracePeriodUsesConfiguredGracePeriod(t *testing.T) {
 }
 
 func TestRecorder_Record_ReturnsBufferFullWhenOperationQueueIsFull(t *testing.T) {
-	blocked := &blockingCollector{
+	blocked := &blockingKeyCollector{
+		key:     "collector",
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
@@ -669,9 +853,6 @@ func TestRecorder_Record_ReturnsBufferFullWhenOperationQueueIsFull(t *testing.T)
 		Metrics: []*protos.Metric{{Name: MetricConversationDuration, Value: "1"}},
 	}
 
-	if err := recorder.Record(context.Background(), scope, record); err != nil {
-		t.Fatalf("first record failed: %v", err)
-	}
 	<-blocked.started
 
 	for recordIndex := 0; recordIndex < recorderQueueSize; recordIndex++ {

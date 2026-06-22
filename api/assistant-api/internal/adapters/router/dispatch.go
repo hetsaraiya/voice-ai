@@ -58,7 +58,6 @@ type DispatchHandler interface {
 	HandleInitializeConversation(context.Context, internal_type.InitializeConversationPacket)
 	HandleInitializeSessionRuntime(context.Context, internal_type.InitializeSessionRuntimePacket)
 	HandleInitializeAuthentication(context.Context, internal_type.InitializeAuthenticationPacket)
-	HandleExecuteSessionAuthentication(context.Context, internal_type.ExecuteSessionAuthenticationPacket)
 	HandleSessionAuthenticationSucceeded(context.Context, internal_type.SessionAuthenticationSucceededPacket)
 	HandleInitializeSpeechToText(context.Context, internal_type.InitializeSpeechToTextPacket)
 	HandleInitializeTextToSpeech(context.Context, internal_type.InitializeTextToSpeechPacket)
@@ -68,7 +67,6 @@ type DispatchHandler interface {
 	HandleInitializeAssistantExecutorPacket(context.Context, internal_type.InitializeAssistantExecutorPacket)
 	HandleInitializeBehavior(context.Context, internal_type.InitializeBehaviorPacket)
 	HandleInitializationCompleted(context.Context, internal_type.InitializationCompletedPacket)
-	HandleInitializeTelemetry(context.Context, internal_type.InitializeTelemetryPacket)
 	HandleInitializeInboundDispatcher(context.Context, internal_type.InitializeInboundDispatcherPacket)
 	HandleModeSwitchRequested(context.Context, internal_type.ModeSwitchRequestedPacket)
 	HandleModeSwitchCompleted(context.Context, internal_type.ModeSwitchCompletedPacket)
@@ -92,8 +90,6 @@ type DispatchHandler interface {
 	HandleFinalizeConversation(context.Context, internal_type.FinalizeConversationPacket)
 	HandleFinalizeAssistant(context.Context, internal_type.FinalizeAssistantPacket)
 	HandleFinalizationCompleted(context.Context, internal_type.FinalizationCompletedPacket)
-	HandleExecuteAnalysis(context.Context, internal_type.ExecuteAnalysisPacket)
-	HandleExecuteWebhook(context.Context, internal_type.ExecuteWebhookPacket)
 	HandleObservabilityRecordPacket(context.Context, internal_type.ObservabilityRecordPacket)
 }
 
@@ -190,8 +186,6 @@ func DispatchPacket(ctx context.Context, p internal_type.Packet, handler Dispatc
 		handler.HandleInitializeAuthentication(ctx, vl)
 	case internal_type.InitializeAssistantExecutorPacket:
 		handler.HandleInitializeAssistantExecutorPacket(ctx, vl)
-	case internal_type.ExecuteSessionAuthenticationPacket:
-		handler.HandleExecuteSessionAuthentication(ctx, vl)
 	case internal_type.SessionAuthenticationSucceededPacket:
 		handler.HandleSessionAuthenticationSucceeded(ctx, vl)
 	case internal_type.InitializeSpeechToTextPacket:
@@ -206,8 +200,6 @@ func DispatchPacket(ctx context.Context, p internal_type.Packet, handler Dispatc
 		handler.HandleInitializeBehavior(ctx, vl)
 	case internal_type.InitializationCompletedPacket:
 		handler.HandleInitializationCompleted(ctx, vl)
-	case internal_type.InitializeTelemetryPacket:
-		handler.HandleInitializeTelemetry(ctx, vl)
 	case internal_type.InitializeInboundDispatcherPacket:
 		handler.HandleInitializeInboundDispatcher(ctx, vl)
 	case internal_type.ModeSwitchRequestedPacket:
@@ -254,10 +246,6 @@ func DispatchPacket(ctx context.Context, p internal_type.Packet, handler Dispatc
 		handler.HandleFinalizeAssistant(ctx, vl)
 	case internal_type.FinalizationCompletedPacket:
 		handler.HandleFinalizationCompleted(ctx, vl)
-	case internal_type.ExecuteAnalysisPacket:
-		handler.HandleExecuteAnalysis(ctx, vl)
-	case internal_type.ExecuteWebhookPacket:
-		handler.HandleExecuteWebhook(ctx, vl)
 	case internal_type.ObservabilityRecordPacket:
 		handler.HandleObservabilityRecordPacket(ctx, vl)
 	case internal_type.EndOfSpeechInterruptionPacket:

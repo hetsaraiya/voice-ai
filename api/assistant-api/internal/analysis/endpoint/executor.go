@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/rapidaai/api/assistant-api/internal/observability"
 
 	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
@@ -29,7 +28,6 @@ const (
 
 type runtimeExecutor struct {
 	logger       commons.Logger
-	callback     internal_type.Callback
 	caller       internal_type.InternalCaller
 	analysis     *internal_assistant_entity.AssistantAnalysis
 	inputBuilder endpoint_client_builders.InputInvokeBuilder
@@ -40,12 +38,10 @@ func NewExecutor(
 	logger commons.Logger,
 	_ context.Context,
 	analysis *internal_assistant_entity.AssistantAnalysis,
-	callback internal_type.Callback,
 	caller internal_type.InternalCaller,
 ) (internal_type.AnalysisExecutor, error) {
 	return &runtimeExecutor{
 		logger:       logger,
-		callback:     callback,
 		caller:       caller,
 		analysis:     analysis,
 		inputBuilder: endpoint_client_builders.NewInputInvokeBuilder(logger),
@@ -72,34 +68,34 @@ func (e *runtimeExecutor) GetEndpointVersion() (string, error) {
 	return e.analysis.GetOptions().GetString(AnalysisOptionEndpointVersionKey)
 }
 
-// Execute runs one analysis and pushes metadata via callback packet.
-func (e *runtimeExecutor) Execute(ctx context.Context, packet internal_type.ExecuteAnalysisPacket) error {
+// Execute runs one analysis and returns its metadata to the finalization flow.
+func (e *runtimeExecutor) Execute(ctx context.Context, input internal_type.AnalysisInput) (internal_type.AnalysisOutput, error) {
 	endpointID, err := e.GetEndpointId()
 	if err != nil {
-		return fmt.Errorf("failed to get endpoint ID: %w", err)
+		return internal_type.AnalysisOutput{}, fmt.Errorf("failed to get endpoint ID: %w", err)
 	}
 	endpointVersion, err := e.GetEndpointVersion()
 	if err != nil {
-		return fmt.Errorf("failed to get endpoint version: %w", err)
+		return internal_type.AnalysisOutput{}, fmt.Errorf("failed to get endpoint version: %w", err)
 	}
 	response, err := e.caller.DeploymentCaller().Invoke(
 		ctx,
-		packet.Auth,
+		input.Auth,
 		e.inputBuilder.Invoke(
 			&protos.EndpointDefinition{
 				EndpointId: endpointID,
 				Version:    endpointVersion,
 			},
-			e.inputBuilder.Arguments(packet.Arguments, nil),
+			e.inputBuilder.Arguments(input.Arguments, nil),
 			nil,
 			nil,
 		),
 	)
 	if err != nil {
-		return err
+		return internal_type.AnalysisOutput{}, err
 	}
 	if !response.GetSuccess() || len(response.GetData()) == 0 {
-		return fmt.Errorf("empty response from endpoint")
+		return internal_type.AnalysisOutput{}, fmt.Errorf("empty response from endpoint")
 	}
 
 	var parsed map[string]interface{}
@@ -107,26 +103,14 @@ func (e *runtimeExecutor) Execute(ctx context.Context, packet internal_type.Exec
 		parsed = map[string]interface{}{"result": response.GetData()[0]}
 	}
 
-	metadata := map[string]interface{}{
-		fmt.Sprintf("analysis.%s", e.analysis.GetName()): parsed,
-	}
-	metadataList := rapida_types.NewMetadataList(metadata)
-	protoMetadata := make([]*protos.Metadata, 0, len(metadataList))
-	for _, item := range metadataList {
-		protoMetadata = append(protoMetadata, &protos.Metadata{Key: item.Key, Value: item.Value})
-	}
-
-	e.callback.OnPacket(ctx, internal_type.ObservabilityMetadataRecordPacket{
-		ContextID: fmt.Sprintf("%d", packet.ConversationID),
-		Scope:     internal_type.ObservabilityRecordScopeConversation,
-		Record:    observability.NewConversationMetadataRecord(protoMetadata),
-	})
-	return nil
+	metadata := rapida_types.NewMetadata(fmt.Sprintf("analysis.%s", e.analysis.GetName()), parsed)
+	return internal_type.AnalysisOutput{
+		Metadata: &protos.Metadata{Key: metadata.Key, Value: metadata.Value},
+	}, nil
 }
 
 // Close releases executor dependencies.
 func (e *runtimeExecutor) Close(_ context.Context) error {
-	e.callback = nil
 	e.caller = nil
 	return nil
 }

@@ -68,7 +68,6 @@ func TestInitializationFailedPacket_DisconnectFinalization_CancelsSessionContext
 		cancelSession:             cancelSession,
 		channels:                  requestorChannels,
 		assistantAnalyseExecutors: []internal_type.AnalysisExecutor{},
-		assistantWebhookExecutors: []internal_type.WebhookExecutor{},
 	}
 	requestor.assistantConversation.Id = 707
 

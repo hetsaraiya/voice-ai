@@ -8,7 +8,9 @@ package internal_type
 import (
 	"context"
 
+	"github.com/rapidaai/pkg/types"
 	"github.com/rapidaai/pkg/utils"
+	"github.com/rapidaai/protos"
 )
 
 // Executor is the generic contract for session-scoped executors.
@@ -23,22 +25,51 @@ type Executor[P Packet] interface {
 	Close(ctx context.Context) error
 }
 
-// Typed interfaces for each concrete executor. Each embeds the generic Executor
-// so it can extend the contract with executor-specific methods later.
+// SyncExecutor is for session-scoped executors that must return data to the
+// caller before the next packet in the flow can run.
+type SyncExecutor[I any, O any] interface {
+	Name() string
+	Options() utils.Option
+	Arguments() (map[string]string, error)
+	Execute(ctx context.Context, input I) (O, error)
+	Close(ctx context.Context) error
+}
+
+type AnalysisInput struct {
+	ContextID      string
+	Arguments      map[string]interface{}
+	ConversationID uint64
+	Auth           types.SimplePrinciple
+}
+
+type AnalysisOutput struct {
+	Metadata *protos.Metadata
+}
+
+type AuthenticationInput struct {
+	ContextID      string
+	Arguments      map[string]interface{}
+	Initialization *protos.ConversationInitialization
+}
+
+type AuthenticationOutput struct {
+	Authenticated bool
+	Arguments     map[string]interface{}
+	Metadata      map[string]interface{}
+	Options       map[string]interface{}
+}
+
+// Typed interfaces for each concrete executor.
 type LLMExecutor interface {
 	Executor[Packet]
 }
 
 type AnalysisExecutor interface {
-	Executor[ExecuteAnalysisPacket]
-}
-
-type WebhookExecutor interface {
-	Executor[ExecuteWebhookPacket]
+	SyncExecutor[AnalysisInput, AnalysisOutput]
 }
 
 type AuthenticationExecutor interface {
-	Executor[ExecuteSessionAuthenticationPacket]
+	SyncExecutor[AuthenticationInput, AuthenticationOutput]
 }
 
 type EndOfSpeechExecutor interface {

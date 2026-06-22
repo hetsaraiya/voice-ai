@@ -48,6 +48,8 @@ type Dispatcher struct {
 	assistantConfig              *config.AssistantConfig
 	assistantService             internal_services.AssistantService
 	assistantConversationService internal_services.AssistantConversationService
+	webhookService               internal_services.AssistantWebhookService
+	httpLogService               internal_services.AssistantHTTPLogService
 	callContextStore             callcontext.Store
 	postgres                     connectors.PostgresConnector
 	opensearch                   connectors.OpenSearchConnector
@@ -80,6 +82,8 @@ type DispatcherOptions struct {
 	AssistantConfig              *config.AssistantConfig
 	AssistantService             internal_services.AssistantService
 	AssistantConversationService internal_services.AssistantConversationService
+	WebhookService               internal_services.AssistantWebhookService
+	HTTPLogService               internal_services.AssistantHTTPLogService
 	CallContextStore             callcontext.Store
 	Postgres                     connectors.PostgresConnector
 	OpenSearch                   connectors.OpenSearchConnector
@@ -122,6 +126,18 @@ func WithAssistantService(assistantService internal_services.AssistantService) D
 func WithAssistantConversationService(assistantConversationService internal_services.AssistantConversationService) DispatcherOption {
 	return func(options *DispatcherOptions) {
 		options.AssistantConversationService = assistantConversationService
+	}
+}
+
+func WithWebhookService(webhookService internal_services.AssistantWebhookService) DispatcherOption {
+	return func(options *DispatcherOptions) {
+		options.WebhookService = webhookService
+	}
+}
+
+func WithHTTPLogService(httpLogService internal_services.AssistantHTTPLogService) DispatcherOption {
+	return func(options *DispatcherOptions) {
+		options.HTTPLogService = httpLogService
 	}
 }
 
@@ -179,6 +195,8 @@ func New(opts ...DispatcherOption) *Dispatcher {
 		assistantConfig:              options.AssistantConfig,
 		assistantService:             options.AssistantService,
 		assistantConversationService: options.AssistantConversationService,
+		webhookService:               options.WebhookService,
+		httpLogService:               options.HTTPLogService,
 		callContextStore:             options.CallContextStore,
 		postgres:                     options.Postgres,
 		opensearch:                   options.OpenSearch,

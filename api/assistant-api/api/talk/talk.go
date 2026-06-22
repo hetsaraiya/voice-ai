@@ -18,7 +18,8 @@ import (
 	internal_webrtc "github.com/rapidaai/api/assistant-api/internal/channel/webrtc"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
-	observability_collector_conversationdb "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationdb"
+	observability_collector_conversationmetadata "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetadata"
+	observability_collector_conversationmetric "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetric"
 	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
 	internal_assistant_service "github.com/rapidaai/api/assistant-api/internal/services/assistant"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
@@ -46,6 +47,8 @@ type ConversationApi struct {
 	channelPipeline              *channel_pipeline.Dispatcher
 	assistantConversationService internal_services.AssistantConversationService
 	assistantService             internal_services.AssistantService
+	webhookService               internal_services.AssistantWebhookService
+	httpLogService               internal_services.AssistantHTTPLogService
 	vaultClient                  web_client.VaultClient
 	authClient                   web_client.AuthClient
 }
@@ -55,17 +58,23 @@ type ConversationGrpcApi struct {
 }
 
 func (cApi *ConversationApi) Observability(ctx context.Context, auth types.SimplePrinciple, options ...observability.Option) observability.Recorder {
-	otelCollectors := make([]observability.Collector, 0)
-	otelCollectors = append(otelCollectors, observability_collector_conversationdb.New(observability_collector_conversationdb.Config{
-		Logger:              cApi.logger,
-		ConversationService: cApi.assistantConversationService,
-	}))
-	otelCollectors = append(otelCollectors, collectors.NewWithEnv(ctx, cApi.logger, cApi.cfg)...)
+	observabilityCollectors := make([]observability.Collector, 0)
+	observabilityCollectors = append(observabilityCollectors,
+		observability_collector_conversationmetric.New(observability_collector_conversationmetric.Config{
+			Logger:              cApi.logger,
+			ConversationService: cApi.assistantConversationService,
+		}),
+		observability_collector_conversationmetadata.New(observability_collector_conversationmetadata.Config{
+			Logger:              cApi.logger,
+			ConversationService: cApi.assistantConversationService,
+		}),
+	)
+	observabilityCollectors = append(observabilityCollectors, collectors.NewWithEnv(ctx, cApi.logger, cApi.cfg)...)
 	recorderOptions := []observability.Option{
 		observability.WithLogger(cApi.logger),
 		observability.WithAuth(auth),
 		observability.WithContext(ctx),
-		observability.WithCollectors(otelCollectors...),
+		observability.WithCollectors(observabilityCollectors...),
 	}
 	recorderOptions = append(recorderOptions, options...)
 	return observability.New(recorderOptions...)
@@ -84,6 +93,8 @@ func newConversationApiCore(cfg *config.AssistantConfig, logger commons.Logger,
 	assistantService := internal_assistant_service.NewAssistantService(cfg, logger, postgres, opensearch)
 	fileStorage := storage_files.NewStorage(cfg.AssetStoreConfig, logger)
 	conversationService := internal_assistant_service.NewAssistantConversationService(logger, postgres, fileStorage)
+	webhookService := internal_assistant_service.NewAssistantWebhookService(logger, postgres, fileStorage)
+	httpLogService := internal_assistant_service.NewAssistantHTTPLogService(logger, postgres, fileStorage)
 	inbound := channel_telephony.NewInboundDispatcher(
 		channel_telephony.WithConfig(cfg),
 		channel_telephony.WithLogger(logger),
@@ -100,6 +111,8 @@ func newConversationApiCore(cfg *config.AssistantConfig, logger commons.Logger,
 		channel_telephony.WithOutboundVaultClient(vaultClient),
 		channel_telephony.WithOutboundAssistantService(assistantService),
 		channel_telephony.WithOutboundConversationService(conversationService),
+		channel_telephony.WithOutboundWebhookService(webhookService),
+		channel_telephony.WithOutboundHTTPLogService(httpLogService),
 		channel_telephony.WithOutboundTelephonyOption(channel_telephony.TelephonyOption{SIPServer: sipServer}),
 	)
 	cApi := &ConversationApi{
@@ -113,6 +126,8 @@ func newConversationApiCore(cfg *config.AssistantConfig, logger commons.Logger,
 		inboundDispatcher:            inbound,
 		assistantConversationService: conversationService,
 		assistantService:             assistantService,
+		webhookService:               webhookService,
+		httpLogService:               httpLogService,
 		storage:                      fileStorage,
 		vaultClient:                  vaultClient,
 		authClient:                   web_client.NewAuthenticator(&cfg.AppConfig, logger, redis),
@@ -122,6 +137,8 @@ func newConversationApiCore(cfg *config.AssistantConfig, logger commons.Logger,
 			channel_pipeline.WithOutboundDispatcher(outbound),
 			channel_pipeline.WithConversationService(conversationService),
 			channel_pipeline.WithAssistantService(assistantService),
+			channel_pipeline.WithWebhookService(webhookService),
+			channel_pipeline.WithHTTPLogService(httpLogService),
 		),
 	}
 	return cApi

@@ -87,8 +87,6 @@ func (s *dispatchHandlerStub) HandleInitializeSessionRuntime(context.Context, in
 }
 func (s *dispatchHandlerStub) HandleInitializeAuthentication(context.Context, internal_type.InitializeAuthenticationPacket) {
 }
-func (s *dispatchHandlerStub) HandleExecuteSessionAuthentication(context.Context, internal_type.ExecuteSessionAuthenticationPacket) {
-}
 func (s *dispatchHandlerStub) HandleSessionAuthenticationSucceeded(context.Context, internal_type.SessionAuthenticationSucceededPacket) {
 }
 func (s *dispatchHandlerStub) HandleSessionAuthenticationFailed(context.Context, internal_type.SessionAuthenticationFailedPacket) {
@@ -108,8 +106,6 @@ func (s *dispatchHandlerStub) HandleInitializeAssistantExecutorPacket(context.Co
 func (s *dispatchHandlerStub) HandleInitializeBehavior(context.Context, internal_type.InitializeBehaviorPacket) {
 }
 func (s *dispatchHandlerStub) HandleInitializationCompleted(context.Context, internal_type.InitializationCompletedPacket) {
-}
-func (s *dispatchHandlerStub) HandleInitializeTelemetry(context.Context, internal_type.InitializeTelemetryPacket) {
 }
 func (s *dispatchHandlerStub) HandleInitializeInboundDispatcher(context.Context, internal_type.InitializeInboundDispatcherPacket) {
 }
@@ -156,10 +152,6 @@ func (s *dispatchHandlerStub) HandleFinalizeConversation(context.Context, intern
 func (s *dispatchHandlerStub) HandleFinalizeAssistant(context.Context, internal_type.FinalizeAssistantPacket) {
 }
 func (s *dispatchHandlerStub) HandleFinalizationCompleted(context.Context, internal_type.FinalizationCompletedPacket) {
-}
-func (s *dispatchHandlerStub) HandleExecuteAnalysis(context.Context, internal_type.ExecuteAnalysisPacket) {
-}
-func (s *dispatchHandlerStub) HandleExecuteWebhook(context.Context, internal_type.ExecuteWebhookPacket) {
 }
 func (s *dispatchHandlerStub) HandleSpeechToTextAudio(context.Context, internal_type.SpeechToTextAudioPacket) {
 }
