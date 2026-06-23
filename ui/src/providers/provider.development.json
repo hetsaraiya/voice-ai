@@ -244,6 +244,11 @@
         ],
         "configurations": [
             {
+                "name": "account_name",
+                "type": "string",
+                "label": "Account Name"
+            },
+            {
                 "name": "account_key",
                 "type": "string",
                 "label": "Account Key"

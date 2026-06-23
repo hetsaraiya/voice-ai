@@ -76,9 +76,7 @@ const getStorageTarget = (storage: AssistantConfiguration) => {
   switch (storage.getProvider()) {
     case 'azure-cloud':
     case 'azure': {
-      const account = getOptionValue(options, 'storage_account_name');
-      const container = getOptionValue(options, 'container_name');
-      return [account, container].filter(Boolean).join('/') || '-';
+      return getOptionValue(options, 'container') || '-';
     }
     case 'aws':
     case 'aws-cloud':

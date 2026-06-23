@@ -1,29 +1,12 @@
 {
   "parameters": [
     {
-      "key": "storage_account_name",
-      "label": "Storage Account Name",
+      "key": "container",
+      "label": "Container",
       "type": "input",
       "required": true,
-      "placeholder": "Enter your Azure storage account name",
-      "errorMessage": "Please provide a valid Azure storage account name."
-    },
-    {
-      "key": "container_name",
-      "label": "Container Name",
-      "type": "input",
-      "required": true,
-      "placeholder": "Enter your Azure container name",
-      "errorMessage": "Please provide a valid Azure container name."
-    },
-    {
-      "key": "endpoint_suffix",
-      "label": "Endpoint Suffix",
-      "type": "input",
-      "required": true,
-      "default": "core.windows.net",
-      "placeholder": "e.g., core.windows.net",
-      "errorMessage": "Please provide a valid Azure endpoint suffix."
+      "placeholder": "Enter your Azure container",
+      "errorMessage": "Please provide a valid Azure container."
     }
   ]
 }
