@@ -2705,32 +2705,10 @@
     uuid "^10.0.0"
     zustand "^4.5.5"
 
-"@rapidaai/react@/Users/prashant.srivastav/Documents/codes/lexatic/apis/voice-ai/sdks/react/rapidaai-react-1.1.81-v2.tgz":
-  version "1.1.81-v2"
-  uid "75746159014f12d7fd33591e17eb5c46943ce571"
-  resolved "/Users/prashant.srivastav/Documents/codes/lexatic/apis/voice-ai/sdks/react/rapidaai-react-1.1.81-v2.tgz#75746159014f12d7fd33591e17eb5c46943ce571"
-  dependencies:
-    "@emotion/is-prop-valid" "^1.3.1"
-    "@grpc/grpc-js" "^1.13.4"
-    "@improbable-eng/grpc-web" "^0.15.0"
-    "@tailwindcss/postcss" "^4.0.6"
-    clsx "^2.1.1"
-    css-loader "^7.1.2"
-    esbuild-css-modules-plugin "^3.1.4"
-    events "^3.3.0"
-    google-protobuf "^3.21.4"
-    moment "^2.30.1"
-    react-hook-form "^7.54.2"
-    rxjs "^7.8.1"
-    style-loader "^4.0.0"
-    styled-components "^6.1.15"
-    tailwind-merge "^3.0.1"
-    ts-protoc-gen "^0.15.1-pre.a71b34e"
-    typed-emitter "^2.1.0"
-
-"@rapidaai/react@file:../sdks/react/rapidaai-react-1.1.81-v2.tgz":
-  version "1.1.81-v2"
-  resolved "file:../sdks/react/rapidaai-react-1.1.81-v2.tgz#75746159014f12d7fd33591e17eb5c46943ce571"
+"@rapidaai/react@1.1.81":
+  version "1.1.81"
+  resolved "https://registry.yarnpkg.com/@rapidaai/react/-/react-1.1.81.tgz#577f03a8b5a1c25acbf6512f75c115f7ce22fe25"
+  integrity sha512-EmntD2ZY0Io/AiYJg165SrZ1rS20lNcLS6xiG+19G6qLRk3oPgQIuVKovAC5CG40hFa9hI161jSGLo3yYoWiXg==
   dependencies:
     "@emotion/is-prop-valid" "^1.3.1"
     "@grpc/grpc-js" "^1.13.4"
