@@ -1012,7 +1012,6 @@ func TestHandlePeerState_ConnectedMarksAudioConnected(t *testing.T) {
 	assert.Equal(t, connectedAt, s.mediaHealthState.PeerConnectedAt)
 	s.Mu.Unlock()
 	webhook := requireObservabilityWebhook(t, collector, observability.WebRTCConnected)
-	assert.Equal(t, observability.WebRTCConnected.String(), webhook.Payload["event"])
 	assert.Equal(t, s.sessionID, webhook.Payload[webrtc_internal.DataSessionID])
 	assert.Equal(t, mediaSessionID, webhook.Payload[webrtc_internal.DataMediaSessionID])
 	assert.Equal(t, int64(25), webhook.Payload[webrtc_internal.DataICELatencyMs])
@@ -1590,7 +1589,6 @@ func TestHandlePeerState_DisconnectedQueuesRecovery(t *testing.T) {
 		t.Fatal("timed out waiting for recovery event")
 	}
 	webhook := requireObservabilityWebhook(t, collector, observability.WebRTCDisconnected)
-	assert.Equal(t, observability.WebRTCDisconnected.String(), webhook.Payload["event"])
 	assert.Equal(t, "peer_disconnected", webhook.Payload[webrtc_internal.DataType])
 	assert.Equal(t, s.sessionID, webhook.Payload[webrtc_internal.DataSessionID])
 	assert.Equal(t, mediaSessionID, webhook.Payload[webrtc_internal.DataMediaSessionID])
@@ -1623,7 +1621,6 @@ func TestHandlePeerState_FailedRecordsWebhook(t *testing.T) {
 		t.Fatal("timed out waiting for recovery event")
 	}
 	webhook := requireObservabilityWebhook(t, collector, observability.WebRTCFailed)
-	assert.Equal(t, observability.WebRTCFailed.String(), webhook.Payload["event"])
 	assert.Equal(t, "peer_failed", webhook.Payload[webrtc_internal.DataType])
 	assert.Equal(t, s.sessionID, webhook.Payload[webrtc_internal.DataSessionID])
 	assert.Equal(t, mediaSessionID, webhook.Payload[webrtc_internal.DataMediaSessionID])
@@ -1645,7 +1642,6 @@ func TestRestartICERecordsReconnectWebhook(t *testing.T) {
 	s.restartICEOrMediaSessionFallback(mediaSessionID, webrtc_internal.ReasonICEFailed, time.Now())
 
 	webhook := requireObservabilityWebhook(t, collector, observability.WebRTCReconnecting)
-	assert.Equal(t, observability.WebRTCReconnecting.String(), webhook.Payload["event"])
 	assert.Equal(t, webrtc_internal.EventICERestarting, webhook.Payload[webrtc_internal.DataType])
 	assert.Equal(t, s.sessionID, webhook.Payload[webrtc_internal.DataSessionID])
 	assert.Equal(t, mediaSessionID, webhook.Payload[webrtc_internal.DataMediaSessionID])
@@ -1756,7 +1752,6 @@ func TestRestartMediaSession_LimitFallsBackToText(t *testing.T) {
 	assert.Equal(t, webrtc_internal.MediaStateText, s.sessionState.MediaState())
 	s.Mu.Unlock()
 	webhook := requireObservabilityWebhook(t, collector, observability.WebRTCFailed)
-	assert.Equal(t, observability.WebRTCFailed.String(), webhook.Payload["event"])
 	assert.Equal(t, "media_restart_limit_reached", webhook.Payload[webrtc_internal.DataType])
 	assert.Equal(t, s.sessionID, webhook.Payload[webrtc_internal.DataSessionID])
 	assert.Equal(t, mediaSessionID, webhook.Payload[webrtc_internal.DataMediaSessionID])

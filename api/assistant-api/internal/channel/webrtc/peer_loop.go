@@ -98,7 +98,6 @@ func (s *webrtcStreamer) handlePeerState(mediaSessionID uint64, state pionwebrtc
 			}, observability.RecordWebhook{
 				Event: observability.WebRTCConnected,
 				Payload: map[string]interface{}{
-					"event":                                 observability.WebRTCConnected.String(),
 					webrtc_internal.DataSessionID:           s.sessionID,
 					webrtc_internal.DataMediaSessionID:      mediaSessionID,
 					webrtc_internal.DataICELatencyMs:        iceLatencyMs,
@@ -134,7 +133,6 @@ func (s *webrtcStreamer) handlePeerState(mediaSessionID uint64, state pionwebrtc
 			observability.RecordWebhook{
 				Event: observability.WebRTCFailed,
 				Payload: map[string]interface{}{
-					"event":                                 observability.WebRTCFailed.String(),
 					webrtc_internal.DataType:                "peer_failed",
 					webrtc_internal.DataSessionID:           s.sessionID,
 					webrtc_internal.DataMediaSessionID:      mediaSessionID,
@@ -175,7 +173,6 @@ func (s *webrtcStreamer) handlePeerState(mediaSessionID uint64, state pionwebrtc
 			observability.RecordWebhook{
 				Event: observability.WebRTCDisconnected,
 				Payload: map[string]interface{}{
-					"event":                                 observability.WebRTCDisconnected.String(),
 					webrtc_internal.DataType:                "peer_disconnected",
 					webrtc_internal.DataSessionID:           s.sessionID,
 					webrtc_internal.DataMediaSessionID:      mediaSessionID,

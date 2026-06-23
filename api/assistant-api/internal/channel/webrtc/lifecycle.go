@@ -198,7 +198,6 @@ func (s *webrtcStreamer) restartICEOrMediaSessionFallback(mediaSessionID uint64,
 		observability.RecordWebhook{
 			Event: observability.WebRTCReconnecting,
 			Payload: map[string]interface{}{
-				"event":                            observability.WebRTCReconnecting.String(),
 				webrtc_internal.DataType:           webrtc_internal.EventICERestarting,
 				webrtc_internal.DataSessionID:      s.sessionID,
 				webrtc_internal.DataMediaSessionID: mediaSessionID,
@@ -242,7 +241,6 @@ func (s *webrtcStreamer) restartMediaSessionOrFallbackToText(mediaSessionID uint
 			observability.RecordWebhook{
 				Event: observability.WebRTCFailed,
 				Payload: map[string]interface{}{
-					"event":                            observability.WebRTCFailed.String(),
 					webrtc_internal.DataType:           "media_restart_limit_reached",
 					webrtc_internal.DataSessionID:      s.sessionID,
 					webrtc_internal.DataMediaSessionID: mediaSessionID,
@@ -270,7 +268,6 @@ func (s *webrtcStreamer) restartMediaSessionOrFallbackToText(mediaSessionID uint
 		observability.RecordWebhook{
 			Event: observability.WebRTCReconnecting,
 			Payload: map[string]interface{}{
-				"event":                            observability.WebRTCReconnecting.String(),
 				webrtc_internal.DataType:           webrtc_internal.EventMediaSessionRestarting,
 				webrtc_internal.DataSessionID:      s.sessionID,
 				webrtc_internal.DataMediaSessionID: mediaSessionID,
@@ -309,7 +306,6 @@ func (s *webrtcStreamer) restartMediaSessionOrFallbackToText(mediaSessionID uint
 			observability.RecordWebhook{
 				Event: observability.WebRTCFailed,
 				Payload: map[string]interface{}{
-					"event":                            observability.WebRTCFailed.String(),
 					webrtc_internal.DataType:           "media_session_restart_failed",
 					webrtc_internal.DataSessionID:      s.sessionID,
 					webrtc_internal.DataMediaSessionID: mediaSessionID,

@@ -67,21 +67,12 @@ func (d *Dispatcher) runSession(ctx context.Context, v SessionConnectedPipeline)
 		Event:     observability.CallStarted,
 		ContextID: contextID,
 		Payload: map[string]interface{}{
-			"event": observability.CallStarted.String(),
-			"assistant": map[string]interface{}{
-				"id": v.CallContext.AssistantID,
-			},
-			"conversation": map[string]interface{}{
-				"id": v.CallContext.ConversationID,
-			},
-			"data": map[string]interface{}{
-				"context_id":   contextID,
-				"provider":     v.CallContext.Provider,
-				"direction":    v.CallContext.Direction,
-				"caller":       v.CallContext.CallerNumber,
-				"from":         v.CallContext.FromNumber,
-				"channel_uuid": v.CallContext.ChannelUUID,
-			},
+			"context_id":   contextID,
+			"provider":     v.CallContext.Provider,
+			"direction":    v.CallContext.Direction,
+			"caller":       v.CallContext.CallerNumber,
+			"from":         v.CallContext.FromNumber,
+			"channel_uuid": v.CallContext.ChannelUUID,
 		},
 	}, observability.RecordLog{
 		Level:   observability.LevelDebug,
@@ -147,24 +138,15 @@ func (d *Dispatcher) runSession(ctx context.Context, v SessionConnectedPipeline)
 			Event:     observability.CallEnded,
 			ContextID: contextID,
 			Payload: map[string]interface{}{
-				"event": observability.CallEnded.String(),
-				"assistant": map[string]interface{}{
-					"id": v.CallContext.AssistantID,
-				},
-				"conversation": map[string]interface{}{
-					"id": v.CallContext.ConversationID,
-				},
-				"data": map[string]interface{}{
-					"context_id":   contextID,
-					"provider":     v.CallContext.Provider,
-					"direction":    v.CallContext.Direction,
-					"caller":       v.CallContext.CallerNumber,
-					"from":         v.CallContext.FromNumber,
-					"channel_uuid": v.CallContext.ChannelUUID,
-					"reason":       reason,
-					"status":       status,
-					"duration_ms":  durationMs,
-				},
+				"context_id":   contextID,
+				"provider":     v.CallContext.Provider,
+				"direction":    v.CallContext.Direction,
+				"caller":       v.CallContext.CallerNumber,
+				"from":         v.CallContext.FromNumber,
+				"channel_uuid": v.CallContext.ChannelUUID,
+				"reason":       reason,
+				"status":       status,
+				"duration_ms":  durationMs,
 			},
 		},
 		observability.RecordMetric{
@@ -188,24 +170,15 @@ func (d *Dispatcher) runSession(ctx context.Context, v SessionConnectedPipeline)
 			Event:     observability.CallFailed,
 			ContextID: contextID,
 			Payload: map[string]interface{}{
-				"event": observability.CallFailed.String(),
-				"assistant": map[string]interface{}{
-					"id": v.CallContext.AssistantID,
-				},
-				"conversation": map[string]interface{}{
-					"id": v.CallContext.ConversationID,
-				},
-				"data": map[string]interface{}{
-					"context_id":   contextID,
-					"provider":     v.CallContext.Provider,
-					"direction":    v.CallContext.Direction,
-					"caller":       v.CallContext.CallerNumber,
-					"from":         v.CallContext.FromNumber,
-					"channel_uuid": v.CallContext.ChannelUUID,
-					"reason":       reason,
-					"status":       status,
-					"duration_ms":  durationMs,
-				},
+				"context_id":   contextID,
+				"provider":     v.CallContext.Provider,
+				"direction":    v.CallContext.Direction,
+				"caller":       v.CallContext.CallerNumber,
+				"from":         v.CallContext.FromNumber,
+				"channel_uuid": v.CallContext.ChannelUUID,
+				"reason":       reason,
+				"status":       status,
+				"duration_ms":  durationMs,
 			},
 		})
 	}

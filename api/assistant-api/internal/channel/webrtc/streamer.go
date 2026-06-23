@@ -551,7 +551,6 @@ func (s *webrtcStreamer) bindPeerHandlers(peerConnection *pionwebrtc.PeerConnect
 		if err := s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordWebhook{
 			Event: observability.WebRTCAudioTrackReceived,
 			Payload: map[string]interface{}{
-				"event":                            observability.WebRTCAudioTrackReceived.String(),
 				webrtc_internal.DataSessionID:      s.sessionID,
 				webrtc_internal.DataMediaSessionID: mediaSessionID,
 				webrtc_internal.DataCodec:          remoteAudioCodec.MimeType,
@@ -1197,7 +1196,6 @@ func (s *webrtcStreamer) handleConfigurationMessage(mode protos.StreamMode) {
 			if recordErr := s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordWebhook{
 				Event: observability.WebRTCFailed,
 				Payload: map[string]interface{}{
-					"event":                       observability.WebRTCFailed.String(),
 					webrtc_internal.DataType:      "media_session_start_failed",
 					webrtc_internal.DataSessionID: s.sessionID,
 					webrtc_internal.DataReason:    "start_media_session",
@@ -1511,7 +1509,6 @@ func (s *webrtcStreamer) Close() error {
 		if err := s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordWebhook{
 			Event: observability.WebRTCDisconnected,
 			Payload: map[string]interface{}{
-				"event":                            observability.WebRTCDisconnected.String(),
 				webrtc_internal.DataSessionID:      s.sessionID,
 				webrtc_internal.DataMediaSessionID: mediaSessionID,
 				webrtc_internal.DataReason:         "closed",

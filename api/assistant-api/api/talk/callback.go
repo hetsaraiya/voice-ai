@@ -126,16 +126,7 @@ func (cApi *ConversationApi) UnviersalCallback(c *gin.Context) {
 		_ = observer.Record(c, scope, observability.RecordWebhook{
 			Event:     callbackWebhookEvent,
 			ContextID: cc.ContextID,
-			Payload: map[string]interface{}{
-				"event": callbackWebhookEvent.String(),
-				"assistant": map[string]interface{}{
-					"id": cc.AssistantID,
-				},
-				"conversation": map[string]interface{}{
-					"id": cc.ConversationID,
-				},
-				"data": callbackWebhookData,
-			},
+			Payload:   callbackWebhookData,
 		})
 	}
 	if statusInfo.Error != nil {
@@ -286,16 +277,7 @@ func (cApi *ConversationApi) CallbackByContext(c *gin.Context) {
 			_ = observer.Record(c, scope, observability.RecordWebhook{
 				Event:     callbackWebhookEvent,
 				ContextID: cc.ContextID,
-				Payload: map[string]interface{}{
-					"event": callbackWebhookEvent.String(),
-					"assistant": map[string]interface{}{
-						"id": cc.AssistantID,
-					},
-					"conversation": map[string]interface{}{
-						"id": cc.ConversationID,
-					},
-					"data": callbackWebhookData,
-				},
+				Payload:   callbackWebhookData,
 			})
 		}
 		if statusInfo.Error != nil {

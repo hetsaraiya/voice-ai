@@ -57,17 +57,11 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 		}, observability.RecordWebhook{
 			Event: observability.CallFailed,
 			Payload: map[string]interface{}{
-				"event": observability.CallFailed.String(),
-				"assistant": map[string]interface{}{
-					"id": v.AssistantID,
-				},
-				"data": map[string]interface{}{
-					"stage":     "assistant_load",
-					"to":        v.ToPhone,
-					"from":      v.FromPhone,
-					"direction": "outbound",
-					"error":     err.Error(),
-				},
+				"stage":     "assistant_load",
+				"to":        v.ToPhone,
+				"from":      v.FromPhone,
+				"direction": "outbound",
+				"error":     err.Error(),
 			},
 		})
 		return &PipelineResult{Error: fmt.Errorf("invalid assistant: %w", err)}
@@ -84,17 +78,11 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 		}, observability.RecordWebhook{
 			Event: observability.CallFailed,
 			Payload: map[string]interface{}{
-				"event": observability.CallFailed.String(),
-				"assistant": map[string]interface{}{
-					"id": assistant.Id,
-				},
-				"data": map[string]interface{}{
-					"stage":     "phone_deployment",
-					"to":        v.ToPhone,
-					"from":      v.FromPhone,
-					"direction": "outbound",
-					"error":     "phone deployment not enabled",
-				},
+				"stage":     "phone_deployment",
+				"to":        v.ToPhone,
+				"from":      v.FromPhone,
+				"direction": "outbound",
+				"error":     "phone deployment not enabled",
 			},
 		})
 		return &PipelineResult{Error: fmt.Errorf("phone deployment not enabled")}
@@ -115,16 +103,10 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 			}, observability.RecordWebhook{
 				Event: observability.CallFailed,
 				Payload: map[string]interface{}{
-					"event": observability.CallFailed.String(),
-					"assistant": map[string]interface{}{
-						"id": assistant.Id,
-					},
-					"data": map[string]interface{}{
-						"stage":     "from_phone_resolve",
-						"to":        v.ToPhone,
-						"direction": "outbound",
-						"error":     err.Error(),
-					},
+					"stage":     "from_phone_resolve",
+					"to":        v.ToPhone,
+					"direction": "outbound",
+					"error":     err.Error(),
 				},
 			})
 			return &PipelineResult{Error: fmt.Errorf("no phone number configured: %w", err)}
@@ -148,18 +130,12 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 		}, observability.RecordWebhook{
 			Event: observability.CallFailed,
 			Payload: map[string]interface{}{
-				"event": observability.CallFailed.String(),
-				"assistant": map[string]interface{}{
-					"id": assistant.Id,
-				},
-				"data": map[string]interface{}{
-					"stage":     "conversation_create",
-					"provider":  assistant.AssistantPhoneDeployment.TelephonyProvider,
-					"to":        v.ToPhone,
-					"from":      fromPhone,
-					"direction": "outbound",
-					"error":     err.Error(),
-				},
+				"stage":     "conversation_create",
+				"provider":  assistant.AssistantPhoneDeployment.TelephonyProvider,
+				"to":        v.ToPhone,
+				"from":      fromPhone,
+				"direction": "outbound",
+				"error":     err.Error(),
 			},
 		})
 		return &PipelineResult{Error: fmt.Errorf("failed to create conversation: %w", err)}
@@ -217,21 +193,12 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 		}, observability.RecordWebhook{
 			Event: observability.CallFailed,
 			Payload: map[string]interface{}{
-				"event": observability.CallFailed.String(),
-				"assistant": map[string]interface{}{
-					"id": assistant.Id,
-				},
-				"conversation": map[string]interface{}{
-					"id": conversation.Id,
-				},
-				"data": map[string]interface{}{
-					"stage":     "call_context_save",
-					"provider":  assistant.AssistantPhoneDeployment.TelephonyProvider,
-					"to":        v.ToPhone,
-					"from":      fromPhone,
-					"direction": "outbound",
-					"error":     err.Error(),
-				},
+				"stage":     "call_context_save",
+				"provider":  assistant.AssistantPhoneDeployment.TelephonyProvider,
+				"to":        v.ToPhone,
+				"from":      fromPhone,
+				"direction": "outbound",
+				"error":     err.Error(),
 			},
 		})
 		return &PipelineResult{Error: fmt.Errorf("failed to save call context: %w", err)}
@@ -268,20 +235,11 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 			Event:     observability.CallOutboundRequested,
 			ContextID: contextID,
 			Payload: map[string]interface{}{
-				"event": observability.CallOutboundRequested.String(),
-				"assistant": map[string]interface{}{
-					"id": assistant.Id,
-				},
-				"conversation": map[string]interface{}{
-					"id": conversation.Id,
-				},
-				"data": map[string]interface{}{
-					"provider":   assistant.AssistantPhoneDeployment.TelephonyProvider,
-					"to":         v.ToPhone,
-					"from":       fromPhone,
-					"context_id": contextID,
-					"direction":  "outbound",
-				},
+				"provider":   assistant.AssistantPhoneDeployment.TelephonyProvider,
+				"to":         v.ToPhone,
+				"from":       fromPhone,
+				"context_id": contextID,
+				"direction":  "outbound",
 			},
 		})
 
@@ -311,42 +269,24 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 			Event:     observability.CallOutboundDispatchFailed,
 			ContextID: contextID,
 			Payload: map[string]interface{}{
-				"event": observability.CallOutboundDispatchFailed.String(),
-				"assistant": map[string]interface{}{
-					"id": assistant.Id,
-				},
-				"conversation": map[string]interface{}{
-					"id": conversation.Id,
-				},
-				"data": map[string]interface{}{
-					"provider":   assistant.AssistantPhoneDeployment.TelephonyProvider,
-					"to":         v.ToPhone,
-					"from":       fromPhone,
-					"context_id": contextID,
-					"direction":  "outbound",
-					"error":      err.Error(),
-				},
+				"provider":   assistant.AssistantPhoneDeployment.TelephonyProvider,
+				"to":         v.ToPhone,
+				"from":       fromPhone,
+				"context_id": contextID,
+				"direction":  "outbound",
+				"error":      err.Error(),
 			},
 		}, observability.RecordWebhook{
 			Event:     observability.CallFailed,
 			ContextID: contextID,
 			Payload: map[string]interface{}{
-				"event": observability.CallFailed.String(),
-				"assistant": map[string]interface{}{
-					"id": assistant.Id,
-				},
-				"conversation": map[string]interface{}{
-					"id": conversation.Id,
-				},
-				"data": map[string]interface{}{
-					"stage":      "provider_dispatch",
-					"provider":   assistant.AssistantPhoneDeployment.TelephonyProvider,
-					"to":         v.ToPhone,
-					"from":       fromPhone,
-					"context_id": contextID,
-					"direction":  "outbound",
-					"error":      err.Error(),
-				},
+				"stage":      "provider_dispatch",
+				"provider":   assistant.AssistantPhoneDeployment.TelephonyProvider,
+				"to":         v.ToPhone,
+				"from":       fromPhone,
+				"context_id": contextID,
+				"direction":  "outbound",
+				"error":      err.Error(),
 			},
 		})
 		_ = v.Observer.Record(ctx, observability.ConversationScope{
@@ -374,23 +314,14 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 		Event:     observability.CallOutboundDispatched,
 		ContextID: contextID,
 		Payload: map[string]interface{}{
-			"event": observability.CallOutboundDispatched.String(),
-			"assistant": map[string]interface{}{
-				"id": assistant.Id,
-			},
-			"conversation": map[string]interface{}{
-				"id": conversation.Id,
-			},
-			"data": map[string]interface{}{
-				"provider":          assistant.AssistantPhoneDeployment.TelephonyProvider,
-				"to":                v.ToPhone,
-				"from":              fromPhone,
-				"context_id":        contextID,
-				"direction":         "outbound",
-				"channel_uuid":      callInfo.ChannelUUID,
-				"status_event":      callInfo.StatusInfo.Event,
-				"provider_response": callInfo.StatusInfo.Payload,
-			},
+			"provider":          assistant.AssistantPhoneDeployment.TelephonyProvider,
+			"to":                v.ToPhone,
+			"from":              fromPhone,
+			"context_id":        contextID,
+			"direction":         "outbound",
+			"channel_uuid":      callInfo.ChannelUUID,
+			"status_event":      callInfo.StatusInfo.Event,
+			"provider_response": callInfo.StatusInfo.Payload,
 		},
 	})
 

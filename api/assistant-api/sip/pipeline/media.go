@@ -209,19 +209,10 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 				Event:     observability.CallStarted,
 				ContextID: contextID,
 				Payload: map[string]interface{}{
-					"event": observability.CallStarted.String(),
-					"assistant": map[string]interface{}{
-						"id": setup.AssistantID,
-					},
-					"conversation": map[string]interface{}{
-						"id": setup.ConversationID,
-					},
-					"data": map[string]interface{}{
-						"context_id": contextID,
-						"provider":   "sip",
-						"direction":  string(v.Direction),
-						"call_id":    v.ID,
-					},
+					"context_id": contextID,
+					"provider":   "sip",
+					"direction":  string(v.Direction),
+					"call_id":    v.ID,
 				},
 			},
 			observability.RecordMetric{
@@ -271,22 +262,13 @@ func (d *Dispatcher) startPreparedSession(ctx context.Context, prepared *prepare
 					Event:     event,
 					ContextID: contextID,
 					Payload: map[string]interface{}{
-						"event": event.String(),
-						"assistant": map[string]interface{}{
-							"id": setup.AssistantID,
-						},
-						"conversation": map[string]interface{}{
-							"id": setup.ConversationID,
-						},
-						"data": map[string]interface{}{
-							"context_id":  contextID,
-							"provider":    "sip",
-							"direction":   string(v.Direction),
-							"call_id":     v.ID,
-							"reason":      reason,
-							"status":      status,
-							"duration_ms": durationMs,
-						},
+						"context_id":  contextID,
+						"provider":    "sip",
+						"direction":   string(v.Direction),
+						"call_id":     v.ID,
+						"reason":      reason,
+						"status":      status,
+						"duration_ms": durationMs,
 					},
 				},
 				observability.RecordMetric{

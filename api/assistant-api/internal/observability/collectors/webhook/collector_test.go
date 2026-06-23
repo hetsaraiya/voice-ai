@@ -75,11 +75,20 @@ func TestCollector_SendsWebhookEventPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CollectWebhook returned error: %v", err)
 	}
-	if got["status"] != "ringing" || got["callId"] != "call-1" {
-		t.Fatalf("unexpected payload: %+v", got)
+	assistantPayload, ok := got["assistant"].(map[string]interface{})
+	if !ok || assistantPayload["id"] != float64(10) {
+		t.Fatalf("unexpected assistant payload: %+v", got)
 	}
-	if _, ok := got["scope"]; ok {
-		t.Fatalf("webhook payload should not include observability scope: %+v", got)
+	conversationPayload, ok := got["conversation"].(map[string]interface{})
+	if !ok || conversationPayload["id"] != float64(20) {
+		t.Fatalf("unexpected conversation payload: %+v", got)
+	}
+	dataPayload, ok := got["data"].(map[string]interface{})
+	if !ok || dataPayload["status"] != "ringing" || dataPayload["callId"] != "call-1" {
+		t.Fatalf("unexpected data payload: %+v", got)
+	}
+	if got["event"] != observability.CallRinging.String() {
+		t.Fatalf("unexpected event payload: %+v", got)
 	}
 	if _, ok := got["context_id"]; ok {
 		t.Fatalf("webhook payload should not include observability context_id: %+v", got)

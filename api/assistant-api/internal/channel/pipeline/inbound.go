@@ -72,16 +72,10 @@ func (d *Dispatcher) runInboundCall(ctx context.Context, v CallReceivedPipeline)
 	}, observability.RecordWebhook{
 		Event: observability.CallReceived,
 		Payload: map[string]interface{}{
-			"event": observability.CallReceived.String(),
-			"assistant": map[string]interface{}{
-				"id": v.AssistantID,
-			},
-			"data": map[string]interface{}{
-				"provider":  v.Provider,
-				"caller":    callInfo.CallerNumber,
-				"from":      callInfo.FromNumber,
-				"direction": "inbound",
-			},
+			"provider":  v.Provider,
+			"caller":    callInfo.CallerNumber,
+			"from":      callInfo.FromNumber,
+			"direction": "inbound",
 		},
 	})
 
@@ -99,18 +93,12 @@ func (d *Dispatcher) runInboundCall(ctx context.Context, v CallReceivedPipeline)
 		}, observability.RecordWebhook{
 			Event: observability.CallFailed,
 			Payload: map[string]interface{}{
-				"event": observability.CallFailed.String(),
-				"assistant": map[string]interface{}{
-					"id": v.AssistantID,
-				},
-				"data": map[string]interface{}{
-					"stage":     "assistant_load",
-					"provider":  v.Provider,
-					"caller":    callInfo.CallerNumber,
-					"from":      callInfo.FromNumber,
-					"direction": "inbound",
-					"error":     err.Error(),
-				},
+				"stage":     "assistant_load",
+				"provider":  v.Provider,
+				"caller":    callInfo.CallerNumber,
+				"from":      callInfo.FromNumber,
+				"direction": "inbound",
+				"error":     err.Error(),
 			},
 		})
 		return &PipelineResult{Error: err}
@@ -137,18 +125,12 @@ func (d *Dispatcher) runInboundCall(ctx context.Context, v CallReceivedPipeline)
 		}, observability.RecordWebhook{
 			Event: observability.CallFailed,
 			Payload: map[string]interface{}{
-				"event": observability.CallFailed.String(),
-				"assistant": map[string]interface{}{
-					"id": assistant.Id,
-				},
-				"data": map[string]interface{}{
-					"stage":     "conversation_create",
-					"provider":  v.Provider,
-					"caller":    callInfo.CallerNumber,
-					"from":      callInfo.FromNumber,
-					"direction": "inbound",
-					"error":     err.Error(),
-				},
+				"stage":     "conversation_create",
+				"provider":  v.Provider,
+				"caller":    callInfo.CallerNumber,
+				"from":      callInfo.FromNumber,
+				"direction": "inbound",
+				"error":     err.Error(),
 			},
 		})
 		return &PipelineResult{Error: err}
@@ -182,21 +164,12 @@ func (d *Dispatcher) runInboundCall(ctx context.Context, v CallReceivedPipeline)
 			Event:     observability.CallFailed,
 			ContextID: contextID,
 			Payload: map[string]interface{}{
-				"event": observability.CallFailed.String(),
-				"assistant": map[string]interface{}{
-					"id": assistant.Id,
-				},
-				"conversation": map[string]interface{}{
-					"id": conversation.Id,
-				},
-				"data": map[string]interface{}{
-					"stage":     "call_context_save",
-					"provider":  v.Provider,
-					"caller":    callInfo.CallerNumber,
-					"from":      callInfo.FromNumber,
-					"direction": "inbound",
-					"error":     err.Error(),
-				},
+				"stage":     "call_context_save",
+				"provider":  v.Provider,
+				"caller":    callInfo.CallerNumber,
+				"from":      callInfo.FromNumber,
+				"direction": "inbound",
+				"error":     err.Error(),
 			},
 		})
 		return &PipelineResult{Error: err}
@@ -258,22 +231,13 @@ func (d *Dispatcher) runInboundCall(ctx context.Context, v CallReceivedPipeline)
 			Event:     observability.CallFailed,
 			ContextID: contextID,
 			Payload: map[string]interface{}{
-				"event": observability.CallFailed.String(),
-				"assistant": map[string]interface{}{
-					"id": assistant.Id,
-				},
-				"conversation": map[string]interface{}{
-					"id": conversation.Id,
-				},
-				"data": map[string]interface{}{
-					"stage":      "provider_answer",
-					"provider":   v.Provider,
-					"caller":     callInfo.CallerNumber,
-					"from":       callInfo.FromNumber,
-					"context_id": contextID,
-					"direction":  "inbound",
-					"error":      err.Error(),
-				},
+				"stage":      "provider_answer",
+				"provider":   v.Provider,
+				"caller":     callInfo.CallerNumber,
+				"from":       callInfo.FromNumber,
+				"context_id": contextID,
+				"direction":  "inbound",
+				"error":      err.Error(),
 			},
 		})
 		return &PipelineResult{Error: err}
@@ -295,20 +259,11 @@ func (d *Dispatcher) runInboundCall(ctx context.Context, v CallReceivedPipeline)
 			Event:     observability.CallProviderAnswered,
 			ContextID: contextID,
 			Payload: map[string]interface{}{
-				"event": observability.CallProviderAnswered.String(),
-				"assistant": map[string]interface{}{
-					"id": v.AssistantID,
-				},
-				"conversation": map[string]interface{}{
-					"id": conversation.Id,
-				},
-				"data": map[string]interface{}{
-					"provider":   v.Provider,
-					"caller":     callInfo.CallerNumber,
-					"from":       callInfo.FromNumber,
-					"context_id": contextID,
-					"direction":  "inbound",
-				},
+				"provider":   v.Provider,
+				"caller":     callInfo.CallerNumber,
+				"from":       callInfo.FromNumber,
+				"context_id": contextID,
+				"direction":  "inbound",
 			},
 		})
 

@@ -202,6 +202,21 @@ func (c *Collector) send(ctx context.Context, scope observability.Scope, assista
 			webhookContextID = typedScope.ContextID()
 		}
 	}
+	if webhookAssistantID == 0 {
+		webhookAssistantID = c.assistantID
+	}
+	webhookRequestBody := map[string]interface{}{
+		"assistant": map[string]interface{}{
+			"id": webhookAssistantID,
+		},
+		"data":  webhookPayload,
+		"event": webhookEventName,
+	}
+	if webhookConversationID != nil && *webhookConversationID != 0 {
+		webhookRequestBody["conversation"] = map[string]interface{}{
+			"id": *webhookConversationID,
+		}
+	}
 
 	for webhookRetryCount := uint32(0); webhookRetryCount <= webhookMaxRetryCount; webhookRetryCount++ {
 		webhookAttemptStartTime := time.Now()
@@ -210,7 +225,7 @@ func (c *Collector) send(ctx context.Context, scope observability.Scope, assista
 			"method":     webhookHTTPMethod,
 			"headers":    webhookHTTPHeaders,
 			"timeout_ms": webhookTimeoutSeconds * 1000,
-			"body":       webhookPayload,
+			"body":       webhookRequestBody,
 		})
 		if webhookRequestPayloadMarshalError != nil {
 			webhookRequestPayload = nil
@@ -227,13 +242,13 @@ func (c *Collector) send(ctx context.Context, scope observability.Scope, assista
 		var webhookSendError error
 		switch webhookHTTPMethod {
 		case http.MethodPut:
-			webhookResponse, webhookSendError = webhookHTTPClient.Put(ctx, "", webhookPayload, webhookHTTPHeaders)
+			webhookResponse, webhookSendError = webhookHTTPClient.Put(ctx, "", webhookRequestBody, webhookHTTPHeaders)
 		case http.MethodPatch:
-			webhookResponse, webhookSendError = webhookHTTPClient.Patch(ctx, "", webhookPayload, webhookHTTPHeaders)
+			webhookResponse, webhookSendError = webhookHTTPClient.Patch(ctx, "", webhookRequestBody, webhookHTTPHeaders)
 		case http.MethodGet:
-			webhookResponse, webhookSendError = webhookHTTPClient.Get(ctx, "", webhookPayload, webhookHTTPHeaders)
+			webhookResponse, webhookSendError = webhookHTTPClient.Get(ctx, "", webhookRequestBody, webhookHTTPHeaders)
 		default:
-			webhookResponse, webhookSendError = webhookHTTPClient.Post(ctx, "", webhookPayload, webhookHTTPHeaders)
+			webhookResponse, webhookSendError = webhookHTTPClient.Post(ctx, "", webhookRequestBody, webhookHTTPHeaders)
 		}
 		if webhookSendError != nil {
 			webhookErrorMessageValue := webhookSendError.Error()
