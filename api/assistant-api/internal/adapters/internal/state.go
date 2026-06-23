@@ -110,7 +110,6 @@ func (gr *genericRequestor) GetAssistant(
 		InjectTool:                   true,
 		InjectAnalysis:               true,
 		InjectWebhook:                true,
-		InjectTelemetryProvider:      true,
 		InjectAuthentication:         true,
 		InjectConversations:          false,
 		InjectTag:                    false,

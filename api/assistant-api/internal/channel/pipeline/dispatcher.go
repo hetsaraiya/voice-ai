@@ -31,23 +31,25 @@ type PipelineResult struct {
 type Dispatcher struct {
 	logger commons.Logger
 
-	inboundDispatcher   *channel_telephony.InboundDispatcher
-	outboundDispatcher  *channel_telephony.OutboundDispatcher
-	conversationService internal_services.AssistantConversationService
-	assistantService    internal_services.AssistantService
-	webhookService      internal_services.AssistantWebhookService
-	httpLogService      internal_services.AssistantHTTPLogService
+	inboundDispatcher    *channel_telephony.InboundDispatcher
+	outboundDispatcher   *channel_telephony.OutboundDispatcher
+	conversationService  internal_services.AssistantConversationService
+	assistantService     internal_services.AssistantService
+	webhookService       internal_services.AssistantWebhookService
+	httpLogService       internal_services.AssistantHTTPLogService
+	assistantToolService internal_services.AssistantToolService
 }
 
 // DispatcherOptions holds dependencies for creating a channel dispatcher.
 type DispatcherOptions struct {
-	logger              commons.Logger
-	inboundDispatcher   *channel_telephony.InboundDispatcher
-	outboundDispatcher  *channel_telephony.OutboundDispatcher
-	conversationService internal_services.AssistantConversationService
-	assistantService    internal_services.AssistantService
-	webhookService      internal_services.AssistantWebhookService
-	httpLogService      internal_services.AssistantHTTPLogService
+	logger               commons.Logger
+	inboundDispatcher    *channel_telephony.InboundDispatcher
+	outboundDispatcher   *channel_telephony.OutboundDispatcher
+	conversationService  internal_services.AssistantConversationService
+	assistantService     internal_services.AssistantService
+	webhookService       internal_services.AssistantWebhookService
+	httpLogService       internal_services.AssistantHTTPLogService
+	assistantToolService internal_services.AssistantToolService
 }
 
 type FuncOption func(*DispatcherOptions)
@@ -94,19 +96,26 @@ func WithHTTPLogService(httpLogService internal_services.AssistantHTTPLogService
 	}
 }
 
+func WithAssistantToolService(assistantToolService internal_services.AssistantToolService) FuncOption {
+	return func(options *DispatcherOptions) {
+		options.assistantToolService = assistantToolService
+	}
+}
+
 func NewDispatcher(opts ...FuncOption) *Dispatcher {
 	var cfg DispatcherOptions
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	return &Dispatcher{
-		logger:              cfg.logger,
-		inboundDispatcher:   cfg.inboundDispatcher,
-		outboundDispatcher:  cfg.outboundDispatcher,
-		conversationService: cfg.conversationService,
-		assistantService:    cfg.assistantService,
-		webhookService:      cfg.webhookService,
-		httpLogService:      cfg.httpLogService,
+		logger:               cfg.logger,
+		inboundDispatcher:    cfg.inboundDispatcher,
+		outboundDispatcher:   cfg.outboundDispatcher,
+		conversationService:  cfg.conversationService,
+		assistantService:     cfg.assistantService,
+		webhookService:       cfg.webhookService,
+		httpLogService:       cfg.httpLogService,
+		assistantToolService: cfg.assistantToolService,
 	}
 }
 

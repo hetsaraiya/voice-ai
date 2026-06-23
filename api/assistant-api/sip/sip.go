@@ -49,6 +49,7 @@ type SIPEngine struct {
 	storage    storages.Storage
 
 	assistantConversationService internal_services.AssistantConversationService
+	assistantToolService         internal_services.AssistantToolService
 	assistantService             internal_services.AssistantService
 	deploymentService            internal_services.AssistantDeploymentService
 	webhookService               internal_services.AssistantWebhookService
@@ -80,6 +81,7 @@ func NewSIPEngine(config *config.AssistantConfig, logger commons.Logger,
 		redis:                        redis,
 		opensearch:                   opensearch,
 		assistantConversationService: internal_assistant_service.NewAssistantConversationService(logger, postgres, fileStorage),
+		assistantToolService:         internal_assistant_service.NewAssistantToolService(logger, postgres, fileStorage),
 		assistantService:             internal_assistant_service.NewAssistantService(config, logger, postgres, opensearch),
 		deploymentService:            internal_assistant_service.NewAssistantDeploymentService(config, logger, postgres),
 		webhookService:               internal_assistant_service.NewAssistantWebhookService(logger, postgres, fileStorage),
@@ -162,6 +164,7 @@ func (m *SIPEngine) Connect(ctx context.Context) error {
 		sip_pipeline.WithAssistantConfig(m.cfg),
 		sip_pipeline.WithAssistantService(m.assistantService),
 		sip_pipeline.WithAssistantConversationService(m.assistantConversationService),
+		sip_pipeline.WithAssistantToolService(m.assistantToolService),
 		sip_pipeline.WithWebhookService(m.webhookService),
 		sip_pipeline.WithHTTPLogService(m.httpLogService),
 		sip_pipeline.WithCallContextStore(m.callContextStore),

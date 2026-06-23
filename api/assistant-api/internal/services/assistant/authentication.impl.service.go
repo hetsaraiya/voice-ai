@@ -83,8 +83,13 @@ func (s *assistantAuthenticationService) Create(
 	if timeoutMs == 0 {
 		timeoutMs = 5000
 	}
+	authenticationProvider, err := internal_assistant_entity.NewAssistantAuthenticationProvider(provider)
+	if err != nil {
+		s.logger.Benchmark("AssistantAuthenticationService.Create", time.Since(start))
+		return nil, err
+	}
 	var out *internal_assistant_entity.AssistantAuthentication
-	err := db.Transaction(func(tx *gorm.DB) error {
+	err = db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where(
 			"id = ? AND organization_id = ? AND project_id = ? AND status = ?",
 			assistantId,
@@ -100,7 +105,7 @@ func (s *assistantAuthenticationService) Create(
 		}
 		created := &internal_assistant_entity.AssistantAuthentication{
 			AssistantId:  assistantId,
-			Provider:     internal_assistant_entity.NormalizeAssistantAuthenticationProvider(provider),
+			Provider:     authenticationProvider,
 			FailBehavior: failBehavior,
 			TimeoutMs:    timeoutMs,
 			Organizational: gorm_models.Organizational{
@@ -180,7 +185,11 @@ func (s *assistantAuthenticationService) Disable(
 		provider := internal_assistant_entity.AssistantAuthenticationProviderHTTP
 		var options []*protos.Metadata
 		if current != nil {
-			provider = internal_assistant_entity.NormalizeAssistantAuthenticationProvider(current.Provider)
+			currentProvider, err := internal_assistant_entity.NewAssistantAuthenticationProvider(string(current.Provider))
+			if err != nil {
+				return err
+			}
+			provider = currentProvider
 			if current.FailBehavior != "" {
 				failBehavior = current.FailBehavior
 			}

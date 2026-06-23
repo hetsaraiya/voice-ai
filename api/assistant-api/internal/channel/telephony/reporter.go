@@ -16,7 +16,6 @@ import (
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
 	observability_collector_conversationmetadata "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetadata"
 	observability_collector_conversationmetric "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetric"
-	observability_collector_requestlog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/requestlog"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/protos"
 )
@@ -120,7 +119,7 @@ func (d *OutboundDispatcher) NewStatusReporter(contextID string) internal_type.P
 			observability.WithAuth(auth),
 			observability.WithContext(ctx),
 			observability.WithCustomGracePeriod(2*time.Second),
-			observability.WithCollectors(append([]observability.Collector{
+			observability.WithCollectors(
 				observability_collector_conversationmetric.New(observability_collector_conversationmetric.Config{
 					Logger:              d.logger,
 					ConversationService: d.conversationService,
@@ -129,17 +128,9 @@ func (d *OutboundDispatcher) NewStatusReporter(contextID string) internal_type.P
 					Logger:              d.logger,
 					ConversationService: d.conversationService,
 				}),
-			}, collectors.NewWithEnv(ctx, d.logger, d.cfg)...)...),
+				collectors.NewWithEnv(ctx, d.logger, d.cfg)),
 		)
-		assistantScopedCollectors := make([]observability.Collector, 0)
-		assistantScopedCollectors = append(assistantScopedCollectors,
-			observability_collector_requestlog.New(observability_collector_requestlog.Config{
-				Logger:         d.logger,
-				HTTPLogService: d.httpLogService,
-			}),
-		)
-		assistantScopedCollectors = append(assistantScopedCollectors, collectors.NewWithAssistantWebhook(ctx, d.logger, auth, currentCallContext.AssistantID, d.webhookService, observer)...)
-		if err := observer.AddCollectors(assistantScopedCollectors...); err != nil {
+		if err := observer.AddCollectors(collectors.NewWithAssistantWebhook(ctx, d.logger, auth, currentCallContext.AssistantID, d.webhookService, d.httpLogService)); err != nil {
 			d.logger.Warnw("observability collector registration failed",
 				"component", "call",
 				"operation", "add_assistant_collectors",

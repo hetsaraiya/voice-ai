@@ -5,37 +5,41 @@
 // See LICENSE.md or contact sales@rapida.ai for commercial usage.
 package internal_assistant_entity
 
-import "strings"
+import "fmt"
+
+type AssistantAuthenticationProvider string
+type AssistantWebhookProvider string
+type AssistantAnalysisProvider string
 
 const (
-	AssistantAuthenticationProviderHTTP = "http"
-	AssistantWebhookProviderHTTP        = "http"
-	AssistantAnalysisProviderEndpoint   = "endpoint"
+	AssistantAuthenticationProviderHTTP AssistantAuthenticationProvider = "http"
+	AssistantWebhookProviderHTTP        AssistantWebhookProvider        = "http"
+	AssistantAnalysisProviderEndpoint   AssistantAnalysisProvider       = "endpoint"
 )
 
-func NormalizeAssistantAuthenticationProvider(provider string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
+func NewAssistantAuthenticationProvider(provider string) (AssistantAuthenticationProvider, error) {
+	switch AssistantAuthenticationProvider(provider) {
 	case AssistantAuthenticationProviderHTTP:
-		return AssistantAuthenticationProviderHTTP
+		return AssistantAuthenticationProviderHTTP, nil
 	default:
-		return AssistantAuthenticationProviderHTTP
+		return "", fmt.Errorf("invalid assistant authentication provider %q", provider)
 	}
 }
 
-func NormalizeAssistantWebhookProvider(provider string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
+func NewAssistantWebhookProvider(provider string) (AssistantWebhookProvider, error) {
+	switch AssistantWebhookProvider(provider) {
 	case AssistantWebhookProviderHTTP:
-		return AssistantWebhookProviderHTTP
+		return AssistantWebhookProviderHTTP, nil
 	default:
-		return AssistantWebhookProviderHTTP
+		return "", fmt.Errorf("invalid assistant webhook provider %q", provider)
 	}
 }
 
-func NormalizeAssistantAnalysisProvider(provider string) string {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
+func NewAssistantAnalysisProvider(provider string) (AssistantAnalysisProvider, error) {
+	switch AssistantAnalysisProvider(provider) {
 	case AssistantAnalysisProviderEndpoint:
-		return AssistantAnalysisProviderEndpoint
+		return AssistantAnalysisProviderEndpoint, nil
 	default:
-		return AssistantAnalysisProviderEndpoint
+		return "", fmt.Errorf("invalid assistant analysis provider %q", provider)
 	}
 }

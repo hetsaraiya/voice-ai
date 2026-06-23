@@ -85,63 +85,105 @@ func (s *webrtcStreamer) handlePeerState(mediaSessionID uint64, state pionwebrtc
 	case pionwebrtc.PeerConnectionStateConnected:
 		s.sessionState.SetPeerConnected(true)
 		s.sessionState.ResetICERestartAttempts()
-		_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordEvent{
-			Component: observability.ComponentWebRTC,
-			Event:     observability.WebRTCConnected,
-			Attributes: observability.Attributes{
-				"component":                      observability.ComponentWebRTC.String(),
-				webrtc_internal.DataType:         "peer_connected",
-				webrtc_internal.DataSessionID:    s.sessionID,
-				webrtc_internal.DataICELatencyMs: fmt.Sprintf("%d", iceLatencyMs),
-			},
-		})
+		_ = s.observer.Record(s.Ctx, s.sessionState.Scope,
+			observability.RecordEvent{
+				Component: observability.ComponentWebRTC,
+				Event:     observability.WebRTCConnected,
+				Attributes: observability.Attributes{
+					"component":                      observability.ComponentWebRTC.String(),
+					webrtc_internal.DataType:         "peer_connected",
+					webrtc_internal.DataSessionID:    s.sessionID,
+					webrtc_internal.DataICELatencyMs: fmt.Sprintf("%d", iceLatencyMs),
+				},
+			}, observability.RecordWebhook{
+				Event: observability.WebRTCConnected,
+				Payload: map[string]interface{}{
+					"event":                                 observability.WebRTCConnected.String(),
+					webrtc_internal.DataSessionID:           s.sessionID,
+					webrtc_internal.DataMediaSessionID:      mediaSessionID,
+					webrtc_internal.DataICELatencyMs:        iceLatencyMs,
+					webrtc_internal.DataPeerConnectionState: state.String(),
+				},
+			})
 		s.reportSelectedICECandidatePair(peerConnection, peerStateChangedAt)
 		s.signalReady()
 
 	case pionwebrtc.PeerConnectionStateFailed:
 		s.sessionState.SetPeerConnected(false)
-		_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordLog{
-			Level:   observability.LevelError,
-			Message: "WebRTC peer failed, restarting ICE",
-			Attributes: observability.Attributes{
-				"component":                   observability.ComponentWebRTC.String(),
-				webrtc_internal.DataType:      "peer_failed",
-				webrtc_internal.DataSessionID: s.sessionID,
-				webrtc_internal.DataReason:    webrtc_internal.ReasonPeerFailed,
+		_ = s.observer.Record(s.Ctx, s.sessionState.Scope,
+			observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "WebRTC peer failed, restarting ICE",
+				Attributes: observability.Attributes{
+					"component":                   observability.ComponentWebRTC.String(),
+					webrtc_internal.DataType:      "peer_failed",
+					webrtc_internal.DataSessionID: s.sessionID,
+					webrtc_internal.DataReason:    webrtc_internal.ReasonPeerFailed,
+				},
 			},
-		})
-		_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordEvent{
-			Component: observability.ComponentWebRTC,
-			Event:     observability.WebRTCFailed,
-			Attributes: observability.Attributes{
-				"component":                   observability.ComponentWebRTC.String(),
-				webrtc_internal.DataType:      "peer_failed",
-				webrtc_internal.DataSessionID: s.sessionID,
-				webrtc_internal.DataReason:    webrtc_internal.ReasonPeerFailed,
+			observability.RecordEvent{
+				Component: observability.ComponentWebRTC,
+				Event:     observability.WebRTCFailed,
+				Attributes: observability.Attributes{
+					"component":                   observability.ComponentWebRTC.String(),
+					webrtc_internal.DataType:      "peer_failed",
+					webrtc_internal.DataSessionID: s.sessionID,
+					webrtc_internal.DataReason:    webrtc_internal.ReasonPeerFailed,
+				},
 			},
-		})
+			observability.RecordWebhook{
+				Event: observability.WebRTCFailed,
+				Payload: map[string]interface{}{
+					"event":                                 observability.WebRTCFailed.String(),
+					webrtc_internal.DataType:                "peer_failed",
+					webrtc_internal.DataSessionID:           s.sessionID,
+					webrtc_internal.DataMediaSessionID:      mediaSessionID,
+					webrtc_internal.DataReason:              webrtc_internal.ReasonPeerFailed,
+					webrtc_internal.DataPeerConnectionState: state.String(),
+				},
+			})
 		s.queueMediaSessionRecovery(mediaSessionID, webrtc_internal.ReasonPeerFailed, peerStateChangedAt)
 
 	case pionwebrtc.PeerConnectionStateDisconnected:
 		s.sessionState.SetPeerConnected(false)
-		_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordLog{
-			Level:   observability.LevelInfo,
-			Message: "WebRTC peer disconnected, restarting ICE",
-			Attributes: observability.Attributes{
-				"component":                   observability.ComponentWebRTC.String(),
-				webrtc_internal.DataType:      "peer_disconnected",
-				webrtc_internal.DataSessionID: s.sessionID,
+		s.Logger.Debugw("webrtc webhook record call site",
+			"call_site", "peer_state_disconnected",
+			"event", observability.WebRTCDisconnected.String(),
+			webrtc_internal.DataSessionID, s.sessionID,
+			webrtc_internal.DataMediaSessionID, mediaSessionID,
+			webrtc_internal.DataPeerConnectionState, state.String(),
+		)
+		_ = s.observer.Record(s.Ctx, s.sessionState.Scope,
+			observability.RecordLog{
+				Level:   observability.LevelInfo,
+				Message: "WebRTC peer disconnected, restarting ICE",
+				Attributes: observability.Attributes{
+					"component":                   observability.ComponentWebRTC.String(),
+					webrtc_internal.DataType:      "peer_disconnected",
+					webrtc_internal.DataSessionID: s.sessionID,
+				},
 			},
-		})
-		_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordEvent{
-			Component: observability.ComponentWebRTC,
-			Event:     observability.WebRTCDisconnected,
-			Attributes: observability.Attributes{
-				"component":                   observability.ComponentWebRTC.String(),
-				webrtc_internal.DataType:      "peer_disconnected",
-				webrtc_internal.DataSessionID: s.sessionID,
+			observability.RecordEvent{
+				Component: observability.ComponentWebRTC,
+				Event:     observability.WebRTCDisconnected,
+				Attributes: observability.Attributes{
+					"component":                   observability.ComponentWebRTC.String(),
+					webrtc_internal.DataType:      "peer_disconnected",
+					webrtc_internal.DataSessionID: s.sessionID,
+				},
 			},
-		})
+			observability.RecordWebhook{
+				Event: observability.WebRTCDisconnected,
+				Payload: map[string]interface{}{
+					"event":                                 observability.WebRTCDisconnected.String(),
+					webrtc_internal.DataType:                "peer_disconnected",
+					webrtc_internal.DataSessionID:           s.sessionID,
+					webrtc_internal.DataMediaSessionID:      mediaSessionID,
+					webrtc_internal.DataReason:              webrtc_internal.ReasonPeerDisconnected,
+					webrtc_internal.DataPeerConnectionState: state.String(),
+				},
+			},
+		)
 		s.queueMediaSessionRecovery(mediaSessionID, webrtc_internal.ReasonPeerDisconnected, peerStateChangedAt)
 
 	case pionwebrtc.PeerConnectionStateClosed:
@@ -215,36 +257,37 @@ func (s *webrtcStreamer) reportSelectedICECandidatePair(peerConnection *pionwebr
 		return
 	}
 
-	_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordEvent{
-		Component: observability.ComponentWebRTC,
-		Event:     observability.WebRTCSelectedICECandidatePair,
-		Attributes: observability.Attributes{
-			"component":                                     observability.ComponentWebRTC.String(),
-			webrtc_internal.DataType:                        webrtc_internal.EventSelectedICECandidatePair,
-			webrtc_internal.DataSessionID:                   s.sessionID,
-			webrtc_internal.DataCandidatePairID:             pair.ID,
-			webrtc_internal.DataLocalCandidateType:          pair.LocalCandidateType,
-			webrtc_internal.DataLocalProtocol:               pair.LocalProtocol,
-			webrtc_internal.DataRemoteCandidateType:         pair.RemoteCandidateType,
-			webrtc_internal.DataRemoteProtocol:              pair.RemoteProtocol,
-			webrtc_internal.DataCandidatePairRTTMs:          fmt.Sprintf("%d", pair.CurrentRoundTripTimeMs),
-			webrtc_internal.DataAvailableOutgoingBitrateBps: fmt.Sprintf("%d", pair.AvailableOutgoingBitrateBps),
-			webrtc_internal.DataQualityState:                qualityState,
+	_ = s.observer.Record(s.Ctx, s.sessionState.Scope,
+		observability.RecordEvent{
+			Component: observability.ComponentWebRTC,
+			Event:     observability.WebRTCSelectedICECandidatePair,
+			Attributes: observability.Attributes{
+				"component":                                     observability.ComponentWebRTC.String(),
+				webrtc_internal.DataType:                        webrtc_internal.EventSelectedICECandidatePair,
+				webrtc_internal.DataSessionID:                   s.sessionID,
+				webrtc_internal.DataCandidatePairID:             pair.ID,
+				webrtc_internal.DataLocalCandidateType:          pair.LocalCandidateType,
+				webrtc_internal.DataLocalProtocol:               pair.LocalProtocol,
+				webrtc_internal.DataRemoteCandidateType:         pair.RemoteCandidateType,
+				webrtc_internal.DataRemoteProtocol:              pair.RemoteProtocol,
+				webrtc_internal.DataCandidatePairRTTMs:          fmt.Sprintf("%d", pair.CurrentRoundTripTimeMs),
+				webrtc_internal.DataAvailableOutgoingBitrateBps: fmt.Sprintf("%d", pair.AvailableOutgoingBitrateBps),
+				webrtc_internal.DataQualityState:                qualityState,
+			},
 		},
-	})
-	_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordLog{
-		Level:   observability.LevelInfo,
-		Message: "WebRTC selected ICE candidate pair changed; RTT and outgoing bitrate help diagnose network path changes that can affect audio latency or quality.",
-		Attributes: observability.Attributes{
-			"component":                                     observability.ComponentWebRTC.String(),
-			webrtc_internal.DataType:                        webrtc_internal.EventSelectedICECandidatePair,
-			webrtc_internal.DataSessionID:                   s.sessionID,
-			webrtc_internal.DataCandidatePairID:             pair.ID,
-			webrtc_internal.DataCandidatePairRTTMs:          fmt.Sprintf("%d", pair.CurrentRoundTripTimeMs),
-			webrtc_internal.DataAvailableOutgoingBitrateBps: fmt.Sprintf("%d", pair.AvailableOutgoingBitrateBps),
-			webrtc_internal.DataQualityState:                qualityState,
-		},
-	})
+		observability.RecordLog{
+			Level:   observability.LevelInfo,
+			Message: "WebRTC selected ICE candidate pair changed; RTT and outgoing bitrate help diagnose network path changes that can affect audio latency or quality.",
+			Attributes: observability.Attributes{
+				"component":                                     observability.ComponentWebRTC.String(),
+				webrtc_internal.DataType:                        webrtc_internal.EventSelectedICECandidatePair,
+				webrtc_internal.DataSessionID:                   s.sessionID,
+				webrtc_internal.DataCandidatePairID:             pair.ID,
+				webrtc_internal.DataCandidatePairRTTMs:          fmt.Sprintf("%d", pair.CurrentRoundTripTimeMs),
+				webrtc_internal.DataAvailableOutgoingBitrateBps: fmt.Sprintf("%d", pair.AvailableOutgoingBitrateBps),
+				webrtc_internal.DataQualityState:                qualityState,
+			},
+		})
 }
 
 func selectedICECandidatePairFromStats(report pionwebrtc.StatsReport) (webrtc_internal.SelectedICECandidatePair, bool) {

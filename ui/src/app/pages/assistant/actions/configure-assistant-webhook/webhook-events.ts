@@ -1,4 +1,4 @@
-export type WebhookEventGroup = 'Call' | 'Conversation';
+export type WebhookEventGroup = 'Call' | 'Conversation' | 'WebRTC';
 
 export type WebhookEventOption = {
   id: string;
@@ -99,5 +99,35 @@ export const webhookEvents: WebhookEventOption[] = [
     name: 'conversation.error',
     description: 'Triggered when a conversation fails with an error.',
     group: 'Conversation',
+  },
+  {
+    id: 'webrtc.connected',
+    name: 'webrtc.connected',
+    description: 'Triggered when the WebRTC media connection is established.',
+    group: 'WebRTC',
+  },
+  {
+    id: 'webrtc.audio_track_received',
+    name: 'webrtc.audio_track_received',
+    description: 'Triggered when the remote WebRTC audio track is received.',
+    group: 'WebRTC',
+  },
+  {
+    id: 'webrtc.reconnecting',
+    name: 'webrtc.reconnecting',
+    description: 'Triggered when the WebRTC media connection is reconnecting.',
+    group: 'WebRTC',
+  },
+  {
+    id: 'webrtc.failed',
+    name: 'webrtc.failed',
+    description: 'Triggered when the WebRTC media connection fails.',
+    group: 'WebRTC',
+  },
+  {
+    id: 'webrtc.disconnected',
+    name: 'webrtc.disconnected',
+    description: 'Triggered when the WebRTC media connection disconnects.',
+    group: 'WebRTC',
   },
 ];

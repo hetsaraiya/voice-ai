@@ -13,7 +13,11 @@ import (
 
 	webrtc_internal "github.com/rapidaai/api/assistant-api/internal/channel/webrtc/internal"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
+	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
+	observability_collector_requestlog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/requestlog"
+	observability_collector_toollog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/toollog"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
+	"github.com/rapidaai/pkg/validator"
 	"github.com/rapidaai/protos"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -142,7 +146,44 @@ func (s *webrtcStreamer) runGrpcReader() {
 		})
 		switch msg.GetRequest().(type) {
 		case *protos.WebTalkRequest_Initialization:
-			s.Input(msg.GetInitialization())
+			initialization := msg.GetInitialization()
+			if !validator.NonNil(initialization) || !validator.OfAssistantDefinition(initialization.GetAssistant()) {
+				_ = s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: "Invalid WebRTC initialization",
+					Attributes: observability.Attributes{
+						"component":                   observability.ComponentWebRTC.String(),
+						webrtc_internal.DataSessionID: s.sessionID,
+					},
+				})
+				s.Input(&protos.ConversationError{Message: "invalid conversation initialization"})
+				if disc := s.Disconnect(protos.ConversationDisconnection_DISCONNECTION_TYPE_ERROR); disc != nil {
+					s.Input(disc)
+				}
+				s.Close()
+				return
+			}
+			assistantID := initialization.GetAssistant().GetAssistantId()
+			if err := s.observer.AddCollectors(
+				observability_collector_requestlog.New(observability_collector_requestlog.Config{
+					Logger:         s.Logger,
+					HTTPLogService: s.httpLogService,
+				}),
+				observability_collector_toollog.New(observability_collector_toollog.Config{
+					Logger:      s.Logger,
+					ToolService: s.assistantToolService,
+				}),
+				collectors.NewWithAssistantWebhook(s.Ctx, s.Logger, s.auth, assistantID, s.webhookService, s.httpLogService),
+			); err != nil {
+				s.Logger.Warnw("observability collector registration failed",
+					"component", "webrtc",
+					"operation", "add_assistant_collectors",
+					"assistant_id", assistantID,
+					webrtc_internal.DataSessionID, s.sessionID,
+					"error", err,
+				)
+			}
+			s.Input(initialization)
 		case *protos.WebTalkRequest_Configuration:
 			s.Input(msg.GetConfiguration())
 		case *protos.WebTalkRequest_Message:

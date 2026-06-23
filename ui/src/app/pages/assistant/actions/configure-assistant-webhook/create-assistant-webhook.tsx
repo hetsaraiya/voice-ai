@@ -229,7 +229,7 @@ export const CreateAssistantWebhook: FC<{ assistantId: string }> = ({
             code: 'events',
             name: 'Events',
             description:
-              'Choose which call and conversation events trigger the webhook.',
+              'Choose which call, conversation, and WebRTC events trigger the webhook.',
             actions: [
               <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
                 <SecondaryButton
@@ -273,6 +273,20 @@ export const CreateAssistantWebhook: FC<{ assistantId: string }> = ({
                 >
                   <WebhookEventSelector
                     group="Conversation"
+                    selectedEvents={events}
+                    onChange={setEvents}
+                  />
+                </InputGroup>
+
+                <InputGroup
+                  childClass="p-0! m-0! px-4!"
+                  title={renderLabelWithTooltip(
+                    getEventGroupTitle('WebRTC', events),
+                    'Choose which WebRTC media events trigger this webhook.',
+                  )}
+                >
+                  <WebhookEventSelector
+                    group="WebRTC"
                     selectedEvents={events}
                     onChange={setEvents}
                   />

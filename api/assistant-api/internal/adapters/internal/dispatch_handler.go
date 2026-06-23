@@ -25,11 +25,6 @@ import (
 	internal_conversation_entity "github.com/rapidaai/api/assistant-api/internal/entity/conversations"
 	internal_llm "github.com/rapidaai/api/assistant-api/internal/llm"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
-	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
-	observability_collector_conversationmetadata "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetadata"
-	observability_collector_conversationmetric "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetric"
-	observability_collector_requestlog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/requestlog"
-	observability_collector_toollog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/toollog"
 	internal_transformer "github.com/rapidaai/api/assistant-api/internal/transformer"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	internal_vad "github.com/rapidaai/api/assistant-api/internal/vad"
@@ -1603,37 +1598,6 @@ func (h requestorDispatchHandler) HandleInitializeAssistant(ctx context.Context,
 		return
 	}
 	h.r.assistant = assistant
-	configuredCollectors := make([]observability.Collector, 0)
-	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantTelemetry(ctx, h.r.logger, h.r.assistant.AssistantTelemetryProviders)...)
-	configuredCollectors = append(configuredCollectors,
-		observability_collector_toollog.New(observability_collector_toollog.Config{
-			Logger:      h.r.logger,
-			ToolService: h.r.assistantToolService,
-		}),
-		observability_collector_requestlog.New(observability_collector_requestlog.Config{
-			Logger:         h.r.logger,
-			HTTPLogService: h.r.httpLogService,
-		}),
-	)
-	configuredCollectors = append(configuredCollectors, collectors.NewWithAssistantWebhook(ctx, h.r.logger, h.r.auth, h.r.assistant.Id, h.r.webhookService, h.r.observabilityRecorder)...)
-	configuredCollectors = append(configuredCollectors,
-		observability_collector_conversationmetric.New(observability_collector_conversationmetric.Config{
-			Logger:              h.r.logger,
-			ConversationService: h.r.conversationService,
-		}),
-		observability_collector_conversationmetadata.New(observability_collector_conversationmetadata.Config{
-			Logger:              h.r.logger,
-			ConversationService: h.r.conversationService,
-		}),
-	)
-	if err := h.r.observabilityRecorder.AddCollectors(configuredCollectors...); err != nil {
-		h.r.logger.Warnw(
-			"platform observability collector registration failed",
-			"component", "platform",
-			"operation", "initialize_observability_collectors",
-			"error", err,
-		)
-	}
 	h.r.OnPacket(ctx, internal_type.InitializeConversationPacket{ContextID: p.ContextID, Config: p.Config})
 }
 func (h requestorDispatchHandler) HandleInitializeConversation(ctx context.Context, vl internal_type.InitializeConversationPacket) {

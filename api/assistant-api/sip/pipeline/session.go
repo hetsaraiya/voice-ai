@@ -16,6 +16,7 @@ import (
 	observability_collector_conversationmetadata "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetadata"
 	observability_collector_conversationmetric "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetric"
 	observability_collector_requestlog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/requestlog"
+	observability_collector_toollog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/toollog"
 	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
 	"github.com/rapidaai/pkg/types"
@@ -149,20 +150,7 @@ func (d *Dispatcher) setupCall(ctx context.Context, stage sip_infra.SessionEstab
 }
 
 func (d *Dispatcher) createObserver(ctx context.Context, setup *CallSetupResult, auth types.SimplePrinciple) observability.Recorder {
-	observabilityCollectors := make([]observability.Collector, 0)
-	if d.assistantConversationService != nil {
-		observabilityCollectors = append(observabilityCollectors,
-			observability_collector_conversationmetric.New(observability_collector_conversationmetric.Config{
-				Logger:              d.logger,
-				ConversationService: d.assistantConversationService,
-			}),
-			observability_collector_conversationmetadata.New(observability_collector_conversationmetadata.Config{
-				Logger:              d.logger,
-				ConversationService: d.assistantConversationService,
-			}),
-		)
-	}
-	observabilityCollectors = append(observabilityCollectors, collectors.NewWithEnv(ctx, d.logger, d.assistantConfig)...)
+
 	recorder := observability.New(
 		observability.WithLogger(d.logger),
 		observability.WithAuth(auth),
@@ -172,25 +160,27 @@ func (d *Dispatcher) createObserver(ctx context.Context, setup *CallSetupResult,
 		}),
 		observability.WithContext(ctx),
 		observability.WithGracePeriod(),
-		observability.WithCollectors(observabilityCollectors...),
-	)
-	if err := recorder.AddCollectors(append(
-		[]observability.Collector{
+		observability.WithCollectors(
+			observability_collector_conversationmetric.New(observability_collector_conversationmetric.Config{
+				Logger:              d.logger,
+				ConversationService: d.assistantConversationService,
+			}),
+			observability_collector_conversationmetadata.New(observability_collector_conversationmetadata.Config{
+				Logger:              d.logger,
+				ConversationService: d.assistantConversationService,
+			}),
 			observability_collector_requestlog.New(observability_collector_requestlog.Config{
 				Logger:         d.logger,
 				HTTPLogService: d.httpLogService,
 			}),
-		},
-		collectors.NewWithAssistantWebhook(ctx, d.logger, auth, setup.AssistantID, d.webhookService, recorder)...,
-	)...); err != nil {
-		d.logger.Warnw("observability collector registration failed",
-			"component", "call",
-			"operation", "add_assistant_collectors",
-			"assistant_id", setup.AssistantID,
-			"conversation_id", setup.ConversationID,
-			"error", err,
-		)
-	}
+			observability_collector_toollog.New(observability_collector_toollog.Config{
+				Logger:      d.logger,
+				ToolService: d.assistantToolService,
+			}),
+			collectors.NewWithAssistantWebhook(ctx, d.logger, auth, setup.AssistantID, d.webhookService, d.httpLogService),
+			collectors.NewWithEnv(ctx, d.logger, d.assistantConfig),
+		),
+	)
 	return recorder
 }
 

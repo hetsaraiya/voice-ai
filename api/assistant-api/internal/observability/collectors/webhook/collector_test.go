@@ -15,6 +15,7 @@ import (
 
 	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
+	"github.com/rapidaai/pkg/commons"
 	gorm_model "github.com/rapidaai/pkg/models/gorm"
 	gorm_types "github.com/rapidaai/pkg/models/gorm/types"
 	"github.com/rapidaai/pkg/types"
@@ -24,7 +25,7 @@ import (
 
 func TestCollector_SendsWebhookEventPayload(t *testing.T) {
 	var got map[string]interface{}
-	requestLogRecorder := &recordingRecorder{}
+	httpLogService := &recordingHTTPLogService{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Fatalf("method = %s, want POST", r.Method)
@@ -54,10 +55,11 @@ func TestCollector_SendsWebhookEventPayload(t *testing.T) {
 		},
 	}
 	collector := New(context.Background(), Config{
+		Logger:                  testLogger(t),
 		Auth:                    auth,
 		AssistantID:             10,
 		AssistantWebhookService: webhookService,
-		Recorder:                requestLogRecorder,
+		HTTPLogService:          httpLogService,
 	})
 
 	scope := observability.ConversationScope{
@@ -82,28 +84,21 @@ func TestCollector_SendsWebhookEventPayload(t *testing.T) {
 	if _, ok := got["context_id"]; ok {
 		t.Fatalf("webhook payload should not include observability context_id: %+v", got)
 	}
-	if len(requestLogRecorder.records) != 1 {
-		t.Fatalf("expected one request log record, got %d", len(requestLogRecorder.records))
+	if len(httpLogService.calls) != 1 {
+		t.Fatalf("expected one request log call, got %d", len(httpLogService.calls))
 	}
-	requestLogRecord, ok := requestLogRecorder.records[0].(observability.RecordRequestLog)
-	if !ok {
-		t.Fatalf("expected RecordRequestLog, got %T", requestLogRecorder.records[0])
+	requestLogCall := httpLogService.calls[0]
+	if requestLogCall.source != "webhook" || requestLogCall.sourceRefID != 1 || requestLogCall.sourceEvent != observability.CallRinging.String() {
+		t.Fatalf("unexpected request log source: %+v", requestLogCall)
 	}
-	if requestLogRecord.Source != "webhook" || requestLogRecord.SourceRefID != 1 || requestLogRecord.SourceEvent != observability.CallRinging.String() {
-		t.Fatalf("unexpected request log source: %+v", requestLogRecord)
+	if requestLogCall.contextID != "call-context-1" {
+		t.Fatalf("unexpected request log context_id: %q", requestLogCall.contextID)
 	}
-	if requestLogRecord.ContextID != "call-context-1" {
-		t.Fatalf("unexpected request log context_id: %q", requestLogRecord.ContextID)
+	if requestLogCall.assistantID != 10 || requestLogCall.conversationID == nil || *requestLogCall.conversationID != 20 {
+		t.Fatalf("unexpected request log scope: %+v", requestLogCall)
 	}
-	requestLogScope, ok := requestLogRecorder.scopes[0].(observability.ConversationScope)
-	if !ok {
-		t.Fatalf("expected conversation scope, got %T", requestLogRecorder.scopes[0])
-	}
-	if requestLogScope.AssistantScopeID() != 10 || requestLogScope.ConversationScopeID() != 20 {
-		t.Fatalf("unexpected request log scope: %+v", requestLogScope)
-	}
-	if requestLogRecord.Status != type_enums.RECORD_COMPLETE || requestLogRecord.ResponseStatus != http.StatusNoContent {
-		t.Fatalf("unexpected request log status: %+v", requestLogRecord)
+	if requestLogCall.status != type_enums.RECORD_COMPLETE || requestLogCall.responseStatus != http.StatusNoContent {
+		t.Fatalf("unexpected request log status: %+v", requestLogCall)
 	}
 }
 
@@ -121,9 +116,11 @@ func TestNew_DoesNotLoadWebhooks(t *testing.T) {
 	}
 
 	collector := New(context.Background(), Config{
+		Logger:                  testLogger(t),
 		Auth:                    auth,
 		AssistantID:             10,
 		AssistantWebhookService: webhookService,
+		HTTPLogService:          &recordingHTTPLogService{},
 	})
 	if _, ok := collector.(observability.NoopCollector); ok {
 		t.Fatal("expected webhook collector")
@@ -146,9 +143,11 @@ func TestCollector_LoadsWebhooksOnce(t *testing.T) {
 		},
 	}
 	collector := New(context.Background(), Config{
+		Logger:                  testLogger(t),
 		Auth:                    auth,
 		AssistantID:             10,
 		AssistantWebhookService: webhookService,
+		HTTPLogService:          &recordingHTTPLogService{},
 	})
 
 	for i := 0; i < 2; i++ {
@@ -177,9 +176,11 @@ func TestCollector_IgnoresUnallowedWebhookEvent(t *testing.T) {
 		},
 	}
 	collector := New(context.Background(), Config{
+		Logger:                  testLogger(t),
 		Auth:                    auth,
 		AssistantID:             10,
 		AssistantWebhookService: webhookService,
+		HTTPLogService:          &recordingHTTPLogService{},
 	})
 
 	err := collector.Collect(context.Background(), observability.AssistantScope{AssistantID: 10}, observability.Context{}, observability.RecordWebhook{
@@ -187,6 +188,26 @@ func TestCollector_IgnoresUnallowedWebhookEvent(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("CollectWebhook returned error: %v", err)
+	}
+}
+
+func TestCollector_ShouldSendRequiresValidWebhookProvider(t *testing.T) {
+	collector := &Collector{}
+	webhook := testWebhook(1, []string{observability.CallRinging.String()}, nil)
+
+	webhook.Provider = "HTTP"
+	if collector.shouldSend(webhook, observability.CallRinging.String()) {
+		t.Fatal("expected uppercase provider to be invalid")
+	}
+
+	webhook.Provider = " http"
+	if collector.shouldSend(webhook, observability.CallRinging.String()) {
+		t.Fatal("expected provider with leading space to be invalid")
+	}
+
+	webhook.Provider = internal_assistant_entity.AssistantWebhookProviderHTTP
+	if !collector.shouldSend(webhook, observability.CallRinging.String()) {
+		t.Fatal("expected exact http provider to be valid")
 	}
 }
 
@@ -208,9 +229,11 @@ func TestCollector_ReturnsHTTPError(t *testing.T) {
 		},
 	}
 	collector := New(context.Background(), Config{
+		Logger:                  testLogger(t),
 		Auth:                    auth,
 		AssistantID:             10,
 		AssistantWebhookService: webhookService,
+		HTTPLogService:          &recordingHTTPLogService{},
 	})
 
 	err := collector.Collect(context.Background(), observability.AssistantScope{AssistantID: 10}, observability.Context{}, observability.RecordWebhook{
@@ -241,9 +264,19 @@ type recordingAssistantWebhookService struct {
 	getAllCalls int
 }
 
-type recordingRecorder struct {
-	scopes  []observability.Scope
-	records []observability.Record
+type webhookHTTPLogCall struct {
+	source         string
+	sourceRefID    uint64
+	sourceEvent    string
+	contextID      string
+	assistantID    uint64
+	conversationID *uint64
+	responseStatus int64
+	status         type_enums.RecordState
+}
+
+type recordingHTTPLogService struct {
+	calls []webhookHTTPLogCall
 }
 
 func (s *recordingAssistantWebhookService) Get(context.Context, types.SimplePrinciple, uint64, uint64) (*internal_assistant_entity.AssistantWebhook, error) {
@@ -267,18 +300,64 @@ func (s *recordingAssistantWebhookService) GetAll(context.Context, types.SimpleP
 	return int64(len(s.webhooks)), s.webhooks, nil
 }
 
-func (r *recordingRecorder) Record(_ context.Context, scope observability.Scope, records ...observability.Record) error {
-	for _, record := range records {
-		r.scopes = append(r.scopes, scope)
-		r.records = append(r.records, record)
+func (s *recordingHTTPLogService) CreateLog(
+	_ context.Context,
+	_ types.SimplePrinciple,
+	source string,
+	sourceRefID uint64,
+	sourceEvent string,
+	contextID string,
+	assistantID uint64,
+	conversationID *uint64,
+	_ string,
+	_ string,
+	responseStatus int64,
+	_ int64,
+	_ uint32,
+	status type_enums.RecordState,
+	_ *string,
+	_ []byte,
+	_ []byte,
+) (*internal_assistant_entity.AssistantHTTPLog, error) {
+	s.calls = append(s.calls, webhookHTTPLogCall{
+		source:         source,
+		sourceRefID:    sourceRefID,
+		sourceEvent:    sourceEvent,
+		contextID:      contextID,
+		assistantID:    assistantID,
+		conversationID: conversationID,
+		responseStatus: responseStatus,
+		status:         status,
+	})
+	return &internal_assistant_entity.AssistantHTTPLog{}, nil
+}
+
+func (s *recordingHTTPLogService) GetLog(context.Context, types.SimplePrinciple, uint64, uint64) (*internal_assistant_entity.AssistantHTTPLog, error) {
+	return nil, nil
+}
+
+func (s *recordingHTTPLogService) GetAllLog(context.Context, types.SimplePrinciple, uint64, []*protos.Criteria, *protos.Paginate, *protos.Ordering) (int64, []*internal_assistant_entity.AssistantHTTPLog, error) {
+	return 0, nil, nil
+}
+
+func (s *recordingHTTPLogService) GetLogObject(context.Context, uint64, uint64, uint64) ([]byte, []byte, error) {
+	return nil, nil, nil
+}
+
+func (s *recordingHTTPLogService) RetryLog(context.Context, types.SimplePrinciple, uint64, uint64) (*internal_assistant_entity.AssistantHTTPLog, error) {
+	return nil, nil
+}
+
+func testLogger(t *testing.T) commons.Logger {
+	t.Helper()
+
+	logger, err := commons.NewApplicationLogger(
+		commons.Name("observability-webhook-collector-test"),
+		commons.Level("error"),
+		commons.EnableFile(false),
+	)
+	if err != nil {
+		t.Fatalf("failed to create logger: %v", err)
 	}
-	return nil
-}
-
-func (r *recordingRecorder) AddCollectors(...observability.Collector) error {
-	return nil
-}
-
-func (r *recordingRecorder) Close(context.Context) error {
-	return nil
+	return logger
 }

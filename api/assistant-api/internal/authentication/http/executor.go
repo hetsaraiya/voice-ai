@@ -52,7 +52,7 @@ func NewExecutor(logger commons.Logger, _ context.Context, authenticator *intern
 }
 
 func (e *runtimeExecutor) Name() string {
-	return e.authenticator.Provider
+	return string(e.authenticator.Provider)
 }
 
 func (e *runtimeExecutor) Options() utils.Option {

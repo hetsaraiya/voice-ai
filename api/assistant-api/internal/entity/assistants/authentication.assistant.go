@@ -15,7 +15,7 @@ type AssistantAuthentication struct {
 	gorm_model.Mutable
 	gorm_model.Organizational
 	AssistantId                   uint64                           `json:"assistantId" gorm:"type:bigint;size:20;not null"`
-	Provider                      string                           `json:"provider" gorm:"type:varchar(50);not null;default:http"`
+	Provider                      AssistantAuthenticationProvider  `json:"provider" gorm:"type:varchar(50);not null;default:http"`
 	FailBehavior                  string                           `json:"failBehavior" gorm:"type:string;size:20;not null;default:block"`
 	TimeoutMs                     uint64                           `json:"timeoutMs" gorm:"type:bigint;not null;default:5000"`
 	AssistantAuthenticationOption []*AssistantAuthenticationOption `json:"options" gorm:"foreignKey:AssistantAuthenticationId"`

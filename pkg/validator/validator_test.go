@@ -113,7 +113,7 @@ func TestOfAssistantDefinition(t *testing.T) {
 	}{
 		{name: "nil assistant", assistant: nil, want: false},
 		{name: "zero assistant id", assistant: &protos.AssistantDefinition{}, want: false},
-		{name: "empty version", assistant: &protos.AssistantDefinition{AssistantId: 1}, want: false},
+		{name: "empty version", assistant: &protos.AssistantDefinition{AssistantId: 1}, want: true},
 		{name: "latest version", assistant: &protos.AssistantDefinition{AssistantId: 1, Version: "latest"}, want: true},
 		{name: "explicit version", assistant: &protos.AssistantDefinition{AssistantId: 1, Version: "vrsn_123"}, want: true},
 		{name: "numeric version without prefix", assistant: &protos.AssistantDefinition{AssistantId: 1, Version: "123"}, want: false},

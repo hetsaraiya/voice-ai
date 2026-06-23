@@ -84,11 +84,16 @@ func (s *assistantWebhookService) Create(
 	if description != nil {
 		desc = *description
 	}
-	provider = internal_assistant_entity.NormalizeAssistantWebhookProvider(provider)
+	webhookProvider, err := internal_assistant_entity.NewAssistantWebhookProvider(provider)
+	if err != nil {
+		s.logger.Benchmark("WebhookService.Create", time.Since(start))
+		s.logger.Errorf("error while creating webhook %v", err)
+		return nil, err
+	}
 
 	webhook := &internal_assistant_entity.AssistantWebhook{
 		AssistantId:       assistantId,
-		Provider:          provider,
+		Provider:          webhookProvider,
 		Description:       desc,
 		ExecutionPriority: executionPriority,
 		AssistantEvents:   gorm_types.StringArray(assistantEvents),
@@ -103,7 +108,7 @@ func (s *assistantWebhookService) Create(
 		},
 	}
 
-	err := db.Transaction(func(tx *gorm.DB) error {
+	err = db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&webhook).Error; err != nil {
 			return err
 		}
@@ -142,10 +147,15 @@ func (s *assistantWebhookService) Update(
 	if description != nil {
 		desc = *description
 	}
-	provider = internal_assistant_entity.NormalizeAssistantWebhookProvider(provider)
+	webhookProvider, err := internal_assistant_entity.NewAssistantWebhookProvider(provider)
+	if err != nil {
+		s.logger.Benchmark("WebhookService.Update", time.Since(start))
+		s.logger.Errorf("error while updating webhook %v", err)
+		return nil, err
+	}
 
 	patch := &internal_assistant_entity.AssistantWebhook{
-		Provider:          provider,
+		Provider:          webhookProvider,
 		Description:       desc,
 		ExecutionPriority: executionPriority,
 		AssistantEvents:   gorm_types.StringArray(assistantEvents),
@@ -155,7 +165,7 @@ func (s *assistantWebhookService) Update(
 	}
 
 	var out *internal_assistant_entity.AssistantWebhook
-	err := db.Transaction(func(tx *gorm.DB) error {
+	err = db.Transaction(func(tx *gorm.DB) error {
 		query := tx.Model(&internal_assistant_entity.AssistantWebhook{}).
 			Where("id = ? AND assistant_id = ? AND organization_id = ? AND project_id = ? AND status = ?",
 				webhookId,

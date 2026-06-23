@@ -49,6 +49,7 @@ type ConversationApi struct {
 	assistantService             internal_services.AssistantService
 	webhookService               internal_services.AssistantWebhookService
 	httpLogService               internal_services.AssistantHTTPLogService
+	assistantToolService         internal_services.AssistantToolService
 	vaultClient                  web_client.VaultClient
 	authClient                   web_client.AuthClient
 }
@@ -58,23 +59,21 @@ type ConversationGrpcApi struct {
 }
 
 func (cApi *ConversationApi) Observability(ctx context.Context, auth types.SimplePrinciple, options ...observability.Option) observability.Recorder {
-	observabilityCollectors := make([]observability.Collector, 0)
-	observabilityCollectors = append(observabilityCollectors,
-		observability_collector_conversationmetric.New(observability_collector_conversationmetric.Config{
-			Logger:              cApi.logger,
-			ConversationService: cApi.assistantConversationService,
-		}),
-		observability_collector_conversationmetadata.New(observability_collector_conversationmetadata.Config{
-			Logger:              cApi.logger,
-			ConversationService: cApi.assistantConversationService,
-		}),
-	)
-	observabilityCollectors = append(observabilityCollectors, collectors.NewWithEnv(ctx, cApi.logger, cApi.cfg)...)
 	recorderOptions := []observability.Option{
 		observability.WithLogger(cApi.logger),
 		observability.WithAuth(auth),
 		observability.WithContext(ctx),
-		observability.WithCollectors(observabilityCollectors...),
+		observability.WithCollectors(
+			observability_collector_conversationmetric.New(observability_collector_conversationmetric.Config{
+				Logger:              cApi.logger,
+				ConversationService: cApi.assistantConversationService,
+			}),
+			observability_collector_conversationmetadata.New(observability_collector_conversationmetadata.Config{
+				Logger:              cApi.logger,
+				ConversationService: cApi.assistantConversationService,
+			}),
+			collectors.NewWithEnv(ctx, cApi.logger, cApi.cfg),
+		),
 	}
 	recorderOptions = append(recorderOptions, options...)
 	return observability.New(recorderOptions...)
@@ -95,6 +94,7 @@ func newConversationApiCore(cfg *config.AssistantConfig, logger commons.Logger,
 	conversationService := internal_assistant_service.NewAssistantConversationService(logger, postgres, fileStorage)
 	webhookService := internal_assistant_service.NewAssistantWebhookService(logger, postgres, fileStorage)
 	httpLogService := internal_assistant_service.NewAssistantHTTPLogService(logger, postgres, fileStorage)
+	assistantToolService := internal_assistant_service.NewAssistantToolService(logger, postgres, fileStorage)
 	inbound := channel_telephony.NewInboundDispatcher(
 		channel_telephony.WithConfig(cfg),
 		channel_telephony.WithLogger(logger),
@@ -128,6 +128,7 @@ func newConversationApiCore(cfg *config.AssistantConfig, logger commons.Logger,
 		assistantService:             assistantService,
 		webhookService:               webhookService,
 		httpLogService:               httpLogService,
+		assistantToolService:         assistantToolService,
 		storage:                      fileStorage,
 		vaultClient:                  vaultClient,
 		authClient:                   web_client.NewAuthenticator(&cfg.AppConfig, logger, redis),
@@ -139,6 +140,7 @@ func newConversationApiCore(cfg *config.AssistantConfig, logger commons.Logger,
 			channel_pipeline.WithAssistantService(assistantService),
 			channel_pipeline.WithWebhookService(webhookService),
 			channel_pipeline.WithHTTPLogService(httpLogService),
+			channel_pipeline.WithAssistantToolService(assistantToolService),
 		),
 	}
 	return cApi
@@ -211,6 +213,10 @@ func (cApi *ConversationGrpcApi) AssistantTalk(stream assistant_api.TalkService_
 		internal_grpc.WithLogger(cApi.logger),
 		internal_grpc.WithServer(stream),
 		internal_grpc.WithObserver(observabilityRecorder),
+		internal_grpc.WithAuth(auth),
+		internal_grpc.WithWebhookService(cApi.webhookService),
+		internal_grpc.WithHTTPLogService(cApi.httpLogService),
+		internal_grpc.WithAssistantToolService(cApi.assistantToolService),
 	)
 	if err != nil {
 		cApi.logger.Errorf("failed to create grpc streamer: %v", err)
@@ -261,6 +267,10 @@ func (cApi *ConversationGrpcApi) WebTalk(stream assistant_api.WebRTC_WebTalkServ
 		internal_webrtc.WithServer(stream),
 		internal_webrtc.WithServerConfig(cApi.cfg.WebRTCConfig),
 		internal_webrtc.WithObserver(observabilityRecorder),
+		internal_webrtc.WithAuth(auth),
+		internal_webrtc.WithWebhookService(cApi.webhookService),
+		internal_webrtc.WithHTTPLogService(cApi.httpLogService),
+		internal_webrtc.WithAssistantToolService(cApi.assistantToolService),
 	)
 	if err != nil {
 		cApi.logger.Errorf("failed to create grpc streamer: %v", err)

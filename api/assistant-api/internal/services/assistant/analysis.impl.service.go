@@ -68,10 +68,15 @@ func (eService *assistantAnalysisService) Create(ctx context.Context,
 	if description != nil {
 		desc = *description
 	}
-	provider = internal_assistant_entity.NormalizeAssistantAnalysisProvider(provider)
+	analysisProvider, err := internal_assistant_entity.NewAssistantAnalysisProvider(provider)
+	if err != nil {
+		eService.logger.Benchmark("assistantAnalysisService.Create", time.Since(start))
+		eService.logger.Errorf("error while creating analysis %v", err)
+		return nil, err
+	}
 	analysis := &internal_assistant_entity.AssistantAnalysis{
 		AssistantId:       assistantId,
-		Provider:          provider,
+		Provider:          analysisProvider,
 		Description:       desc,
 		Name:              name,
 		ExecutionPriority: executionPriority,
@@ -85,7 +90,7 @@ func (eService *assistantAnalysisService) Create(ctx context.Context,
 			Status:    type_enums.RECORD_ACTIVE,
 		},
 	}
-	err := db.Transaction(func(tx *gorm.DB) error {
+	err = db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&analysis).Error; err != nil {
 			return err
 		}
@@ -121,9 +126,14 @@ func (eService *assistantAnalysisService) Update(ctx context.Context,
 	if description != nil {
 		desc = *description
 	}
-	provider = internal_assistant_entity.NormalizeAssistantAnalysisProvider(provider)
+	analysisProvider, err := internal_assistant_entity.NewAssistantAnalysisProvider(provider)
+	if err != nil {
+		eService.logger.Benchmark("assistantAnalysisService.Update", time.Since(start))
+		eService.logger.Errorf("error while updating analysis %v", err)
+		return nil, err
+	}
 	patch := &internal_assistant_entity.AssistantAnalysis{
-		Provider:          provider,
+		Provider:          analysisProvider,
 		Description:       desc,
 		Name:              name,
 		ExecutionPriority: executionPriority,
@@ -132,7 +142,7 @@ func (eService *assistantAnalysisService) Update(ctx context.Context,
 		},
 	}
 	var out *internal_assistant_entity.AssistantAnalysis
-	err := db.Transaction(func(tx *gorm.DB) error {
+	err = db.Transaction(func(tx *gorm.DB) error {
 		query := tx.Model(&internal_assistant_entity.AssistantAnalysis{}).
 			Where("id = ? AND assistant_id = ? AND organization_id = ? AND project_id = ? AND status = ?",
 				analysisId,

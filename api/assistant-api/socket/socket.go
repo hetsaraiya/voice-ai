@@ -26,7 +26,6 @@ import (
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
 	observability_collector_conversationmetadata "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetadata"
 	observability_collector_conversationmetric "github.com/rapidaai/api/assistant-api/internal/observability/collectors/conversationmetric"
-	observability_collector_requestlog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/requestlog"
 	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
 	internal_assistant_service "github.com/rapidaai/api/assistant-api/internal/services/assistant"
 	web_client "github.com/rapidaai/pkg/clients/web"
@@ -54,6 +53,7 @@ type audioSocketEngine struct {
 	assistantConversationService internal_services.AssistantConversationService
 	webhookService               internal_services.AssistantWebhookService
 	httpLogService               internal_services.AssistantHTTPLogService
+	assistantToolService         internal_services.AssistantToolService
 }
 
 func NewAudioSocketEngine(cfg *config.AssistantConfig, logger commons.Logger,
@@ -74,6 +74,7 @@ func NewAudioSocketEngine(cfg *config.AssistantConfig, logger commons.Logger,
 		assistantConversationService: internal_assistant_service.NewAssistantConversationService(logger, postgres, fileStorage),
 		webhookService:               internal_assistant_service.NewAssistantWebhookService(logger, postgres, fileStorage),
 		httpLogService:               internal_assistant_service.NewAssistantHTTPLogService(logger, postgres, fileStorage),
+		assistantToolService:         internal_assistant_service.NewAssistantToolService(logger, postgres, fileStorage),
 	}
 }
 
@@ -94,6 +95,7 @@ func (m *audioSocketEngine) Connect(ctx context.Context) error {
 		channel_pipeline.WithAssistantService(internal_assistant_service.NewAssistantService(m.cfg, m.logger, m.postgres, m.opensearch)),
 		channel_pipeline.WithWebhookService(m.webhookService),
 		channel_pipeline.WithHTTPLogService(m.httpLogService),
+		channel_pipeline.WithAssistantToolService(m.assistantToolService),
 	)
 
 	addr := fmt.Sprintf("%s:%d", m.cfg.AudioSocketConfig.Host, m.cfg.AudioSocketConfig.Port)
@@ -154,43 +156,24 @@ func (m *audioSocketEngine) handleConnection(ctx context.Context, conn net.Conn)
 		m.logger.Warnw("AudioSocket failed to resolve call context", "contextId", contextID, "error", err)
 		return
 	}
-	observabilityCollectors := make([]observability.Collector, 0)
-	observabilityCollectors = append(observabilityCollectors,
-		observability_collector_conversationmetric.New(observability_collector_conversationmetric.Config{
-			Logger:              m.logger,
-			ConversationService: m.assistantConversationService,
-		}),
-		observability_collector_conversationmetadata.New(observability_collector_conversationmetadata.Config{
-			Logger:              m.logger,
-			ConversationService: m.assistantConversationService,
-		}),
-	)
-	observabilityCollectors = append(observabilityCollectors, collectors.NewWithEnv(ctx, m.logger, m.cfg)...)
+
 	observer := observability.New(
 		observability.WithLogger(m.logger),
 		observability.WithAuth(callContext.ToAuth()),
 		observability.WithContext(ctx),
-		observability.WithCollectors(observabilityCollectors...),
+		observability.WithCollectors(
+			observability_collector_conversationmetric.New(observability_collector_conversationmetric.Config{
+				Logger:              m.logger,
+				ConversationService: m.assistantConversationService,
+			}),
+			observability_collector_conversationmetadata.New(observability_collector_conversationmetadata.Config{
+				Logger:              m.logger,
+				ConversationService: m.assistantConversationService,
+			}),
+			collectors.NewWithEnv(ctx, m.logger, m.cfg)),
 		observability.WithGracePeriod(),
 	)
 	defer observer.Close(context.Background())
-	assistantScopedCollectors := make([]observability.Collector, 0)
-	assistantScopedCollectors = append(assistantScopedCollectors,
-		observability_collector_requestlog.New(observability_collector_requestlog.Config{
-			Logger:         m.logger,
-			HTTPLogService: m.httpLogService,
-		}),
-	)
-	assistantScopedCollectors = append(assistantScopedCollectors, collectors.NewWithAssistantWebhook(ctx, m.logger, callContext.ToAuth(), callContext.AssistantID, m.webhookService, observer)...)
-	if err := observer.AddCollectors(assistantScopedCollectors...); err != nil {
-		m.logger.Warnw("observability collector registration failed",
-			"component", "call",
-			"operation", "add_assistant_collectors",
-			"assistant_id", callContext.AssistantID,
-			"context_id", contextID,
-			"error", err,
-		)
-	}
 
 	streamer, err := channel_telephony.Telephony(callContext.Provider).NewStreamer(
 		m.logger,

@@ -7,26 +7,44 @@ package channel_grpc
 
 import (
 	"context"
+	"errors"
 
 	"github.com/rapidaai/api/assistant-api/internal/observability"
+	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
+	observability_collector_requestlog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/requestlog"
+	observability_collector_toollog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/toollog"
+	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
+	"github.com/rapidaai/pkg/types"
+	"github.com/rapidaai/pkg/validator"
 	"github.com/rapidaai/protos"
 	"google.golang.org/grpc"
 )
+
+var errInvalidInitialization = errors.New("grpc: invalid conversation initialization")
 
 type unidirectionalStreamer struct {
 	ctx      context.Context
 	logger   commons.Logger
 	server   grpc.BidiStreamingServer[protos.AssistantTalkRequest, protos.AssistantTalkResponse]
 	observer observability.Recorder
+
+	auth                 types.SimplePrinciple
+	webhookService       internal_services.AssistantWebhookService
+	httpLogService       internal_services.AssistantHTTPLogService
+	assistantToolService internal_services.AssistantToolService
 }
 
 type StreamerOptions struct {
-	Context  context.Context
-	Logger   commons.Logger
-	Server   protos.TalkService_AssistantTalkServer
-	Observer observability.Recorder
+	Context              context.Context
+	Logger               commons.Logger
+	Server               protos.TalkService_AssistantTalkServer
+	Observer             observability.Recorder
+	Auth                 types.SimplePrinciple
+	WebhookService       internal_services.AssistantWebhookService
+	HTTPLogService       internal_services.AssistantHTTPLogService
+	AssistantToolService internal_services.AssistantToolService
 }
 
 type FuncOption func(*StreamerOptions)
@@ -55,16 +73,44 @@ func WithObserver(observer observability.Recorder) FuncOption {
 	}
 }
 
+func WithAuth(auth types.SimplePrinciple) FuncOption {
+	return func(options *StreamerOptions) {
+		options.Auth = auth
+	}
+}
+
+func WithWebhookService(webhookService internal_services.AssistantWebhookService) FuncOption {
+	return func(options *StreamerOptions) {
+		options.WebhookService = webhookService
+	}
+}
+
+func WithHTTPLogService(httpLogService internal_services.AssistantHTTPLogService) FuncOption {
+	return func(options *StreamerOptions) {
+		options.HTTPLogService = httpLogService
+	}
+}
+
+func WithAssistantToolService(assistantToolService internal_services.AssistantToolService) FuncOption {
+	return func(options *StreamerOptions) {
+		options.AssistantToolService = assistantToolService
+	}
+}
+
 func New(opts ...FuncOption) (internal_type.Streamer, error) {
 	var options StreamerOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
 	return &unidirectionalStreamer{
-		ctx:      options.Context,
-		logger:   options.Logger,
-		server:   options.Server,
-		observer: options.Observer,
+		ctx:                  options.Context,
+		logger:               options.Logger,
+		server:               options.Server,
+		observer:             options.Observer,
+		auth:                 options.Auth,
+		webhookService:       options.WebhookService,
+		httpLogService:       options.HTTPLogService,
+		assistantToolService: options.AssistantToolService,
 	}, nil
 }
 
@@ -86,7 +132,31 @@ func (uds *unidirectionalStreamer) Recv() (internal_type.Stream, error) {
 	}
 	switch in := req.Request.(type) {
 	case *protos.AssistantTalkRequest_Initialization:
-		return in.Initialization, nil
+		initialization := in.Initialization
+		if !validator.NonNil(initialization) || !validator.OfAssistantDefinition(initialization.GetAssistant()) {
+			return nil, errInvalidInitialization
+		}
+		assistantID := initialization.GetAssistant().GetAssistantId()
+		if uds.observer != nil {
+			if err := uds.observer.AddCollectors(
+				observability_collector_requestlog.New(observability_collector_requestlog.Config{
+					Logger:         uds.logger,
+					HTTPLogService: uds.httpLogService,
+				}),
+				observability_collector_toollog.New(observability_collector_toollog.Config{
+					Logger:      uds.logger,
+					ToolService: uds.assistantToolService,
+				}),
+				collectors.NewWithAssistantWebhook(uds.ctx, uds.logger, uds.auth, assistantID, uds.webhookService, uds.httpLogService)); err != nil {
+				uds.logger.Warnw("observability collector registration failed",
+					"component", "grpc",
+					"operation", "add_assistant_collectors",
+					"assistant_id", assistantID,
+					"error", err,
+				)
+			}
+		}
+		return initialization, nil
 	case *protos.AssistantTalkRequest_Configuration:
 		return in.Configuration, nil
 	case *protos.AssistantTalkRequest_Message:

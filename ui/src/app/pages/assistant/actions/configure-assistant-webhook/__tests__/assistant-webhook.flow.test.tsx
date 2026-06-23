@@ -470,6 +470,14 @@ describe('Assistant webhook flows', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
   };
 
+  const selectWebRTCEventAndContinue = () => {
+    const eventCheckbox = document.getElementById(
+      'webhook-event-webrtc.connected',
+    ) as HTMLInputElement;
+    fireEvent.click(eventCheckbox);
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  };
+
   const continueWithLoadedEvent = async () => {
     await waitFor(() => {
       expect(
@@ -478,6 +486,21 @@ describe('Assistant webhook flows', () => {
         ) as HTMLInputElement,
       ).toBeChecked();
     });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  };
+
+  const continueWithLoadedAndWebRTCEvent = async () => {
+    await waitFor(() => {
+      expect(
+        document.getElementById(
+          'webhook-event-conversation.begin',
+        ) as HTMLInputElement,
+      ).toBeChecked();
+    });
+    const eventCheckbox = document.getElementById(
+      'webhook-event-webrtc.reconnecting',
+    ) as HTMLInputElement;
+    fireEvent.click(eventCheckbox);
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
   };
 
@@ -525,7 +548,7 @@ describe('Assistant webhook flows', () => {
   it('create webhook submits with selected event and configuration', async () => {
     render(<CreateAssistantWebhook assistantId="assistant-1" />);
 
-    selectFirstEventAndContinue();
+    selectWebRTCEventAndContinue();
 
     fireEvent.change(screen.getByTestId('webhook-endpoint'), {
       target: { value: 'https://api.example.com/webhook' },
@@ -544,7 +567,7 @@ describe('Assistant webhook flows', () => {
     await waitFor(() => expect(CreateWebhook).toHaveBeenCalledTimes(1));
     const req = (CreateWebhook as jest.Mock).mock.calls[0][1];
     expect(req.getAssistantid()).toBe('assistant-1');
-    expect(req.getAssistanteventsList()).toEqual(['call.received']);
+    expect(req.getAssistanteventsList()).toEqual(['webrtc.connected']);
     expect(req.getExecutionpriority()).toBe(4);
     expect(req.getDescription()).toBe('');
 
@@ -606,7 +629,7 @@ describe('Assistant webhook flows', () => {
   it('update webhook submits with loaded values', async () => {
     render(<UpdateAssistantWebhook assistantId="assistant-1" />);
 
-    await continueWithLoadedEvent();
+    await continueWithLoadedAndWebRTCEvent();
 
     await waitFor(() => {
       expect(screen.getByTestId('webhook-endpoint')).toHaveValue(
@@ -620,7 +643,10 @@ describe('Assistant webhook flows', () => {
     const req = (UpdateWebhook as jest.Mock).mock.calls[0][1];
     expect(req.getAssistantid()).toBe('assistant-1');
     expect(req.getId()).toBe('webhook-1');
-    expect(req.getAssistanteventsList()).toEqual(['conversation.begin']);
+    expect(req.getAssistanteventsList()).toEqual([
+      'conversation.begin',
+      'webrtc.reconnecting',
+    ]);
     expect(req.getExecutionpriority()).toBe(1);
     expect(req.getDescription()).toBe('existing webhook');
     const optionMap = new Map(

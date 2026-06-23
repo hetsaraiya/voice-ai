@@ -15,7 +15,6 @@ import (
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
-	observability_collector_requestlog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/requestlog"
 	"github.com/rapidaai/pkg/validator"
 	"github.com/rapidaai/protos"
 )
@@ -52,15 +51,7 @@ func (cApi *ConversationApi) UnviersalCallback(c *gin.Context) {
 
 	auth := cc.ToAuth()
 	observer := cApi.Observability(c, auth, observability.WithGracePeriod())
-	assistantScopedCollectors := make([]observability.Collector, 0)
-	assistantScopedCollectors = append(assistantScopedCollectors,
-		observability_collector_requestlog.New(observability_collector_requestlog.Config{
-			Logger:         cApi.logger,
-			HTTPLogService: cApi.httpLogService,
-		}),
-	)
-	assistantScopedCollectors = append(assistantScopedCollectors, collectors.NewWithAssistantWebhook(c, cApi.logger, auth, cc.AssistantID, cApi.webhookService, observer)...)
-	if err := observer.AddCollectors(assistantScopedCollectors...); err != nil {
+	if err := observer.AddCollectors(collectors.NewWithAssistantWebhook(c, cApi.logger, auth, cc.AssistantID, cApi.webhookService, cApi.httpLogService)); err != nil {
 		cApi.logger.Warnw("observability collector registration failed",
 			"component", "callback",
 			"operation", "add_assistant_collectors",
@@ -220,15 +211,7 @@ func (cApi *ConversationApi) CallbackByContext(c *gin.Context) {
 	if statusInfo != nil {
 		auth := cc.ToAuth()
 		observer := cApi.Observability(c, auth, observability.WithGracePeriod())
-		assistantScopedCollectors := make([]observability.Collector, 0)
-		assistantScopedCollectors = append(assistantScopedCollectors,
-			observability_collector_requestlog.New(observability_collector_requestlog.Config{
-				Logger:         cApi.logger,
-				HTTPLogService: cApi.httpLogService,
-			}),
-		)
-		assistantScopedCollectors = append(assistantScopedCollectors, collectors.NewWithAssistantWebhook(c, cApi.logger, auth, cc.AssistantID, cApi.webhookService, observer)...)
-		if err := observer.AddCollectors(assistantScopedCollectors...); err != nil {
+		if err := observer.AddCollectors(collectors.NewWithAssistantWebhook(c, cApi.logger, auth, cc.AssistantID, cApi.webhookService, cApi.httpLogService)); err != nil {
 			cApi.logger.Warnw("observability collector registration failed",
 				"component", "callback",
 				"operation", "add_assistant_collectors",

@@ -14,6 +14,7 @@ import (
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors"
 	observability_collector_requestlog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/requestlog"
+	observability_collector_toollog "github.com/rapidaai/api/assistant-api/internal/observability/collectors/toollog"
 	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	type_enums "github.com/rapidaai/pkg/types/enums"
@@ -22,15 +23,17 @@ import (
 )
 
 func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipeline) *PipelineResult {
-	assistantScopedCollectors := make([]observability.Collector, 0)
-	assistantScopedCollectors = append(assistantScopedCollectors,
+	if err := v.Observer.AddCollectors(
 		observability_collector_requestlog.New(observability_collector_requestlog.Config{
 			Logger:         d.logger,
 			HTTPLogService: d.httpLogService,
 		}),
-	)
-	assistantScopedCollectors = append(assistantScopedCollectors, collectors.NewWithAssistantWebhook(ctx, d.logger, v.Auth, v.AssistantID, d.webhookService, v.Observer)...)
-	if err := v.Observer.AddCollectors(assistantScopedCollectors...); err != nil {
+		observability_collector_toollog.New(observability_collector_toollog.Config{
+			Logger:      d.logger,
+			ToolService: d.assistantToolService,
+		}),
+		collectors.NewWithAssistantWebhook(ctx, d.logger, v.Auth, v.AssistantID, d.webhookService, d.httpLogService),
+	); err != nil {
 		d.logger.Warnw("observability collector registration failed",
 			"component", "call",
 			"operation", "add_assistant_collectors",

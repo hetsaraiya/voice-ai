@@ -48,10 +48,11 @@ func newTestObserver(t *testing.T) observability.Recorder {
 }
 
 type testObservabilityCollector struct {
-	mu      sync.Mutex
-	logs    []observability.RecordLog
-	events  []observability.RecordEvent
-	metrics []observability.RecordMetric
+	mu       sync.Mutex
+	logs     []observability.RecordLog
+	events   []observability.RecordEvent
+	metrics  []observability.RecordMetric
+	webhooks []observability.RecordWebhook
 }
 
 func (c *testObservabilityCollector) Key() string {
@@ -68,6 +69,8 @@ func (c *testObservabilityCollector) Collect(_ context.Context, _ observability.
 		c.events = append(c.events, typed)
 	case observability.RecordMetric:
 		c.metrics = append(c.metrics, typed)
+	case observability.RecordWebhook:
+		c.webhooks = append(c.webhooks, typed)
 	}
 	return nil
 }
@@ -172,6 +175,50 @@ func requireObservabilityEvent(t *testing.T, collector *testObservabilityCollect
 			collector.mu.Unlock()
 		case <-deadline:
 			t.Fatalf("timed out waiting for WebRTC observability event %q", eventType)
+		}
+	}
+}
+
+func requireObservabilityLog(t *testing.T, collector *testObservabilityCollector, eventType string) observability.RecordLog {
+	t.Helper()
+	deadline := time.After(time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			collector.mu.Lock()
+			for _, log := range collector.logs {
+				if log.Attributes[webrtc_internal.DataType] == eventType {
+					collector.mu.Unlock()
+					return log
+				}
+			}
+			collector.mu.Unlock()
+		case <-deadline:
+			t.Fatalf("timed out waiting for WebRTC observability log %q", eventType)
+		}
+	}
+}
+
+func requireObservabilityWebhook(t *testing.T, collector *testObservabilityCollector, event observability.EventName) observability.RecordWebhook {
+	t.Helper()
+	deadline := time.After(time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			collector.mu.Lock()
+			for _, webhook := range collector.webhooks {
+				if webhook.Event == event {
+					collector.mu.Unlock()
+					return webhook
+				}
+			}
+			collector.mu.Unlock()
+		case <-deadline:
+			t.Fatalf("timed out waiting for WebRTC webhook %q", event)
 		}
 	}
 }
@@ -745,6 +792,13 @@ func TestHandleConfigurationMessage_TextStopsAudioNegotiationBeforeAudioConnecte
 func TestClose_Idempotent(t *testing.T) {
 	t.Parallel()
 	s := newTestStreamer(t)
+	collector := &testObservabilityCollector{}
+	s.observer = observability.New(
+		observability.WithGlobalScope(observability.GlobalScope{OrganizationID: 1, ProjectID: 1}),
+		observability.WithCollector(collector),
+	)
+	t.Cleanup(func() { require.NoError(t, s.observer.Close(context.Background())) })
+	mediaSessionID := s.sessionState.StartMediaSession()
 
 	err := s.Close()
 	assert.NoError(t, err)
@@ -753,6 +807,11 @@ func TestClose_Idempotent(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.True(t, s.sessionState.CloseStarted())
+	webhook := requireObservabilityWebhook(t, collector, observability.WebRTCDisconnected)
+	assert.Equal(t, mediaSessionID, webhook.Payload[webrtc_internal.DataMediaSessionID])
+	assert.Equal(t, s.sessionID, webhook.Payload[webrtc_internal.DataSessionID])
+	assert.Equal(t, "closed", webhook.Payload[webrtc_internal.DataReason])
+	assert.Len(t, collector.webhooks, 1)
 }
 
 func TestClose_ConcurrentSafe(t *testing.T) {
@@ -933,9 +992,16 @@ func TestHandlePeerState_ClosedStopsMediaSession(t *testing.T) {
 func TestHandlePeerState_ConnectedMarksAudioConnected(t *testing.T) {
 	t.Parallel()
 	s := newTestStreamer(t)
+	collector := &testObservabilityCollector{}
+	s.observer = observability.New(
+		observability.WithGlobalScope(observability.GlobalScope{OrganizationID: 1, ProjectID: 1}),
+		observability.WithCollector(collector),
+	)
+	t.Cleanup(func() { require.NoError(t, s.observer.Close(context.Background())) })
 	mediaSessionID := s.sessionState.StartMediaSession()
 	s.sessionState.SetMediaState(webrtc_internal.MediaStateAudioNegotiating)
 	connectedAt := time.Now()
+	s.mediaHealthState.StartICE(connectedAt.Add(-25 * time.Millisecond))
 
 	s.handlePeerState(mediaSessionID, pionwebrtc.PeerConnectionStateConnected, connectedAt)
 
@@ -945,6 +1011,11 @@ func TestHandlePeerState_ConnectedMarksAudioConnected(t *testing.T) {
 	assert.Equal(t, webrtc_internal.MediaStateAudioConnected, s.sessionState.MediaState())
 	assert.Equal(t, connectedAt, s.mediaHealthState.PeerConnectedAt)
 	s.Mu.Unlock()
+	webhook := requireObservabilityWebhook(t, collector, observability.WebRTCConnected)
+	assert.Equal(t, observability.WebRTCConnected.String(), webhook.Payload["event"])
+	assert.Equal(t, s.sessionID, webhook.Payload[webrtc_internal.DataSessionID])
+	assert.Equal(t, mediaSessionID, webhook.Payload[webrtc_internal.DataMediaSessionID])
+	assert.Equal(t, int64(25), webhook.Payload[webrtc_internal.DataICELatencyMs])
 }
 
 func TestQueueMediaSessionRestart_QueuesLifecycleEvent(t *testing.T) {
@@ -1490,6 +1561,12 @@ func TestWebRTCTrackBeforeRTP_StartsRemoteAudioReaderOnce(t *testing.T) {
 func TestHandlePeerState_DisconnectedQueuesRecovery(t *testing.T) {
 	t.Parallel()
 	s := newTestStreamer(t)
+	collector := &testObservabilityCollector{}
+	s.observer = observability.New(
+		observability.WithGlobalScope(observability.GlobalScope{OrganizationID: 1, ProjectID: 1}),
+		observability.WithCollector(collector),
+	)
+	t.Cleanup(func() { require.NoError(t, s.observer.Close(context.Background())) })
 	s.mediaLifecycleCh = make(chan webrtc_internal.MediaLifecycleEvent, 1)
 	mediaSessionID := s.sessionState.StartMediaSession()
 	s.sessionState.SetPeerConnected(true)
@@ -1512,6 +1589,69 @@ func TestHandlePeerState_DisconnectedQueuesRecovery(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for recovery event")
 	}
+	webhook := requireObservabilityWebhook(t, collector, observability.WebRTCDisconnected)
+	assert.Equal(t, observability.WebRTCDisconnected.String(), webhook.Payload["event"])
+	assert.Equal(t, "peer_disconnected", webhook.Payload[webrtc_internal.DataType])
+	assert.Equal(t, s.sessionID, webhook.Payload[webrtc_internal.DataSessionID])
+	assert.Equal(t, mediaSessionID, webhook.Payload[webrtc_internal.DataMediaSessionID])
+	assert.Equal(t, webrtc_internal.ReasonPeerDisconnected, webhook.Payload[webrtc_internal.DataReason])
+}
+
+func TestHandlePeerState_FailedRecordsWebhook(t *testing.T) {
+	t.Parallel()
+	s := newTestStreamer(t)
+	collector := &testObservabilityCollector{}
+	s.observer = observability.New(
+		observability.WithGlobalScope(observability.GlobalScope{OrganizationID: 1, ProjectID: 1}),
+		observability.WithCollector(collector),
+	)
+	t.Cleanup(func() { require.NoError(t, s.observer.Close(context.Background())) })
+	s.mediaLifecycleCh = make(chan webrtc_internal.MediaLifecycleEvent, 1)
+	mediaSessionID := s.sessionState.StartMediaSession()
+	s.sessionState.SetPeerConnected(true)
+	failedAt := time.Now()
+
+	s.handlePeerState(mediaSessionID, pionwebrtc.PeerConnectionStateFailed, failedAt)
+
+	select {
+	case event := <-s.mediaLifecycleCh:
+		assert.Equal(t, webrtc_internal.MediaLifecycleEventRecover, event.Kind)
+		assert.Equal(t, mediaSessionID, event.MediaSessionID)
+		assert.Equal(t, webrtc_internal.ReasonPeerFailed, event.Reason)
+		assert.Equal(t, failedAt, event.RequestedAt)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for recovery event")
+	}
+	webhook := requireObservabilityWebhook(t, collector, observability.WebRTCFailed)
+	assert.Equal(t, observability.WebRTCFailed.String(), webhook.Payload["event"])
+	assert.Equal(t, "peer_failed", webhook.Payload[webrtc_internal.DataType])
+	assert.Equal(t, s.sessionID, webhook.Payload[webrtc_internal.DataSessionID])
+	assert.Equal(t, mediaSessionID, webhook.Payload[webrtc_internal.DataMediaSessionID])
+	assert.Equal(t, webrtc_internal.ReasonPeerFailed, webhook.Payload[webrtc_internal.DataReason])
+}
+
+func TestRestartICERecordsReconnectWebhook(t *testing.T) {
+	t.Parallel()
+	s := newTestStreamer(t)
+	collector := &testObservabilityCollector{}
+	s.observer = observability.New(
+		observability.WithGlobalScope(observability.GlobalScope{OrganizationID: 1, ProjectID: 1}),
+		observability.WithCollector(collector),
+	)
+	t.Cleanup(func() { require.NoError(t, s.observer.Close(context.Background())) })
+	s.webrtcOperationCh = make(chan webrtc_internal.WebRTCOperation, 1)
+	mediaSessionID := s.sessionState.StartMediaSession()
+
+	s.restartICEOrMediaSessionFallback(mediaSessionID, webrtc_internal.ReasonICEFailed, time.Now())
+
+	webhook := requireObservabilityWebhook(t, collector, observability.WebRTCReconnecting)
+	assert.Equal(t, observability.WebRTCReconnecting.String(), webhook.Payload["event"])
+	assert.Equal(t, webrtc_internal.EventICERestarting, webhook.Payload[webrtc_internal.DataType])
+	assert.Equal(t, s.sessionID, webhook.Payload[webrtc_internal.DataSessionID])
+	assert.Equal(t, mediaSessionID, webhook.Payload[webrtc_internal.DataMediaSessionID])
+	assert.Equal(t, webrtc_internal.ReasonICEFailed, webhook.Payload[webrtc_internal.DataReason])
+	assert.Equal(t, uint64(1), webhook.Payload[webrtc_internal.DataRestartAttempt])
+	assert.Equal(t, webrtc_internal.ICERestartAttemptLimit, webhook.Payload[webrtc_internal.DataRestartLimit])
 }
 
 func TestHandlePeerICEConnectionState_RecordsSeparateICEState(t *testing.T) {
@@ -1593,6 +1733,12 @@ func TestSessionState_TryBeginICERestartHonorsLimit(t *testing.T) {
 func TestRestartMediaSession_LimitFallsBackToText(t *testing.T) {
 	t.Parallel()
 	s := newTestStreamer(t)
+	collector := &testObservabilityCollector{}
+	s.observer = observability.New(
+		observability.WithGlobalScope(observability.GlobalScope{OrganizationID: 1, ProjectID: 1}),
+		observability.WithCollector(collector),
+	)
+	t.Cleanup(func() { require.NoError(t, s.observer.Close(context.Background())) })
 	mediaSessionID := s.sessionState.StartMediaSession()
 	s.sessionState.SetPeerConnected(true)
 	s.signalingSessionID = "active-signaling"
@@ -1609,6 +1755,13 @@ func TestRestartMediaSession_LimitFallsBackToText(t *testing.T) {
 	assert.Equal(t, protos.StreamMode_STREAM_MODE_TEXT, s.currentMode)
 	assert.Equal(t, webrtc_internal.MediaStateText, s.sessionState.MediaState())
 	s.Mu.Unlock()
+	webhook := requireObservabilityWebhook(t, collector, observability.WebRTCFailed)
+	assert.Equal(t, observability.WebRTCFailed.String(), webhook.Payload["event"])
+	assert.Equal(t, "media_restart_limit_reached", webhook.Payload[webrtc_internal.DataType])
+	assert.Equal(t, s.sessionID, webhook.Payload[webrtc_internal.DataSessionID])
+	assert.Equal(t, mediaSessionID, webhook.Payload[webrtc_internal.DataMediaSessionID])
+	assert.Equal(t, webrtc_internal.ReasonPeerFailed, webhook.Payload[webrtc_internal.DataReason])
+	assert.Equal(t, "text", webhook.Payload["fallback"])
 }
 
 func TestMediaHealthState_RecordsInputMediaHealth(t *testing.T) {
@@ -2002,14 +2155,14 @@ func TestSend_Interruption(t *testing.T) {
 	assert.Empty(t, s.outputAudioQueue)
 	s.outputAudioQueueMu.Unlock()
 
+	log := requireObservabilityLog(t, collector, webrtc_internal.EventOutputQueueCleared)
 	require.NoError(t, s.observer.Close(context.Background()))
-	require.Len(t, collector.logs, 1)
-	assert.Equal(t, observability.LevelInfo, collector.logs[0].Level)
-	assert.Contains(t, collector.logs[0].Message, "user interruption")
-	assert.Equal(t, webrtc_internal.EventOutputQueueCleared, collector.logs[0].Attributes[webrtc_internal.DataType])
-	assert.Equal(t, webrtc_internal.OutputQueueClearReasonInterruption, collector.logs[0].Attributes[webrtc_internal.DataReason])
-	assert.Equal(t, "2", collector.logs[0].Attributes[webrtc_internal.DataClearedFrames])
-	assert.Equal(t, fmt.Sprintf("%d", webrtc_internal.OutputAudioQueueEmptySize), collector.logs[0].Attributes[webrtc_internal.DataRemainingQueueFrames])
+	assert.Equal(t, observability.LevelInfo, log.Level)
+	assert.Contains(t, log.Message, "user interruption")
+	assert.Equal(t, webrtc_internal.EventOutputQueueCleared, log.Attributes[webrtc_internal.DataType])
+	assert.Equal(t, webrtc_internal.OutputQueueClearReasonInterruption, log.Attributes[webrtc_internal.DataReason])
+	assert.Equal(t, "2", log.Attributes[webrtc_internal.DataClearedFrames])
+	assert.Equal(t, fmt.Sprintf("%d", webrtc_internal.OutputAudioQueueEmptySize), log.Attributes[webrtc_internal.DataRemainingQueueFrames])
 	assert.Empty(t, collector.metrics)
 }
 
@@ -2266,15 +2419,15 @@ func TestEnqueueOutputAudio_BoundedDropOldest_EmitsOverflowEvent(t *testing.T) {
 	assert.False(t, s.outputAudioQueue[0].QueuedAt.IsZero())
 	s.outputAudioQueueMu.Unlock()
 
+	log := requireObservabilityLog(t, collector, webrtc_internal.EventOutputQueueOverflow)
 	require.NoError(t, s.observer.Close(context.Background()))
-	require.Len(t, collector.logs, 1)
-	assert.Equal(t, observability.LevelInfo, collector.logs[0].Level)
-	assert.Contains(t, collector.logs[0].Message, "queue overflow")
-	assert.Equal(t, webrtc_internal.EventOutputQueueOverflow, collector.logs[0].Attributes[webrtc_internal.DataType])
-	assert.Equal(t, webrtc_internal.OutputQueuePolicyDropOldest, collector.logs[0].Attributes[webrtc_internal.DataPolicy])
-	assert.Equal(t, "1", collector.logs[0].Attributes[webrtc_internal.DataDroppedFrames])
-	assert.Equal(t, fmt.Sprintf("%d", limit), collector.logs[0].Attributes[webrtc_internal.DataLimitFrames])
-	assert.Equal(t, fmt.Sprintf("%d", limit), collector.logs[0].Attributes[webrtc_internal.DataQueueDepthFrames])
+	assert.Equal(t, observability.LevelInfo, log.Level)
+	assert.Contains(t, log.Message, "queue overflow")
+	assert.Equal(t, webrtc_internal.EventOutputQueueOverflow, log.Attributes[webrtc_internal.DataType])
+	assert.Equal(t, webrtc_internal.OutputQueuePolicyDropOldest, log.Attributes[webrtc_internal.DataPolicy])
+	assert.Equal(t, "1", log.Attributes[webrtc_internal.DataDroppedFrames])
+	assert.Equal(t, fmt.Sprintf("%d", limit), log.Attributes[webrtc_internal.DataLimitFrames])
+	assert.Equal(t, fmt.Sprintf("%d", limit), log.Attributes[webrtc_internal.DataQueueDepthFrames])
 	assert.Empty(t, collector.metrics)
 }
 

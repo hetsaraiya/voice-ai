@@ -8,10 +8,8 @@ package collectors
 
 import (
 	"context"
-	"strconv"
 
 	assistant_config "github.com/rapidaai/api/assistant-api/config"
-	internal_telemetry_entity "github.com/rapidaai/api/assistant-api/internal/entity/telemetry"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors/telemetry"
 	"github.com/rapidaai/api/assistant-api/internal/observability/collectors/webhook"
@@ -20,10 +18,9 @@ import (
 	"github.com/rapidaai/pkg/types"
 )
 
-func NewWithEnv(ctx context.Context, logger commons.Logger, config *assistant_config.AssistantConfig) []observability.Collector {
-	collectors := make([]observability.Collector, 0)
+func NewWithEnv(ctx context.Context, logger commons.Logger, config *assistant_config.AssistantConfig) observability.Collector {
 	if config == nil {
-		return collectors
+		return nil
 	}
 
 	if config.TelemetryConfig != nil && config.TelemetryConfig.Type() != "" {
@@ -32,45 +29,38 @@ func NewWithEnv(ctx context.Context, logger commons.Logger, config *assistant_co
 				Name:    string(config.TelemetryConfig.Type()),
 				Options: config.TelemetryConfig.ToMap(),
 			}}); err == nil {
-			collectors = append(collectors, collector)
+			return collector
 		}
 	}
-	return collectors
+	return nil
 }
 
-func NewWithAssistantTelemetry(ctx context.Context, logger commons.Logger, providers []*internal_telemetry_entity.AssistantTelemetryProvider) []observability.Collector {
-	collectors := make([]observability.Collector, 0)
-	for _, assistantTelemetryProvider := range providers {
-		if assistantTelemetryProvider == nil || !assistantTelemetryProvider.Enabled {
-			continue
-		}
-		collectorKey := ""
-		if assistantTelemetryProvider.Id != 0 {
-			collectorKey = "telemetry:assistant:" + strconv.FormatUint(assistantTelemetryProvider.Id, 10)
-		}
-		if collector, err := telemetry.New(ctx, telemetry.Config{Logger: logger,
-			Providers: telemetry.Provider{
-				Name:    assistantTelemetryProvider.ProviderType,
-				Options: assistantTelemetryProvider.GetOptions(),
-			},
-			Key: collectorKey,
-		}); err == nil {
-			collectors = append(collectors, collector)
-		}
+func NewWithAssistantTelemetry(ctx context.Context, logger commons.Logger, auth types.SimplePrinciple, assistantID uint64, assistantTelemetryService internal_services.AssistantTelemetryProviderService) observability.Collector {
+	collector, err := telemetry.New(ctx, telemetry.Config{
+		Logger:                    logger,
+		Auth:                      auth,
+		AssistantID:               assistantID,
+		AssistantTelemetryService: assistantTelemetryService,
+	})
+	if err != nil {
+		return nil
 	}
-	return collectors
+	if _, ok := collector.(observability.NoopCollector); ok {
+		return nil
+	}
+	return collector
 }
 
-func NewWithAssistantWebhook(ctx context.Context, logger commons.Logger, auth types.SimplePrinciple, assistantID uint64, assistantWebhookService internal_services.AssistantWebhookService, recorder observability.Recorder) []observability.Collector {
+func NewWithAssistantWebhook(ctx context.Context, logger commons.Logger, auth types.SimplePrinciple, assistantID uint64, assistantWebhookService internal_services.AssistantWebhookService, httpLogService internal_services.AssistantHTTPLogService) observability.Collector {
 	collector := webhook.New(ctx, webhook.Config{
 		Logger:                  logger,
 		Auth:                    auth,
 		AssistantID:             assistantID,
 		AssistantWebhookService: assistantWebhookService,
-		Recorder:                recorder,
+		HTTPLogService:          httpLogService,
 	})
 	if _, ok := collector.(observability.NoopCollector); ok {
 		return nil
 	}
-	return []observability.Collector{collector}
+	return collector
 }

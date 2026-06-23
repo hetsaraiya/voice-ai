@@ -87,7 +87,7 @@ func (m *manager) observer(ctx context.Context, auth types.SimplePrinciple) obse
 		observability.WithLogger(m.logger),
 		observability.WithAuth(auth),
 		observability.WithContext(ctx),
-		observability.WithCollectors(collectors.NewWithEnv(ctx, m.logger, m.assistantConfig)...),
+		observability.WithCollectors(collectors.NewWithEnv(ctx, m.logger, m.assistantConfig)),
 	)
 }
 

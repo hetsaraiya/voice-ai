@@ -31,8 +31,10 @@ import (
 	internal_output "github.com/rapidaai/api/assistant-api/internal/channel/output"
 	webrtc_internal "github.com/rapidaai/api/assistant-api/internal/channel/webrtc/internal"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
+	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
+	"github.com/rapidaai/pkg/types"
 	"github.com/rapidaai/protos"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -81,14 +83,23 @@ type webrtcStreamer struct {
 	flushAudioCh     chan struct{}
 
 	observer observability.Recorder
+
+	auth                 types.SimplePrinciple
+	webhookService       internal_services.AssistantWebhookService
+	httpLogService       internal_services.AssistantHTTPLogService
+	assistantToolService internal_services.AssistantToolService
 }
 
 type StreamerOptions struct {
-	Context      context.Context
-	Logger       commons.Logger
-	GRPCStream   grpc.BidiStreamingServer[protos.WebTalkRequest, protos.WebTalkResponse]
-	ServerConfig *assistant_config.WebRTCConfig
-	Observer     observability.Recorder
+	Context              context.Context
+	Logger               commons.Logger
+	GRPCStream           grpc.BidiStreamingServer[protos.WebTalkRequest, protos.WebTalkResponse]
+	ServerConfig         *assistant_config.WebRTCConfig
+	Observer             observability.Recorder
+	Auth                 types.SimplePrinciple
+	WebhookService       internal_services.AssistantWebhookService
+	HTTPLogService       internal_services.AssistantHTTPLogService
+	AssistantToolService internal_services.AssistantToolService
 }
 
 type FuncOption func(*StreamerOptions)
@@ -120,6 +131,30 @@ func WithServerConfig(serverConfig *assistant_config.WebRTCConfig) FuncOption {
 func WithObserver(observer observability.Recorder) FuncOption {
 	return func(options *StreamerOptions) {
 		options.Observer = observer
+	}
+}
+
+func WithAuth(auth types.SimplePrinciple) FuncOption {
+	return func(options *StreamerOptions) {
+		options.Auth = auth
+	}
+}
+
+func WithWebhookService(webhookService internal_services.AssistantWebhookService) FuncOption {
+	return func(options *StreamerOptions) {
+		options.WebhookService = webhookService
+	}
+}
+
+func WithHTTPLogService(httpLogService internal_services.AssistantHTTPLogService) FuncOption {
+	return func(options *StreamerOptions) {
+		options.HTTPLogService = httpLogService
+	}
+}
+
+func WithAssistantToolService(assistantToolService internal_services.AssistantToolService) FuncOption {
+	return func(options *StreamerOptions) {
+		options.AssistantToolService = assistantToolService
 	}
 }
 
@@ -253,22 +288,26 @@ func New(opts ...FuncOption) (internal_type.Streamer, error) {
 			webrtc_internal.InputChannelSize,
 			webrtc_internal.OutputChannelSize,
 		),
-		peerConfig:        peerConfig,
-		serverConfig:      options.ServerConfig,
-		grpcStream:        options.GRPCStream,
-		sessionID:         uuid.New().String(),
-		resampler:         resampler,
-		opusCodec:         opusCodec,
-		currentMode:       protos.StreamMode_STREAM_MODE_TEXT,
-		sessionState:      webrtc_internal.SessionState{Scope: observability.ProjectScope{}},
-		peerEventCh:       make(chan webrtc_internal.PeerEvent, webrtc_internal.PeerEventChannelSize),
-		mediaLifecycleCh:  make(chan webrtc_internal.MediaLifecycleEvent, webrtc_internal.MediaLifecycleChannelSize),
-		webrtcOperationCh: make(chan webrtc_internal.WebRTCOperation, webrtc_internal.WebRTCOperationChannelSize),
-		outputHealth:      internal_output.NewHealthStats(),
-		audioBufferState:  newWebRTCAudioBufferState(),
-		flushAudioCh:      make(chan struct{}, 1),
-		observer:          options.Observer,
-		ambientMixer:      ambientMixer,
+		peerConfig:           peerConfig,
+		serverConfig:         options.ServerConfig,
+		grpcStream:           options.GRPCStream,
+		sessionID:            uuid.New().String(),
+		resampler:            resampler,
+		opusCodec:            opusCodec,
+		currentMode:          protos.StreamMode_STREAM_MODE_TEXT,
+		sessionState:         webrtc_internal.SessionState{Scope: observability.ProjectScope{}},
+		peerEventCh:          make(chan webrtc_internal.PeerEvent, webrtc_internal.PeerEventChannelSize),
+		mediaLifecycleCh:     make(chan webrtc_internal.MediaLifecycleEvent, webrtc_internal.MediaLifecycleChannelSize),
+		webrtcOperationCh:    make(chan webrtc_internal.WebRTCOperation, webrtc_internal.WebRTCOperationChannelSize),
+		outputHealth:         internal_output.NewHealthStats(),
+		audioBufferState:     newWebRTCAudioBufferState(),
+		flushAudioCh:         make(chan struct{}, 1),
+		observer:             options.Observer,
+		auth:                 options.Auth,
+		webhookService:       options.WebhookService,
+		httpLogService:       options.HTTPLogService,
+		assistantToolService: options.AssistantToolService,
+		ambientMixer:         ambientMixer,
 	}
 	_ = options.Observer.Record(options.Context, s.sessionState.Scope, observability.RecordEvent{
 		Component: observability.ComponentWebRTC,
@@ -500,6 +539,32 @@ func (s *webrtcStreamer) bindPeerHandlers(peerConnection *pionwebrtc.PeerConnect
 				webrtc_internal.DataCodec:     remoteAudioCodec.MimeType,
 			},
 		})
+		if s.Logger != nil {
+			s.Logger.Debugw("webrtc webhook record call site",
+				"call_site", "audio_track_received",
+				"event", observability.WebRTCAudioTrackReceived.String(),
+				webrtc_internal.DataSessionID, s.sessionID,
+				webrtc_internal.DataMediaSessionID, mediaSessionID,
+				webrtc_internal.DataCodec, remoteAudioCodec.MimeType,
+			)
+		}
+		if err := s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordWebhook{
+			Event: observability.WebRTCAudioTrackReceived,
+			Payload: map[string]interface{}{
+				"event":                            observability.WebRTCAudioTrackReceived.String(),
+				webrtc_internal.DataSessionID:      s.sessionID,
+				webrtc_internal.DataMediaSessionID: mediaSessionID,
+				webrtc_internal.DataCodec:          remoteAudioCodec.MimeType,
+			},
+		}); err != nil && s.Logger != nil {
+			s.Logger.Warnw("webrtc webhook record failed",
+				"call_site", "audio_track_received",
+				"event", observability.WebRTCAudioTrackReceived.String(),
+				webrtc_internal.DataSessionID, s.sessionID,
+				webrtc_internal.DataMediaSessionID, mediaSessionID,
+				"error", err,
+			)
+		}
 		go s.readRemoteAudio(track, mediaSessionID, remoteAudioCodec)
 	})
 }
@@ -1120,6 +1185,33 @@ func (s *webrtcStreamer) handleConfigurationMessage(mode protos.StreamMode) {
 					"error":                       err.Error(),
 				},
 			})
+			if s.Logger != nil {
+				s.Logger.Debugw("webrtc webhook record call site",
+					"call_site", "media_session_start_failed",
+					"event", observability.WebRTCFailed.String(),
+					webrtc_internal.DataSessionID, s.sessionID,
+					webrtc_internal.DataReason, "start_media_session",
+					"error", err.Error(),
+				)
+			}
+			if recordErr := s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordWebhook{
+				Event: observability.WebRTCFailed,
+				Payload: map[string]interface{}{
+					"event":                       observability.WebRTCFailed.String(),
+					webrtc_internal.DataType:      "media_session_start_failed",
+					webrtc_internal.DataSessionID: s.sessionID,
+					webrtc_internal.DataReason:    "start_media_session",
+					"error":                       err.Error(),
+					"fallback":                    "text",
+				},
+			}); recordErr != nil && s.Logger != nil {
+				s.Logger.Warnw("webrtc webhook record failed",
+					"call_site", "media_session_start_failed",
+					"event", observability.WebRTCFailed.String(),
+					webrtc_internal.DataSessionID, s.sessionID,
+					"error", recordErr,
+				)
+			}
 			s.stopMediaSessionAndFallbackToText()
 		}
 	case protos.StreamMode_STREAM_MODE_TEXT:
@@ -1405,6 +1497,34 @@ func (s *webrtcStreamer) Send(response internal_type.Stream) error {
 func (s *webrtcStreamer) Close() error {
 	if !s.sessionState.BeginClose() {
 		return nil
+	}
+	mediaSessionID := s.sessionState.ActiveMediaSessionID()
+	if mediaSessionID != 0 {
+		if s.Logger != nil {
+			s.Logger.Debugw("webrtc webhook record call site",
+				"call_site", "close_disconnected",
+				"event", observability.WebRTCDisconnected.String(),
+				webrtc_internal.DataSessionID, s.sessionID,
+				webrtc_internal.DataMediaSessionID, mediaSessionID,
+			)
+		}
+		if err := s.observer.Record(s.Ctx, s.sessionState.Scope, observability.RecordWebhook{
+			Event: observability.WebRTCDisconnected,
+			Payload: map[string]interface{}{
+				"event":                            observability.WebRTCDisconnected.String(),
+				webrtc_internal.DataSessionID:      s.sessionID,
+				webrtc_internal.DataMediaSessionID: mediaSessionID,
+				webrtc_internal.DataReason:         "closed",
+			},
+		}); err != nil && s.Logger != nil {
+			s.Logger.Warnw("webrtc webhook record failed",
+				"call_site", "close_disconnected",
+				"event", observability.WebRTCDisconnected.String(),
+				webrtc_internal.DataSessionID, s.sessionID,
+				webrtc_internal.DataMediaSessionID, mediaSessionID,
+				"error", err,
+			)
+		}
 	}
 	s.stopMediaSession()
 

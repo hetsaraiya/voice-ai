@@ -42,7 +42,7 @@ type recorder struct {
 	closeGracePeriod time.Duration
 	collectorWorkers map[string]*collectorWorker
 	replayBuffer     []observation
-	operationQueue   chan interface{}
+	operationQueue   chan recorderOperation
 	done             chan struct{}
 	closeRequested   bool
 	closed           bool
@@ -51,15 +51,31 @@ type recorder struct {
 	errs             []error
 }
 
+type recorderOperation interface {
+	Type() string
+}
+
 type addCollectorOperation struct {
 	collector Collector
+}
+
+func (addCollectorOperation) Type() string {
+	return "addCollectorOperation"
 }
 
 type recordOperation struct {
 	observation observation
 }
 
+func (recordOperation) Type() string {
+	return "recordOperation"
+}
+
 type closeOperation struct{}
+
+func (closeOperation) Type() string {
+	return "closeOperation"
+}
 
 type observation struct {
 	scope   Scope
@@ -108,7 +124,7 @@ func New(options ...Option) Recorder {
 		closeGracePeriod: closeGracePeriod,
 		collectorWorkers: make(map[string]*collectorWorker),
 		replayBuffer:     make([]observation, 0, recorderReplayBufferSize),
-		operationQueue:   make(chan interface{}, recorderQueueSize),
+		operationQueue:   make(chan recorderOperation, recorderQueueSize),
 		done:             make(chan struct{}),
 	}
 	go r.run()
@@ -122,6 +138,9 @@ func (r *recorder) Record(ctx context.Context, scope Scope, records ...Record) e
 	for _, record := range records {
 		preparedObservation, err := r.prepareObservation(scope, record)
 		if err != nil {
+			if r.logger != nil {
+				r.logger.Errorf("error while prepareObservation %s", err.Error())
+			}
 			return err
 		}
 		preparedObservation.context = r.context
@@ -166,7 +185,6 @@ func (r *recorder) AddCollectors(collectors ...Collector) error {
 }
 
 func (r *recorder) Close(ctx context.Context) error {
-	// Close is best-effort async; caller context must not shorten the grace period.
 	ownsClose := false
 	r.mu.Lock()
 	if !r.closeRequested && !r.closed {
