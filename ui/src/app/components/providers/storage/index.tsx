@@ -11,6 +11,19 @@ import {
   validateFromConfig,
 } from '@/providers/config-defaults';
 import { ConfigRenderer } from '@/app/components/providers/config-renderer';
+import {
+  preserveStorageConfigurationOptions,
+  STORAGE_FILES_OPTION_KEY,
+} from './storage-files';
+export {
+  defaultStorageFiles,
+  parseSelectedStorageFiles,
+  preserveStorageConfigurationOptions,
+  STORAGE_FILES_OPTION_KEY,
+  storageFiles,
+  upsertStorageFilesOption,
+} from './storage-files';
+export { StorageFileSelector } from './storage-file-selector';
 
 export const GetDefaultStorageConfigIfInvalid = (
   provider: string,
@@ -25,13 +38,20 @@ export const GetDefaultStorageConfigIfInvalid = (
     provider,
     { includeCredential: false },
   );
-  const credentialValue =
-    parameters.find(p => p.getKey() === 'rapida.credential_id')?.getValue() ??
-    '';
-  const credential = new Metadata();
-  credential.setKey('rapida.credential_id');
-  credential.setValue(credentialValue);
-  return [credential, ...normalized];
+  const preserved = preserveStorageConfigurationOptions(parameters);
+  if (!preserved.some(param => param.getKey() === 'rapida.credential_id')) {
+    const credential = new Metadata();
+    credential.setKey('rapida.credential_id');
+    credential.setValue('');
+    preserved.unshift(credential);
+  }
+  if (!preserved.some(param => param.getKey() === STORAGE_FILES_OPTION_KEY)) {
+    const filesToPush = new Metadata();
+    filesToPush.setKey(STORAGE_FILES_OPTION_KEY);
+    filesToPush.setValue('');
+    preserved.push(filesToPush);
+  }
+  return [...preserved, ...normalized];
 };
 
 export const ValidateStorageOptions = (

@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	providerAWS          = "aws"
-	providerAzureStorage = "azure-storage"
+	providerAWS   = "aws"
+	providerAzure = "azure"
 )
 
 type options struct {
@@ -103,7 +103,7 @@ func New(opts ...Option) (internal_type.ArtifactPushExecutor, error) {
 			internal_artifact_storage.WithAWSAuth(options.auth),
 			internal_artifact_storage.WithAWSOnPacket(options.onPacket),
 		)
-	case providerAzureStorage:
+	case providerAzure:
 		return internal_artifact_storage.NewAzureStorage(
 			internal_artifact_storage.WithAzureStorageContext(options.ctx),
 			internal_artifact_storage.WithAzureStorageContextID(options.contextID),

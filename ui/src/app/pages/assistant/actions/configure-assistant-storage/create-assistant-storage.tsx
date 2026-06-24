@@ -15,7 +15,11 @@ import { ButtonSet } from '@carbon/react';
 import { useConfirmDialog } from '@/app/pages/assistant/actions/hooks/use-confirmation';
 import {
   CloudStorageProvider,
+  defaultStorageFiles,
   GetDefaultStorageConfigIfInvalid,
+  preserveStorageConfigurationOptions,
+  StorageFileSelector,
+  upsertStorageFilesOption,
   ValidateStorageOptions,
 } from '@/app/components/providers/storage';
 import { STORAGE_PROVIDER } from '@/providers';
@@ -37,6 +41,8 @@ export const CreateAssistantStorage: FC<{ assistantId: string }> = ({
   const [parameters, setParameters] = useState<Metadata[]>(
     GetDefaultStorageConfigIfInvalid(defaultProvider, []),
   );
+  const [selectedFiles, setSelectedFiles] =
+    useState<string[]>(defaultStorageFiles);
   const [errorMessage, setErrorMessage] = useState('');
 
   const onChangeProvider = (providerCode: string) => {
@@ -44,7 +50,7 @@ export const CreateAssistantStorage: FC<{ assistantId: string }> = ({
     setParameters(
       GetDefaultStorageConfigIfInvalid(
         providerCode,
-        parameters.filter(param => param.getKey() === 'rapida.credential_id'),
+        preserveStorageConfigurationOptions(parameters),
       ),
     );
   };
@@ -61,13 +67,17 @@ export const CreateAssistantStorage: FC<{ assistantId: string }> = ({
       setErrorMessage('Please complete the required storage fields.');
       return;
     }
+    if (selectedFiles.length === 0) {
+      setErrorMessage('Please select at least one file to push.');
+      return;
+    }
 
     const request = new CreateAssistantConfigurationRequest();
     request.setAssistantid(assistantId);
     request.setConfigurationtype(storageConfigurationType);
     request.setProvider(provider);
     request.setEnabled(true);
-    request.setOptionsList(parameters);
+    request.setOptionsList(upsertStorageFilesOption(parameters, selectedFiles));
 
     showLoader();
     CreateAssistantConfiguration(connectionConfig, request, {
@@ -111,6 +121,17 @@ export const CreateAssistantStorage: FC<{ assistantId: string }> = ({
               </header>
 
               <div className="pb-8 flex flex-col">
+                <InputGroup
+                  childClass="p-0! m-0! px-4!"
+                  title={`Recording Files (${selectedFiles.length}/${defaultStorageFiles.length})`}
+                >
+                  <StorageFileSelector
+                    group="Recording"
+                    selectedFiles={selectedFiles}
+                    onChange={setSelectedFiles}
+                  />
+                </InputGroup>
+
                 <InputGroup title="Destination">
                   <Stack gap={6}>
                     <CloudStorageProvider

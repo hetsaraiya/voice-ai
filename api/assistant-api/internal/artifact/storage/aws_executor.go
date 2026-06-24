@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	awsOptionCredentialIDKey      = "credential_id"
-	awsOptionBucketKey            = "bucket"
+	awsOptionCredentialIDKey      = "rapida.credential_id"
+	awsOptionBucketKey            = "s3_bucket_name"
 	awsOptionPrefixKey            = "prefix"
 	awsOptionTimeoutSecondsKey    = "timeout_seconds"
 	awsDefaultArtifactPushTimeout = 30 * time.Second
@@ -106,10 +106,10 @@ func NewAWS(opts ...AWSOption) (internal_type.ArtifactPushExecutor, error) {
 	credentialID, _ := executor.configuration.GetOptions().GetUint64(awsOptionCredentialIDKey)
 	if credentialID != 0 {
 		if executor.caller == nil {
-			return nil, fmt.Errorf("artifact push storage aws: caller is required when credential_id is configured")
+			return nil, fmt.Errorf("artifact push storage aws: caller is required when rapida.credential_id is configured")
 		}
 		if executor.auth == nil {
-			return nil, fmt.Errorf("artifact push storage aws: auth is required when credential_id is configured")
+			return nil, fmt.Errorf("artifact push storage aws: auth is required when rapida.credential_id is configured")
 		}
 	}
 	_ = executor.onPacket(executor.ctx,
@@ -171,12 +171,13 @@ func (e *awsExecutor) Execute(ctx context.Context, input internal_type.ArtifactP
 		ConfigurationID: e.configuration.Id,
 		Results:         make([]internal_type.ArtifactPushResult, 0, len(input.Artifacts)),
 	}
+	artifacts := filterArtifactsToPush(input.Artifacts, options)
 
 	bucketName, _ := options.GetString(awsOptionBucketKey)
 	region, _ := options.GetString("region")
 	assumeRole, _ := options.GetString("assume_role")
 	accessKeyID, _ := options.GetString("access_key_id")
-	secretKey, _ := options.GetString("secret_key")
+	secretKey, _ := options.GetString("secret_access_key")
 
 	credentialID, _ := options.GetUint64(awsOptionCredentialIDKey)
 	if credentialID != 0 {
@@ -218,7 +219,7 @@ func (e *awsExecutor) Execute(ctx context.Context, input internal_type.ArtifactP
 		if value, ok := credentialValues["access_key_id"]; accessKeyID == "" && ok {
 			accessKeyID = fmt.Sprintf("%v", value)
 		}
-		if value, ok := credentialValues["secret_key"]; secretKey == "" && ok {
+		if value, ok := credentialValues["secret_access_key"]; secretKey == "" && ok {
 			secretKey = fmt.Sprintf("%v", value)
 		}
 	}
@@ -291,7 +292,7 @@ func (e *awsExecutor) Execute(ctx context.Context, input internal_type.ArtifactP
 	destinationStorage := storage_files.NewStorage(destinationAssetStoreConfig, e.logger)
 	configuredPrefix, _ := options.GetString(awsOptionPrefixKey)
 
-	for _, artifact := range input.Artifacts {
+	for _, artifact := range artifacts {
 		artifactFileName := artifact.Name
 		if filepath.Ext(artifactFileName) == "" {
 			switch artifact.ContentType {

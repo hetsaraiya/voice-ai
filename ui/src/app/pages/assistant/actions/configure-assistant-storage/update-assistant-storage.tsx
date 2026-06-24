@@ -18,7 +18,12 @@ import { Stack } from '@/app/components/carbon/form';
 import { useConfirmDialog } from '@/app/pages/assistant/actions/hooks/use-confirmation';
 import {
   CloudStorageProvider,
+  defaultStorageFiles,
   GetDefaultStorageConfigIfInvalid,
+  parseSelectedStorageFiles,
+  preserveStorageConfigurationOptions,
+  StorageFileSelector,
+  upsertStorageFilesOption,
   ValidateStorageOptions,
 } from '@/app/components/providers/storage';
 import { InputGroup } from '@/app/components/input-group';
@@ -37,6 +42,8 @@ export const UpdateAssistantStorage: FC<{ assistantId: string }> = ({
 
   const [provider, setProvider] = useState('');
   const [parameters, setParameters] = useState<Metadata[]>([]);
+  const [selectedFiles, setSelectedFiles] =
+    useState<string[]>(defaultStorageFiles);
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
@@ -63,17 +70,16 @@ export const UpdateAssistantStorage: FC<{ assistantId: string }> = ({
         if (!storage) return;
 
         const loadedProvider = storage.getProvider();
+        const loadedOptions = storage.getOptionsList().map(option => {
+          const metadata = new Metadata();
+          metadata.setKey(option.getKey());
+          metadata.setValue(option.getValue());
+          return metadata;
+        });
         setProvider(loadedProvider);
+        setSelectedFiles(parseSelectedStorageFiles(loadedOptions));
         setParameters(
-          GetDefaultStorageConfigIfInvalid(
-            loadedProvider,
-            storage.getOptionsList().map(option => {
-              const metadata = new Metadata();
-              metadata.setKey(option.getKey());
-              metadata.setValue(option.getValue());
-              return metadata;
-            }),
-          ),
+          GetDefaultStorageConfigIfInvalid(loadedProvider, loadedOptions),
         );
       })
       .catch(() => {
@@ -87,7 +93,7 @@ export const UpdateAssistantStorage: FC<{ assistantId: string }> = ({
     setParameters(
       GetDefaultStorageConfigIfInvalid(
         providerCode,
-        parameters.filter(param => param.getKey() === 'rapida.credential_id'),
+        preserveStorageConfigurationOptions(parameters),
       ),
     );
   };
@@ -105,6 +111,10 @@ export const UpdateAssistantStorage: FC<{ assistantId: string }> = ({
       setErrorMessage('Please complete the required storage fields.');
       return;
     }
+    if (selectedFiles.length === 0) {
+      setErrorMessage('Please select at least one file to push.');
+      return;
+    }
 
     const request = new UpdateAssistantConfigurationRequest();
     request.setId(storageId);
@@ -112,7 +122,7 @@ export const UpdateAssistantStorage: FC<{ assistantId: string }> = ({
     request.setConfigurationtype(storageConfigurationType);
     request.setProvider(provider);
     request.setEnabled(true);
-    request.setOptionsList(parameters);
+    request.setOptionsList(upsertStorageFilesOption(parameters, selectedFiles));
 
     showLoader();
     UpdateAssistantConfiguration(connectionConfig, request, {
@@ -158,6 +168,17 @@ export const UpdateAssistantStorage: FC<{ assistantId: string }> = ({
               </header>
 
               <div className="pb-8 flex flex-col">
+                <InputGroup
+                  childClass="p-0! m-0! px-4!"
+                  title={`Recording Files (${selectedFiles.length}/${defaultStorageFiles.length})`}
+                >
+                  <StorageFileSelector
+                    group="Recording"
+                    selectedFiles={selectedFiles}
+                    onChange={setSelectedFiles}
+                  />
+                </InputGroup>
+
                 <InputGroup title="Destination">
                   <Stack gap={6}>
                     <CloudStorageProvider

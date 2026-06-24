@@ -61,13 +61,13 @@ func TestNewExecutor_SupportsOnlyAWSAndAzureStorage(t *testing.T) {
 	azureExec, err := New(
 		WithContext(context.Background()),
 		WithLogger(testLogger(t)),
-		WithConfiguration(testConfig(providerAzureStorage, nil)),
+		WithConfiguration(testConfig(providerAzure, nil)),
 		WithOnPacket(testOnPacket),
 	)
 	if err != nil {
-		t.Fatalf("new azure-storage executor: %v", err)
+		t.Fatalf("new azure executor: %v", err)
 	}
-	if got, want := azureExec.Name(), "artifact-push-azure-storage-0"; got != want {
+	if got, want := azureExec.Name(), "artifact-push-azure-0"; got != want {
 		t.Fatalf("azure executor name = %q, want %q", got, want)
 	}
 

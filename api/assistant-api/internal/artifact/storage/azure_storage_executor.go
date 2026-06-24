@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	azureStorageOptionCredentialIDKey   = "credential_id"
+	azureStorageOptionCredentialIDKey   = "rapida.credential_id"
 	azureStorageOptionContainerKey      = "container"
 	azureStorageOptionPrefixKey         = "prefix"
 	azureStorageOptionTimeoutSecondsKey = "timeout_seconds"
@@ -99,18 +99,18 @@ func NewAzureStorage(opts ...AzureStorageOption) (internal_type.ArtifactPushExec
 	}
 	start := time.Now()
 	if executor.configuration == nil {
-		return nil, fmt.Errorf("artifact push storage azure-storage: configuration is required")
+		return nil, fmt.Errorf("artifact push storage azure: configuration is required")
 	}
 	if executor.onPacket == nil {
-		return nil, fmt.Errorf("artifact push storage azure-storage: onPacket is required")
+		return nil, fmt.Errorf("artifact push storage azure: onPacket is required")
 	}
 	credentialID, _ := executor.configuration.GetOptions().GetUint64(azureStorageOptionCredentialIDKey)
 	if credentialID != 0 {
 		if executor.caller == nil {
-			return nil, fmt.Errorf("artifact push storage azure-storage: caller is required when credential_id is configured")
+			return nil, fmt.Errorf("artifact push storage azure: caller is required when rapida.credential_id is configured")
 		}
 		if executor.auth == nil {
-			return nil, fmt.Errorf("artifact push storage azure-storage: auth is required when credential_id is configured")
+			return nil, fmt.Errorf("artifact push storage azure: auth is required when rapida.credential_id is configured")
 		}
 	}
 	_ = executor.onPacket(executor.ctx,
@@ -172,6 +172,7 @@ func (e *azureStorageExecutor) Execute(ctx context.Context, input internal_type.
 		ConfigurationID: e.configuration.Id,
 		Results:         make([]internal_type.ArtifactPushResult, 0, len(input.Artifacts)),
 	}
+	artifacts := filterArtifactsToPush(input.Artifacts, options)
 
 	containerName, _ := options.GetString(azureStorageOptionContainerKey)
 	accountName, _ := options.GetString("account_name")
@@ -288,7 +289,7 @@ func (e *azureStorageExecutor) Execute(ctx context.Context, input internal_type.
 	destinationStorage := storage_files.NewStorage(destinationAssetStoreConfig, e.logger)
 	configuredPrefix, _ := options.GetString(azureStorageOptionPrefixKey)
 
-	for _, artifact := range input.Artifacts {
+	for _, artifact := range artifacts {
 		artifactFileName := artifact.Name
 		if filepath.Ext(artifactFileName) == "" {
 			switch artifact.ContentType {
