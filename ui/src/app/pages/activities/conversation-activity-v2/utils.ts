@@ -18,15 +18,47 @@ export const COMPONENT_COLORS: Record<string, string> = {
   call: '#0f62fe',
   telephony: '#0f62fe',
   conversation: '#8a3ffc',
-  vad: '#007d79',
-  eos: '#007d79',
+  turn: '#4589ff',
   stt: '#198038',
   llm: '#f1c21b',
   tool: '#ff7eb6',
-  knowledge: '#009d9a',
   tts: '#fa4d56',
+  vad: '#007d79',
+  eos: '#007d79',
+  denoise: '#1192e8',
+  webhook: '#ee538b',
+  analysis: '#a56eff',
+  authentication: '#009d9a',
+  recording: '#6fdc8c',
+  storage: '#d2a106',
+  sip: '#ff832b',
+  webrtc: '#33b1ff',
+  usage: '#6f6f6f',
+  log: '#6f6f6f',
+  metric: '#6f6f6f',
+  metadata: '#6f6f6f',
   error: '#da1e28',
 };
+
+const METRIC_COMPONENT_PREFIXES: readonly string[] = [
+  'call',
+  'sip',
+  'transfer',
+  'rtp',
+  'webrtc',
+  'telephony',
+  'stt',
+  'tts',
+  'vad',
+  'eos',
+  'denoise',
+  'llm',
+  'storage',
+  'analysis',
+  'authentication',
+  'recording',
+  'knowledge',
+];
 
 const getTimeMs = (value: string): number => {
   const parsed = new Date(value).getTime();
@@ -48,6 +80,27 @@ const mapToObject = (map: {
 
 const firstPresent = (...values: Array<string | undefined>): string =>
   values.find(value => value && value.trim() !== '') || '';
+
+const inferComponentFromName = (name: string, fallback: string): string => {
+  const normalizedName = name.trim().toLowerCase();
+  if (!normalizedName) return fallback;
+
+  if (normalizedName === 'user_turn' || normalizedName === 'assistant_turn') {
+    return 'turn';
+  }
+
+  const dottedPrefix = normalizedName.split('.')[0];
+  if (METRIC_COMPONENT_PREFIXES.includes(dottedPrefix)) {
+    return dottedPrefix;
+  }
+
+  const underscoredPrefix = normalizedName.split('_')[0];
+  if (METRIC_COMPONENT_PREFIXES.includes(underscoredPrefix)) {
+    return underscoredPrefix;
+  }
+
+  return fallback;
+};
 
 const parseDurationMs = (value: string): number | undefined => {
   if (value.trim() === '') return undefined;
@@ -233,7 +286,11 @@ const buildBaseDocument = ({
   contextId:
     contextId ||
     messageId ||
-    `conversation-${assistantConversationId || 'unknown'}`,
+    (assistantConversationId
+      ? `conversation-${assistantConversationId}`
+      : assistantId
+        ? `assistant-${assistantId}`
+        : `project-${projectId || 'unknown'}`),
   occurredAt,
   receivedAt: occurredAt,
   durationMs,
@@ -296,7 +353,8 @@ const metricToTimelineDocument = (
     name,
     title: `Metric: ${name}`,
     level: attributes.level || 'info',
-    component: attributes.component || name.split('.')[0] || 'metric',
+    component:
+      attributes.component || inferComponentFromName(name, name.split('.')[0]),
     organizationId: metric.getOrganizationid(),
     projectId: metric.getProjectid(),
     assistantId: scopeContext.assistantId,
@@ -369,9 +427,11 @@ export const telemetryRecordToTimelineDocument = (
 
 export const getDocumentComponent = (doc: TimelineDocument): string => {
   const attributeComponent =
-    doc.attributes?.component || doc.attributes?.provider || doc.category;
-  const firstNamePart = doc.name.split('.')[0];
-  return (attributeComponent || firstNamePart || 'conversation').toLowerCase();
+    doc.attributes?.component || doc.attributes?.provider;
+  const fallback = doc.category || doc.name.split('.')[0] || 'conversation';
+  return (
+    attributeComponent || inferComponentFromName(doc.name, fallback)
+  ).toLowerCase();
 };
 
 export const getDocumentColor = (doc: TimelineDocument): string => {

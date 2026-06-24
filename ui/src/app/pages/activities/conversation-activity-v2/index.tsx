@@ -803,7 +803,7 @@ export const ListingPage = () => {
   }, [selectedKind]);
 
   useEffect(() => {
-    if (selectedScope.id === 'all') {
+    if (selectedScope.id === 'all' || selectedScope.id === 'project') {
       setAssistantIdInput('');
       setConversationIdInput('');
       setMessageIdInput('');

@@ -7,6 +7,7 @@ import { SectionLoader } from '@/app/components/loader/section-loader';
 import { TableSection } from '@/app/components/sections/table-section';
 import { Pagination } from '@/app/components/carbon/pagination';
 import { toHumanReadableDateTime } from '@/utils/date';
+import { useGlobalNavigation } from '@/hooks/use-global-navigator';
 import {
   Tag,
   Button,
@@ -23,7 +24,7 @@ import {
   TableBatchAction,
   RadioButton,
 } from '@carbon/react';
-import { Copy, Checkmark, Rocket, Renew } from '@carbon/icons-react';
+import { Add, Copy, Checkmark, Rocket, Renew } from '@carbon/icons-react';
 import IconIndicator from '@carbon/react/es/components/IconIndicator';
 
 interface VersionProps {
@@ -66,6 +67,7 @@ function VersionId({ id }: { id: string }) {
 
 export function Version(props: VersionProps) {
   const [userId, token, projectId] = useCredential();
+  const navigation = useGlobalNavigation();
   const assistantProviderAction = useAssistantProviderPageStore();
   const [isFetching, setIsFetching] = useState(true);
   const [deployingProviderId, setDeployingProviderId] = useState<string | null>(
@@ -198,6 +200,15 @@ export function Version(props: VersionProps) {
     );
   };
 
+  const goToCreateVersion = () => {
+    if (props.assistant.hasAssistantprovideragentkit()) {
+      navigation.goToCreateAssistantAgentKitVersion(props.assistant.getId());
+      return;
+    }
+
+    navigation.goToCreateAssistantVersion(props.assistant.getId());
+  };
+
   const allRows = assistantProviderAction.assistantProviders
     .map(apm => ({ apm, data: getProviderData(apm) }))
     .filter(({ data }) => data !== null) as {
@@ -252,6 +263,9 @@ export function Version(props: VersionProps) {
             onClick={refresh}
             tooltipPosition="bottom"
           />
+          <Button renderIcon={Add} onClick={goToCreateVersion}>
+            Add new version
+          </Button>
         </TableToolbarContent>
       </TableToolbar>
       <Table>
