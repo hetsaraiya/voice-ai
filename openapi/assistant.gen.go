@@ -115,13 +115,21 @@ type AssistantPhoneDeployment struct {
 
 // AssistantProviderAgentkit defines model for AssistantProviderAgentkit.
 type AssistantProviderAgentkit struct {
-	AssistantId *Uint64String      `json:"assistantId,omitempty"`
-	Certificate *string            `json:"certificate,omitempty"`
-	Description *string            `json:"description,omitempty"`
-	Id          *Uint64String      `json:"id,omitempty"`
-	Metadata    *map[string]string `json:"metadata,omitempty"`
-	Status      *string            `json:"status,omitempty"`
-	Url         *string            `json:"url,omitempty"`
+	AssistantId         *Uint64String      `json:"assistantId,omitempty"`
+	Certificate         *string            `json:"certificate,omitempty"`
+	ConnectTimeoutMs    *uint32            `json:"connectTimeoutMs,omitempty"`
+	Description         *string            `json:"description,omitempty"`
+	Id                  *Uint64String      `json:"id,omitempty"`
+	KeepaliveTimeMs     *uint32            `json:"keepaliveTimeMs,omitempty"`
+	KeepaliveTimeoutMs  *uint32            `json:"keepaliveTimeoutMs,omitempty"`
+	MaxRecvMessageBytes *uint32            `json:"maxRecvMessageBytes,omitempty"`
+	MaxSendMessageBytes *uint32            `json:"maxSendMessageBytes,omitempty"`
+	Metadata            *map[string]string `json:"metadata,omitempty"`
+	Status              *string            `json:"status,omitempty"`
+	TlsServerName       *string            `json:"tlsServerName,omitempty"`
+	TlsVerification     *string            `json:"tlsVerification,omitempty"`
+	TransportSecurity   *string            `json:"transportSecurity,omitempty"`
+	Url                 *string            `json:"url,omitempty"`
 }
 
 // AssistantProviderModel defines model for AssistantProviderModel.
@@ -266,9 +274,17 @@ type CreateAssistantPhoneDeploymentRequest struct {
 
 // CreateAssistantProviderAgentkit defines model for CreateAssistantProviderAgentkit.
 type CreateAssistantProviderAgentkit struct {
-	AgentKitUrl string             `json:"agentKitUrl"`
-	Certificate *string            `json:"certificate,omitempty"`
-	Metadata    *map[string]string `json:"metadata,omitempty"`
+	AgentKitUrl         string             `json:"agentKitUrl"`
+	Certificate         *string            `json:"certificate,omitempty"`
+	ConnectTimeoutMs    *uint32            `json:"connectTimeoutMs,omitempty"`
+	KeepaliveTimeMs     *uint32            `json:"keepaliveTimeMs,omitempty"`
+	KeepaliveTimeoutMs  *uint32            `json:"keepaliveTimeoutMs,omitempty"`
+	MaxRecvMessageBytes *uint32            `json:"maxRecvMessageBytes,omitempty"`
+	MaxSendMessageBytes *uint32            `json:"maxSendMessageBytes,omitempty"`
+	Metadata            *map[string]string `json:"metadata,omitempty"`
+	TlsServerName       *string            `json:"tlsServerName,omitempty"`
+	TlsVerification     *string            `json:"tlsVerification,omitempty"`
+	TransportSecurity   *string            `json:"transportSecurity,omitempty"`
 }
 
 // CreateAssistantProviderModel defines model for CreateAssistantProviderModel.

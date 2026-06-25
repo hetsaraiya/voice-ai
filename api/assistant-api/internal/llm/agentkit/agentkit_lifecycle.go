@@ -11,7 +11,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"math"
 	"net"
 	"time"
 
@@ -20,8 +19,10 @@ import (
 	"github.com/rapidaai/pkg/utils"
 	"github.com/rapidaai/protos"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -34,21 +35,62 @@ func (e *agentkitExecutor) initialize(ctx context.Context, comm internal_type.Co
 	e.closing = false
 	e.stateMu.Unlock()
 
+	transportSecurity := DefaultTransportSecurity
+	if provider.TransportSecurity != nil && *provider.TransportSecurity != "" {
+		transportSecurity = *provider.TransportSecurity
+	}
+	tlsVerification := DefaultTLSVerification
+	if provider.TLSVerification != nil && *provider.TLSVerification != "" {
+		tlsVerification = *provider.TLSVerification
+	}
+	connectTimeoutMs := DefaultConnectTimeoutMs
+	if provider.ConnectTimeoutMs != nil {
+		connectTimeoutMs = *provider.ConnectTimeoutMs
+	}
+	keepaliveTimeMs := DefaultKeepaliveTimeMs
+	if provider.KeepaliveTimeMs != nil {
+		keepaliveTimeMs = *provider.KeepaliveTimeMs
+	}
+	keepaliveTimeoutMs := DefaultKeepaliveTimeoutMs
+	if provider.KeepaliveTimeoutMs != nil {
+		keepaliveTimeoutMs = *provider.KeepaliveTimeoutMs
+	}
+	maxRecvMessageBytes := DefaultMaxRecvMessageBytes
+	if provider.MaxRecvMessageBytes != nil {
+		maxRecvMessageBytes = *provider.MaxRecvMessageBytes
+	}
+	maxSendMessageBytes := DefaultMaxSendMessageBytes
+	if provider.MaxSendMessageBytes != nil {
+		maxSendMessageBytes = *provider.MaxSendMessageBytes
+	}
+
+	connectTimeout := time.Duration(connectTimeoutMs) * time.Millisecond
 	opts := []grpc.DialOption{
 		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			d := net.Dialer{}
+			d := net.Dialer{Timeout: connectTimeout}
 			return d.DialContext(ctx, "tcp", addr)
 		}),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(math.MaxInt64), grpc.MaxCallSendMsgSize(math.MaxInt64)),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(int(maxRecvMessageBytes)), grpc.MaxCallSendMsgSize(int(maxSendMessageBytes))),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:    time.Duration(keepaliveTimeMs) * time.Millisecond,
+			Timeout: time.Duration(keepaliveTimeoutMs) * time.Millisecond,
+		}),
 	}
-	if provider.Certificate != "" {
-		if provider.Certificate == "insecure" || provider.Certificate == "skip-verify" {
+	switch transportSecurity {
+	case TransportSecurityPlaintext:
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	case TransportSecurityTLS:
+		tlsConfig := &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+		if provider.TLSServerName != nil && *provider.TLSServerName != "" {
+			tlsConfig.ServerName = *provider.TLSServerName
+		}
+		if tlsVerification == TLSVerificationSkipVerify {
 			e.logger.Warnf("Using insecure TLS (skipping certificate verification)")
-			opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-				InsecureSkipVerify: true,
-				MinVersion:         tls.VersionTLS12,
-			})))
-		} else {
+			tlsConfig.InsecureSkipVerify = true
+		}
+		if provider.Certificate != "" {
 			pool := x509.NewCertPool()
 			if !pool.AppendCertsFromPEM([]byte(provider.Certificate)) {
 				comm.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
@@ -68,13 +110,11 @@ func (e *agentkitExecutor) initialize(ctx context.Context, comm internal_type.Co
 				})
 				return fmt.Errorf("TLS credentials failed: invalid certificate: failed to parse PEM")
 			}
-			opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-				RootCAs:    pool,
-				MinVersion: tls.VersionTLS12,
-			})))
+			tlsConfig.RootCAs = pool
 		}
-	} else {
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	default:
+		return fmt.Errorf("invalid transport security: %s", transportSecurity)
 	}
 
 	conn, err := grpc.NewClient(provider.Url, opts...)
@@ -96,6 +136,39 @@ func (e *agentkitExecutor) initialize(ctx context.Context, comm internal_type.Co
 			},
 		})
 		return fmt.Errorf("connect failed: %w", err)
+	}
+	connectCtx, cancelConnect := context.WithTimeout(ctx, connectTimeout)
+	defer cancelConnect()
+	conn.Connect()
+	for {
+		state := conn.GetState()
+		if state == connectivity.Ready {
+			break
+		}
+		if !conn.WaitForStateChange(connectCtx, state) {
+			_ = conn.Close()
+			err := connectCtx.Err()
+			if err == nil {
+				err = fmt.Errorf("connection not ready")
+			}
+			comm.OnPacket(ctx, internal_type.ObservabilityLogRecordPacket{
+				Scope: internal_type.ObservabilityRecordScopeConversation,
+				Record: observability.RecordLog{
+					Level:   observability.LevelError,
+					Message: fmt.Sprintf("%s: error while initialization %s", e.Name(), err.Error()),
+					Attributes: observability.Attributes{
+						"component":  observability.ComponentLLM.String(),
+						"provider":   e.Name(),
+						"options":    observability.AttributeValue(cfg.GetOptions()),
+						"url":        provider.Url,
+						"error":      err.Error(),
+						"error_type": fmt.Sprintf("%T", err),
+					},
+					OccurredAt: time.Now(),
+				},
+			})
+			return fmt.Errorf("connect failed: %w", err)
+		}
 	}
 
 	streamCtx := ctx

@@ -32,7 +32,7 @@ class CreateAssistantProviderRequest(_message.Message):
         assistantModelOptions: _containers.RepeatedCompositeFieldContainer[_common_pb2.Metadata]
         def __init__(self, template: _Optional[_Union[_common_pb2.TextChatCompletePrompt, _Mapping]] = ..., modelProviderName: _Optional[str] = ..., assistantModelOptions: _Optional[_Iterable[_Union[_common_pb2.Metadata, _Mapping]]] = ...) -> None: ...
     class CreateAssistantProviderAgentkit(_message.Message):
-        __slots__ = ("agentKitUrl", "certificate", "metadata")
+        __slots__ = ("agentKitUrl", "certificate", "metadata", "transportSecurity", "tlsVerification", "tlsServerName", "connectTimeoutMs", "keepaliveTimeMs", "keepaliveTimeoutMs", "maxRecvMessageBytes", "maxSendMessageBytes")
         class MetadataEntry(_message.Message):
             __slots__ = ("key", "value")
             KEY_FIELD_NUMBER: _ClassVar[int]
@@ -43,10 +43,26 @@ class CreateAssistantProviderRequest(_message.Message):
         AGENTKITURL_FIELD_NUMBER: _ClassVar[int]
         CERTIFICATE_FIELD_NUMBER: _ClassVar[int]
         METADATA_FIELD_NUMBER: _ClassVar[int]
+        TRANSPORTSECURITY_FIELD_NUMBER: _ClassVar[int]
+        TLSVERIFICATION_FIELD_NUMBER: _ClassVar[int]
+        TLSSERVERNAME_FIELD_NUMBER: _ClassVar[int]
+        CONNECTTIMEOUTMS_FIELD_NUMBER: _ClassVar[int]
+        KEEPALIVETIMEMS_FIELD_NUMBER: _ClassVar[int]
+        KEEPALIVETIMEOUTMS_FIELD_NUMBER: _ClassVar[int]
+        MAXRECVMESSAGEBYTES_FIELD_NUMBER: _ClassVar[int]
+        MAXSENDMESSAGEBYTES_FIELD_NUMBER: _ClassVar[int]
         agentKitUrl: str
         certificate: str
         metadata: _containers.ScalarMap[str, str]
-        def __init__(self, agentKitUrl: _Optional[str] = ..., certificate: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ...) -> None: ...
+        transportSecurity: str
+        tlsVerification: str
+        tlsServerName: str
+        connectTimeoutMs: int
+        keepaliveTimeMs: int
+        keepaliveTimeoutMs: int
+        maxRecvMessageBytes: int
+        maxSendMessageBytes: int
+        def __init__(self, agentKitUrl: _Optional[str] = ..., certificate: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., transportSecurity: _Optional[str] = ..., tlsVerification: _Optional[str] = ..., tlsServerName: _Optional[str] = ..., connectTimeoutMs: _Optional[int] = ..., keepaliveTimeMs: _Optional[int] = ..., keepaliveTimeoutMs: _Optional[int] = ..., maxRecvMessageBytes: _Optional[int] = ..., maxSendMessageBytes: _Optional[int] = ...) -> None: ...
     class CreateAssistantProviderWebsocket(_message.Message):
         __slots__ = ("websocketUrl", "headers", "connectionParameters")
         class HeadersEntry(_message.Message):
@@ -83,7 +99,7 @@ class CreateAssistantProviderRequest(_message.Message):
     def __init__(self, assistantId: _Optional[int] = ..., description: _Optional[str] = ..., model: _Optional[_Union[CreateAssistantProviderRequest.CreateAssistantProviderModel, _Mapping]] = ..., agentkit: _Optional[_Union[CreateAssistantProviderRequest.CreateAssistantProviderAgentkit, _Mapping]] = ..., websocket: _Optional[_Union[CreateAssistantProviderRequest.CreateAssistantProviderWebsocket, _Mapping]] = ...) -> None: ...
 
 class AssistantProviderAgentkit(_message.Message):
-    __slots__ = ("id", "description", "assistantId", "status", "url", "certificate", "metadata", "createdBy", "createdUser", "updatedBy", "updatedUser", "createdDate", "updatedDate")
+    __slots__ = ("id", "description", "assistantId", "status", "url", "certificate", "metadata", "createdBy", "createdUser", "updatedBy", "updatedUser", "createdDate", "updatedDate", "transportSecurity", "tlsVerification", "tlsServerName", "connectTimeoutMs", "keepaliveTimeMs", "keepaliveTimeoutMs", "maxRecvMessageBytes", "maxSendMessageBytes")
     class MetadataEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -104,6 +120,14 @@ class AssistantProviderAgentkit(_message.Message):
     UPDATEDUSER_FIELD_NUMBER: _ClassVar[int]
     CREATEDDATE_FIELD_NUMBER: _ClassVar[int]
     UPDATEDDATE_FIELD_NUMBER: _ClassVar[int]
+    TRANSPORTSECURITY_FIELD_NUMBER: _ClassVar[int]
+    TLSVERIFICATION_FIELD_NUMBER: _ClassVar[int]
+    TLSSERVERNAME_FIELD_NUMBER: _ClassVar[int]
+    CONNECTTIMEOUTMS_FIELD_NUMBER: _ClassVar[int]
+    KEEPALIVETIMEMS_FIELD_NUMBER: _ClassVar[int]
+    KEEPALIVETIMEOUTMS_FIELD_NUMBER: _ClassVar[int]
+    MAXRECVMESSAGEBYTES_FIELD_NUMBER: _ClassVar[int]
+    MAXSENDMESSAGEBYTES_FIELD_NUMBER: _ClassVar[int]
     id: int
     description: str
     assistantId: int
@@ -117,7 +141,15 @@ class AssistantProviderAgentkit(_message.Message):
     updatedUser: _common_pb2.User
     createdDate: _timestamp_pb2.Timestamp
     updatedDate: _timestamp_pb2.Timestamp
-    def __init__(self, id: _Optional[int] = ..., description: _Optional[str] = ..., assistantId: _Optional[int] = ..., status: _Optional[str] = ..., url: _Optional[str] = ..., certificate: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., createdBy: _Optional[int] = ..., createdUser: _Optional[_Union[_common_pb2.User, _Mapping]] = ..., updatedBy: _Optional[int] = ..., updatedUser: _Optional[_Union[_common_pb2.User, _Mapping]] = ..., createdDate: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., updatedDate: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    transportSecurity: str
+    tlsVerification: str
+    tlsServerName: str
+    connectTimeoutMs: int
+    keepaliveTimeMs: int
+    keepaliveTimeoutMs: int
+    maxRecvMessageBytes: int
+    maxSendMessageBytes: int
+    def __init__(self, id: _Optional[int] = ..., description: _Optional[str] = ..., assistantId: _Optional[int] = ..., status: _Optional[str] = ..., url: _Optional[str] = ..., certificate: _Optional[str] = ..., metadata: _Optional[_Mapping[str, str]] = ..., createdBy: _Optional[int] = ..., createdUser: _Optional[_Union[_common_pb2.User, _Mapping]] = ..., updatedBy: _Optional[int] = ..., updatedUser: _Optional[_Union[_common_pb2.User, _Mapping]] = ..., createdDate: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., updatedDate: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., transportSecurity: _Optional[str] = ..., tlsVerification: _Optional[str] = ..., tlsServerName: _Optional[str] = ..., connectTimeoutMs: _Optional[int] = ..., keepaliveTimeMs: _Optional[int] = ..., keepaliveTimeoutMs: _Optional[int] = ..., maxRecvMessageBytes: _Optional[int] = ..., maxSendMessageBytes: _Optional[int] = ...) -> None: ...
 
 class AssistantProviderWebsocket(_message.Message):
     __slots__ = ("id", "description", "assistantId", "url", "headers", "parameters", "status", "createdBy", "createdUser", "updatedBy", "updatedUser", "createdDate", "updatedDate")

@@ -145,8 +145,10 @@ func TestInitialize_ReturnsErrorWhenConnectionFails(t *testing.T) {
 	e.closing = true
 	e.stateMu.Unlock()
 
+	transportSecurity := TransportSecurityPlaintext
 	comm, _ := newInitializeCommunication(&internal_assistant_entity.AssistantProviderAgentkit{
-		Url: acquireClosedTCPAddress(t),
+		Url:               acquireClosedTCPAddress(t),
+		TransportSecurity: &transportSecurity,
 	}, 2002)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
@@ -200,11 +202,13 @@ func TestInitialize_SendsInitializationAndEmitsInitializedEvent(t *testing.T) {
 	defer shutdown()
 
 	e := newTestExecutor()
+	transportSecurity := TransportSecurityPlaintext
 	comm, collector := newInitializeCommunication(&internal_assistant_entity.AssistantProviderAgentkit{
 		AssistantProvider: internal_assistant_entity.AssistantProvider{
 			AssistantId: 5005,
 		},
-		Url: addr,
+		Url:               addr,
+		TransportSecurity: &transportSecurity,
 	}, 3003)
 
 	err := e.initialize(context.Background(), comm, &protos.ConversationInitialization{})
@@ -244,4 +248,31 @@ func TestInitialize_SendsInitializationAndEmitsInitializedEvent(t *testing.T) {
 	assert.NotNil(t, e.transport.stream)
 	assert.NotNil(t, e.transport.conn)
 	assert.NotNil(t, e.transport.listenerDone)
+}
+
+func TestInitialize_UsesMaxSendMessageBytes(t *testing.T) {
+	addr, shutdown := startAgentKitTestServer(t, func(stream grpc.BidiStreamingServer[protos.TalkInput, protos.TalkOutput]) error {
+		_, err := stream.Recv()
+		return err
+	})
+	defer shutdown()
+
+	e := newTestExecutor()
+	transportSecurity := TransportSecurityPlaintext
+	maxSendMessageBytes := uint32(1)
+	comm, _ := newInitializeCommunication(&internal_assistant_entity.AssistantProviderAgentkit{
+		Url:                 addr,
+		TransportSecurity:   &transportSecurity,
+		MaxSendMessageBytes: &maxSendMessageBytes,
+	}, 4004)
+
+	err := e.initialize(context.Background(), comm, &protos.ConversationInitialization{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to send initialization")
+
+	e.stateMu.RLock()
+	defer e.stateMu.RUnlock()
+	assert.Nil(t, e.transport.stream)
+	assert.Nil(t, e.transport.conn)
+	assert.Nil(t, e.transport.listenerDone)
 }

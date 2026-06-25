@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	agentkit "github.com/rapidaai/api/assistant-api/internal/llm/agentkit"
 	"github.com/rapidaai/openapi"
 	pkg_errors "github.com/rapidaai/pkg/errors"
 	gorm_types "github.com/rapidaai/pkg/models/gorm/types"
@@ -81,17 +82,19 @@ func (assistantApi *assistantApi) CreateAssistantRest(c *gin.Context) {
 	if validator.NonNil(assistantProviderRequest.Description) {
 		providerDescription = *assistantProviderRequest.Description
 	}
-	providerCount := 0
-	if validator.NonNil(assistantProviderRequest.Model) {
-		providerCount++
-	}
-	if validator.NonNil(assistantProviderRequest.Agentkit) {
-		providerCount++
-	}
-	if validator.NonNil(assistantProviderRequest.Websocket) {
-		providerCount++
-	}
-	if providerCount == 0 {
+	agentkitCertificate := ""
+	var agentkitTransportSecurity *string
+	var agentkitTLSVerification *string
+	var agentkitTLSServerName *string
+	var agentkitConnectTimeoutMs *uint32
+	var agentkitKeepaliveTimeMs *uint32
+	var agentkitKeepaliveTimeoutMs *uint32
+	var agentkitMaxRecvMessageBytes *uint32
+	var agentkitMaxSendMessageBytes *uint32
+	hasModelProvider := validator.NonNil(assistantProviderRequest.Model)
+	hasAgentKitProvider := validator.NonNil(assistantProviderRequest.Agentkit)
+	hasWebsocketProvider := validator.NonNil(assistantProviderRequest.Websocket)
+	if !hasModelProvider && !hasAgentKitProvider && !hasWebsocketProvider {
 		c.JSON(pkg_errors.CreateAssistantMissingProvider.HTTPStatusCode, openapi.ErrorResponse{
 			Code:    utils.Ptr(pkg_errors.CreateAssistantMissingProvider.HTTPStatusCodeInt32()),
 			Success: utils.Ptr(false),
@@ -103,7 +106,9 @@ func (assistantApi *assistantApi) CreateAssistantRest(c *gin.Context) {
 		})
 		return
 	}
-	if providerCount > 1 {
+	if (hasModelProvider && hasAgentKitProvider) ||
+		(hasModelProvider && hasWebsocketProvider) ||
+		(hasAgentKitProvider && hasWebsocketProvider) {
 		c.JSON(pkg_errors.CreateAssistantInvalidProvider.HTTPStatusCode, openapi.ErrorResponse{
 			Code:    utils.Ptr(pkg_errors.CreateAssistantInvalidProvider.HTTPStatusCodeInt32()),
 			Success: utils.Ptr(false),
@@ -116,8 +121,7 @@ func (assistantApi *assistantApi) CreateAssistantRest(c *gin.Context) {
 		return
 	}
 
-	if validator.NonNil(assistantProviderRequest.Model) &&
-		!validator.NotBlank(assistantProviderRequest.Model.ModelProviderName) {
+	if hasModelProvider && !validator.NotBlank(assistantProviderRequest.Model.ModelProviderName) {
 		c.JSON(pkg_errors.CreateAssistantMissingModelProviderName.HTTPStatusCode, openapi.ErrorResponse{
 			Code:    utils.Ptr(pkg_errors.CreateAssistantMissingModelProviderName.HTTPStatusCodeInt32()),
 			Success: utils.Ptr(false),
@@ -129,8 +133,7 @@ func (assistantApi *assistantApi) CreateAssistantRest(c *gin.Context) {
 		})
 		return
 	}
-	if validator.NonNil(assistantProviderRequest.Agentkit) &&
-		!validator.NotBlank(assistantProviderRequest.Agentkit.AgentKitUrl) {
+	if hasAgentKitProvider && !validator.NotBlank(assistantProviderRequest.Agentkit.AgentKitUrl) {
 		c.JSON(pkg_errors.CreateAssistantMissingAgentKitURL.HTTPStatusCode, openapi.ErrorResponse{
 			Code:    utils.Ptr(pkg_errors.CreateAssistantMissingAgentKitURL.HTTPStatusCodeInt32()),
 			Success: utils.Ptr(false),
@@ -142,8 +145,133 @@ func (assistantApi *assistantApi) CreateAssistantRest(c *gin.Context) {
 		})
 		return
 	}
-	if validator.NonNil(assistantProviderRequest.Websocket) &&
-		!validator.NotBlank(assistantProviderRequest.Websocket.WebsocketUrl) {
+	if hasAgentKitProvider {
+		agentkitProviderRequest := assistantProviderRequest.Agentkit
+		if validator.NonNil(agentkitProviderRequest.Certificate) {
+			agentkitCertificate = *agentkitProviderRequest.Certificate
+		}
+		if validator.OneOf(agentkitCertificate, agentkit.CertificateInsecure, agentkit.CertificateSkipVerify) {
+			c.JSON(pkg_errors.CreateAssistantInvalidAgentKitCertificate.HTTPStatusCode, openapi.ErrorResponse{
+				Code:    utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitCertificate.HTTPStatusCodeInt32()),
+				Success: utils.Ptr(false),
+				Error: &openapi.Error{
+					ErrorCode:    utils.Ptr(openapi.Uint64String(pkg_errors.CreateAssistantInvalidAgentKitCertificate.CodeString())),
+					ErrorMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitCertificate.Error),
+					HumanMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitCertificate.ErrorMessage),
+				},
+			})
+			return
+		}
+		if validator.NonNil(agentkitProviderRequest.TransportSecurity) {
+			agentkitTransportSecurity = agentkitProviderRequest.TransportSecurity
+			if !validator.OneOf(*agentkitTransportSecurity, agentkit.TransportSecurityTLS, agentkit.TransportSecurityPlaintext) {
+				c.JSON(pkg_errors.CreateAssistantInvalidAgentKitTransport.HTTPStatusCode, openapi.ErrorResponse{
+					Code:    utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitTransport.HTTPStatusCodeInt32()),
+					Success: utils.Ptr(false),
+					Error: &openapi.Error{
+						ErrorCode:    utils.Ptr(openapi.Uint64String(pkg_errors.CreateAssistantInvalidAgentKitTransport.CodeString())),
+						ErrorMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitTransport.Error),
+						HumanMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitTransport.ErrorMessage),
+					},
+				})
+				return
+			}
+		}
+		if validator.NonNil(agentkitProviderRequest.TlsVerification) {
+			agentkitTLSVerification = agentkitProviderRequest.TlsVerification
+			if !validator.OneOf(*agentkitTLSVerification, agentkit.TLSVerificationVerify, agentkit.TLSVerificationSkipVerify) {
+				c.JSON(pkg_errors.CreateAssistantInvalidAgentKitTLSVerification.HTTPStatusCode, openapi.ErrorResponse{
+					Code:    utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitTLSVerification.HTTPStatusCodeInt32()),
+					Success: utils.Ptr(false),
+					Error: &openapi.Error{
+						ErrorCode:    utils.Ptr(openapi.Uint64String(pkg_errors.CreateAssistantInvalidAgentKitTLSVerification.CodeString())),
+						ErrorMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitTLSVerification.Error),
+						HumanMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitTLSVerification.ErrorMessage),
+					},
+				})
+				return
+			}
+		}
+		if validator.NonNil(agentkitProviderRequest.TlsServerName) {
+			agentkitTLSServerName = agentkitProviderRequest.TlsServerName
+		}
+		if validator.NonNil(agentkitProviderRequest.ConnectTimeoutMs) {
+			agentkitConnectTimeoutMs = agentkitProviderRequest.ConnectTimeoutMs
+			if !validator.Between(int(*agentkitConnectTimeoutMs), agentkit.MinConnectTimeoutMs, agentkit.MaxConnectTimeoutMs) {
+				c.JSON(pkg_errors.CreateAssistantInvalidAgentKitConnectTimeout.HTTPStatusCode, openapi.ErrorResponse{
+					Code:    utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitConnectTimeout.HTTPStatusCodeInt32()),
+					Success: utils.Ptr(false),
+					Error: &openapi.Error{
+						ErrorCode:    utils.Ptr(openapi.Uint64String(pkg_errors.CreateAssistantInvalidAgentKitConnectTimeout.CodeString())),
+						ErrorMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitConnectTimeout.Error),
+						HumanMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitConnectTimeout.ErrorMessage),
+					},
+				})
+				return
+			}
+		}
+		if validator.NonNil(agentkitProviderRequest.KeepaliveTimeMs) {
+			agentkitKeepaliveTimeMs = agentkitProviderRequest.KeepaliveTimeMs
+			if !validator.Between(int(*agentkitKeepaliveTimeMs), agentkit.MinKeepaliveTimeMs, agentkit.MaxKeepaliveTimeMs) {
+				c.JSON(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTime.HTTPStatusCode, openapi.ErrorResponse{
+					Code:    utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTime.HTTPStatusCodeInt32()),
+					Success: utils.Ptr(false),
+					Error: &openapi.Error{
+						ErrorCode:    utils.Ptr(openapi.Uint64String(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTime.CodeString())),
+						ErrorMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTime.Error),
+						HumanMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTime.ErrorMessage),
+					},
+				})
+				return
+			}
+		}
+		if validator.NonNil(agentkitProviderRequest.KeepaliveTimeoutMs) {
+			agentkitKeepaliveTimeoutMs = agentkitProviderRequest.KeepaliveTimeoutMs
+			if !validator.Between(int(*agentkitKeepaliveTimeoutMs), agentkit.MinKeepaliveTimeoutMs, agentkit.MaxKeepaliveTimeoutMs) {
+				c.JSON(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTimeout.HTTPStatusCode, openapi.ErrorResponse{
+					Code:    utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTimeout.HTTPStatusCodeInt32()),
+					Success: utils.Ptr(false),
+					Error: &openapi.Error{
+						ErrorCode:    utils.Ptr(openapi.Uint64String(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTimeout.CodeString())),
+						ErrorMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTimeout.Error),
+						HumanMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTimeout.ErrorMessage),
+					},
+				})
+				return
+			}
+		}
+		if validator.NonNil(agentkitProviderRequest.MaxRecvMessageBytes) {
+			agentkitMaxRecvMessageBytes = agentkitProviderRequest.MaxRecvMessageBytes
+			if !validator.Between(int(*agentkitMaxRecvMessageBytes), agentkit.MinMessageBytes, agentkit.MaxMessageBytes) {
+				c.JSON(pkg_errors.CreateAssistantInvalidAgentKitMaxRecvMessageBytes.HTTPStatusCode, openapi.ErrorResponse{
+					Code:    utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitMaxRecvMessageBytes.HTTPStatusCodeInt32()),
+					Success: utils.Ptr(false),
+					Error: &openapi.Error{
+						ErrorCode:    utils.Ptr(openapi.Uint64String(pkg_errors.CreateAssistantInvalidAgentKitMaxRecvMessageBytes.CodeString())),
+						ErrorMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitMaxRecvMessageBytes.Error),
+						HumanMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitMaxRecvMessageBytes.ErrorMessage),
+					},
+				})
+				return
+			}
+		}
+		if validator.NonNil(agentkitProviderRequest.MaxSendMessageBytes) {
+			agentkitMaxSendMessageBytes = agentkitProviderRequest.MaxSendMessageBytes
+			if !validator.Between(int(*agentkitMaxSendMessageBytes), agentkit.MinMessageBytes, agentkit.MaxMessageBytes) {
+				c.JSON(pkg_errors.CreateAssistantInvalidAgentKitMaxSendMessageBytes.HTTPStatusCode, openapi.ErrorResponse{
+					Code:    utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitMaxSendMessageBytes.HTTPStatusCodeInt32()),
+					Success: utils.Ptr(false),
+					Error: &openapi.Error{
+						ErrorCode:    utils.Ptr(openapi.Uint64String(pkg_errors.CreateAssistantInvalidAgentKitMaxSendMessageBytes.CodeString())),
+						ErrorMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitMaxSendMessageBytes.Error),
+						HumanMessage: utils.Ptr(pkg_errors.CreateAssistantInvalidAgentKitMaxSendMessageBytes.ErrorMessage),
+					},
+				})
+				return
+			}
+		}
+	}
+	if hasWebsocketProvider && !validator.NotBlank(assistantProviderRequest.Websocket.WebsocketUrl) {
 		c.JSON(pkg_errors.CreateAssistantMissingWebsocketURL.HTTPStatusCode, openapi.ErrorResponse{
 			Code:    utils.Ptr(pkg_errors.CreateAssistantMissingWebsocketURL.HTTPStatusCodeInt32()),
 			Success: utils.Ptr(false),
@@ -206,7 +334,7 @@ func (assistantApi *assistantApi) CreateAssistantRest(c *gin.Context) {
 		return
 	}
 
-	if validator.NonNil(assistantProviderRequest.Model) {
+	if hasModelProvider {
 		modelProviderRequest := assistantProviderRequest.Model
 		template := "{}"
 		if validator.NonNil(modelProviderRequest.Template) {
@@ -271,18 +399,16 @@ func (assistantApi *assistantApi) CreateAssistantRest(c *gin.Context) {
 		}
 	}
 
-	if validator.NonNil(assistantProviderRequest.Agentkit) {
+	if hasAgentKitProvider {
 		agentkitProviderRequest := assistantProviderRequest.Agentkit
-		certificate := ""
-		if validator.NonNil(agentkitProviderRequest.Certificate) {
-			certificate = *agentkitProviderRequest.Certificate
-		}
 		metadata := map[string]string{}
 		if validator.NonNil(agentkitProviderRequest.Metadata) {
 			metadata = *agentkitProviderRequest.Metadata
 		}
 		agentkitProvider, err := assistantApi.assistantService.CreateAssistantProviderAgentkit(
-			c, auth, assistant.Id, providerDescription, agentkitProviderRequest.AgentKitUrl, certificate, metadata,
+			c, auth, assistant.Id, providerDescription, agentkitProviderRequest.AgentKitUrl, agentkitCertificate, metadata,
+			agentkitTransportSecurity, agentkitTLSVerification, agentkitTLSServerName, agentkitConnectTimeoutMs, agentkitKeepaliveTimeMs,
+			agentkitKeepaliveTimeoutMs, agentkitMaxRecvMessageBytes, agentkitMaxSendMessageBytes,
 		)
 		if err != nil {
 
@@ -312,7 +438,7 @@ func (assistantApi *assistantApi) CreateAssistantRest(c *gin.Context) {
 		}
 	}
 
-	if validator.NonNil(assistantProviderRequest.Websocket) {
+	if hasWebsocketProvider {
 		websocketProviderRequest := assistantProviderRequest.Websocket
 		headers := map[string]string{}
 		if validator.NonNil(websocketProviderRequest.Headers) {

@@ -27,6 +27,15 @@ type AssistantProviderAgentkit struct {
 	Url         string               `json:"url" gorm:"type:string"`
 	Certificate string               `json:"certificate" gorm:"type:string;size:400;not null;"`
 	Metadata    gorm_types.StringMap `json:"metadata" gorm:"type:string;size:400;not null;"`
+
+	TransportSecurity   *string `json:"transportSecurity" gorm:"type:string;size:50;not null;default:(-)"`
+	TLSVerification     *string `json:"tlsVerification" gorm:"column:tls_verification;type:string;size:50;not null;default:(-)"`
+	TLSServerName       *string `json:"tlsServerName" gorm:"column:tls_server_name;type:string;size:255"`
+	ConnectTimeoutMs    *uint32 `json:"connectTimeoutMs" gorm:"type:bigint;not null;default:(-)"`
+	KeepaliveTimeMs     *uint32 `json:"keepaliveTimeMs" gorm:"type:bigint;not null;default:(-)"`
+	KeepaliveTimeoutMs  *uint32 `json:"keepaliveTimeoutMs" gorm:"type:bigint;not null;default:(-)"`
+	MaxRecvMessageBytes *uint32 `json:"maxRecvMessageBytes" gorm:"type:bigint;not null;default:(-)"`
+	MaxSendMessageBytes *uint32 `json:"maxSendMessageBytes" gorm:"type:bigint;not null;default:(-)"`
 }
 
 type AssistantProviderWebsocket struct {

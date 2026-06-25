@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
+	"github.com/rapidaai/openapi"
 	pkg_errors "github.com/rapidaai/pkg/errors"
 	gorm_types "github.com/rapidaai/pkg/models/gorm/types"
 	"github.com/rapidaai/pkg/types"
@@ -90,7 +91,7 @@ func (s *createAssistantRestAssistantServiceStub) CreateAssistantProviderWebsock
 	return websocketProvider, nil
 }
 
-func (s *createAssistantRestAssistantServiceStub) CreateAssistantProviderAgentkit(_ context.Context, _ types.SimplePrinciple, _ uint64, providerDescription string, _ string, _ string, _ map[string]string) (*internal_assistant_entity.AssistantProviderAgentkit, error) {
+func (s *createAssistantRestAssistantServiceStub) CreateAssistantProviderAgentkit(_ context.Context, _ types.SimplePrinciple, _ uint64, providerDescription string, _ string, _ string, _ map[string]string, _ *string, _ *string, _ *string, _ *uint32, _ *uint32, _ *uint32, _ *uint32, _ *uint32) (*internal_assistant_entity.AssistantProviderAgentkit, error) {
 	s.createProviderCalled = true
 	s.providerDescription = providerDescription
 	agentkitProvider := &internal_assistant_entity.AssistantProviderAgentkit{}
@@ -228,6 +229,43 @@ func TestCreateAssistantRest_CreateAssistantErrorDoesNotExposeInternalError(t *t
 	require.Equal(t, http.StatusInternalServerError, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), pkg_errors.CreateAssistantCreateAssistant.Error)
 	assert.NotContains(t, recorder.Body.String(), "database password leaked")
+}
+
+func TestCreateAssistantRest_InvalidAgentkitCertificateDoesNotCreateAssistant(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	assistantService := &createAssistantRestAssistantServiceStub{}
+	assistantApi := &assistantApi{
+		assistantService: assistantService,
+	}
+	requestBody := []byte(`{
+		"name": "Support Assistant",
+		"assistantProvider": {
+			"agentkit": {
+				"agentKitUrl": "localhost:9000",
+				"certificate": "skip-verify"
+			}
+		}
+	}`)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPost, "/v1/assistant/create-assistant", bytes.NewReader(requestBody))
+	context.Request.Header.Set("Content-Type", "application/json")
+	context.Set(string(types.CTX_), createAssistantRestAuth())
+
+	assistantApi.CreateAssistantRest(context)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.False(t, assistantService.createAssistantCalled)
+	assert.Contains(t, recorder.Body.String(), "certificate must be a CA PEM")
+
+	var response openapi.ErrorResponse
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.NotNil(t, response.Code)
+	require.NotNil(t, response.Error)
+	require.NotNil(t, response.Error.ErrorCode)
+	assert.Equal(t, pkg_errors.CreateAssistantInvalidAgentKitCertificate.HTTPStatusCodeInt32(), *response.Code)
+	assert.Equal(t, openapi.Uint64String(pkg_errors.CreateAssistantInvalidAgentKitCertificate.CodeString()), *response.Error.ErrorCode)
 }
 
 func TestCreateAssistantRest_Unauthenticated(t *testing.T) {

@@ -79,6 +79,14 @@ func (eService *assistantService) CreateAssistantProviderAgentkit(ctx context.Co
 	url string,
 	certificate string,
 	metadata map[string]string,
+	transportSecurity *string,
+	tlsVerification *string,
+	tlsServerName *string,
+	connectTimeoutMs *uint32,
+	keepaliveTimeMs *uint32,
+	keepaliveTimeoutMs *uint32,
+	maxRecvMessageBytes *uint32,
+	maxSendMessageBytes *uint32,
 ) (*internal_assistant_entity.AssistantProviderAgentkit, error) {
 	start := time.Now()
 	db := eService.postgres.DB(ctx)
@@ -88,9 +96,17 @@ func (eService *assistantService) CreateAssistantProviderAgentkit(ctx context.Co
 			CreatedBy:   *auth.GetUserId(),
 			AssistantId: assistantId,
 		},
-		Url:         url,
-		Certificate: certificate,
-		Metadata:    metadata,
+		Url:                 url,
+		Certificate:         certificate,
+		Metadata:            metadata,
+		TransportSecurity:   transportSecurity,
+		TLSVerification:     tlsVerification,
+		TLSServerName:       tlsServerName,
+		ConnectTimeoutMs:    connectTimeoutMs,
+		KeepaliveTimeMs:     keepaliveTimeMs,
+		KeepaliveTimeoutMs:  keepaliveTimeoutMs,
+		MaxRecvMessageBytes: maxRecvMessageBytes,
+		MaxSendMessageBytes: maxSendMessageBytes,
 	}
 	tx := db.Save(epm)
 	if err := tx.Error; err != nil {

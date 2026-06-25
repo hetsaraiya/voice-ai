@@ -126,6 +126,14 @@ type AssistantService interface {
 		url string,
 		certificate string,
 		metadata map[string]string,
+		transportSecurity *string,
+		tlsVerification *string,
+		tlsServerName *string,
+		connectTimeoutMs *uint32,
+		keepaliveTimeMs *uint32,
+		keepaliveTimeoutMs *uint32,
+		maxRecvMessageBytes *uint32,
+		maxSendMessageBytes *uint32,
 	) (*internal_assistant_entity.AssistantProviderAgentkit, error)
 
 	AttachProviderModelToAssistant(ctx context.Context,

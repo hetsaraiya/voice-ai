@@ -3,11 +3,9 @@ import { useRapidaStore } from '@/hooks';
 import { useCredential } from '@/hooks/use-credential';
 import { useParams } from 'react-router-dom';
 import { Helmet } from '@/app/components/helmet';
-import {
-  PrimaryButton,
-  SecondaryButton,
-} from '@/app/components/carbon/button';
-import { ButtonSet } from '@carbon/react';
+import { PrimaryButton, SecondaryButton } from '@/app/components/carbon/button';
+import { ButtonSet, Slider } from '@carbon/react';
+import { ChevronDown } from '@carbon/icons-react';
 import { TabForm } from '@/app/components/form/tab-form';
 import { FieldSet } from '@/app/components/form/fieldset';
 import { useConfirmDialog } from '@/app/pages/assistant/actions/hooks/use-confirmation';
@@ -27,11 +25,32 @@ import { GetAssistant } from '@rapidaai/react';
 import { connectionConfig } from '@/configs';
 import { DocNoticeBlock } from '@/app/components/container/message/notice-block/doc-notice-block';
 import { Input } from '@/app/components/form/input';
+import { Select } from '@/app/components/form/select';
 import { APiParameter } from '@/app/components/external-api/api-parameter';
 import { InputHelper } from '@/app/components/input-helper';
 import { CodeEditor } from '@/app/components/form/editor/code-editor';
 import toast from 'react-hot-toast/headless';
 import { SectionDivider } from '@/app/components/blocks/section-divider';
+
+const TRANSPORT_SECURITY_OPTIONS = [
+  { name: 'Default', value: '' },
+  { name: 'TLS', value: 'TLS' },
+  { name: 'Plaintext', value: 'PLAINTEXT' },
+];
+
+const TLS_VERIFICATION_OPTIONS = [
+  { name: 'Default', value: '' },
+  { name: 'Verify', value: 'VERIFY' },
+  { name: 'Skip verification', value: 'SKIP_VERIFY' },
+];
+
+const MILLISECONDS_PER_SECOND = 1000;
+const BYTES_PER_MB = 1048576;
+const DEFAULT_CONNECT_TIMEOUT_SECONDS = 10;
+const DEFAULT_KEEPALIVE_TIME_SECONDS = 30;
+const DEFAULT_KEEPALIVE_TIMEOUT_SECONDS = 10;
+const DEFAULT_MAX_RECV_MESSAGE_MB = 16;
+const DEFAULT_MAX_SEND_MESSAGE_MB = 16;
 
 export function CreateAgentKitVersion() {
   /**
@@ -66,6 +85,7 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
   const [activeTab, setActiveTab] = useState('change-assistant');
   const navigator = useGlobalNavigation();
   const [errorMessage, setErrorMessage] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const { showDialog, ConfirmDialogComponent } = useConfirmDialog({});
   const currentDate = new Date().toLocaleDateString();
   const [versionMessage, setVersionMessage] = useState(
@@ -75,6 +95,18 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
 
   const [agentKitUrl, setAgentKitUrl] = useState('');
   const [certificate, setCertificate] = useState('');
+  const [transportSecurity, setTransportSecurity] = useState('');
+  const [tlsVerification, setTlsVerification] = useState('');
+  const [tlsServerName, setTlsServerName] = useState('');
+  const [connectTimeoutSeconds, setConnectTimeoutSeconds] = useState('');
+  const [keepaliveTimeSeconds, setKeepaliveTimeSeconds] = useState('');
+  const [keepaliveTimeoutSeconds, setKeepaliveTimeoutSeconds] = useState('');
+  const [maxRecvMessageMb, setMaxRecvMessageMb] = useState(
+    DEFAULT_MAX_RECV_MESSAGE_MB.toString(),
+  );
+  const [maxSendMessageMb, setMaxSendMessageMb] = useState(
+    DEFAULT_MAX_SEND_MESSAGE_MB.toString(),
+  );
   const [parameters, setParameters] = useState<
     {
       key: string;
@@ -94,11 +126,84 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
       return false;
     }
 
+    if (certificate === 'insecure' || certificate === 'skip-verify') {
+      setErrorMessage(
+        'Certificate must be a CA certificate. Use transport security and TLS verification for gRPC security options.',
+      );
+      return false;
+    }
+
     if (certificate && !sslCertPattern.test(certificate)) {
       setErrorMessage(
         'Invalid SSL certificate format. It should start with "-----BEGIN CERTIFICATE-----" and end with "-----END CERTIFICATE-----".',
       );
       return false;
+    }
+
+    if (
+      transportSecurity &&
+      !['TLS', 'PLAINTEXT'].includes(transportSecurity)
+    ) {
+      setErrorMessage('Transport security must be TLS or PLAINTEXT.');
+      return false;
+    }
+
+    if (
+      tlsVerification &&
+      !['VERIFY', 'SKIP_VERIFY'].includes(tlsVerification)
+    ) {
+      setErrorMessage('TLS verification must be VERIFY or SKIP_VERIFY.');
+      return false;
+    }
+
+    const numberFields = [
+      {
+        label: 'Connect timeout',
+        value: connectTimeoutSeconds,
+        min: 1,
+        max: 300,
+      },
+      {
+        label: 'Keepalive time',
+        value: keepaliveTimeSeconds,
+        min: 10,
+        max: 3600,
+      },
+      {
+        label: 'Keepalive timeout',
+        value: keepaliveTimeoutSeconds,
+        min: 1,
+        max: 300,
+      },
+      {
+        label: 'Max receive message MB',
+        value: maxRecvMessageMb,
+        min: 1,
+        max: 100,
+      },
+      {
+        label: 'Max send message MB',
+        value: maxSendMessageMb,
+        min: 1,
+        max: 100,
+      },
+    ];
+
+    for (const field of numberFields) {
+      if (!field.value.trim()) {
+        continue;
+      }
+      const parsedValue = Number(field.value);
+      if (
+        !Number.isInteger(parsedValue) ||
+        parsedValue < field.min ||
+        parsedValue > field.max
+      ) {
+        setErrorMessage(
+          `${field.label} must be between ${field.min} and ${field.max}.`,
+        );
+        return false;
+      }
     }
 
     const hasInvalidParameter = parameters.some(
@@ -125,6 +230,37 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
 
     agentKit.setAgentkiturl(agentKitUrl);
     agentKit.setCertificate(certificate);
+    if (transportSecurity) {
+      agentKit.setTransportsecurity(transportSecurity);
+    }
+    if (tlsVerification) {
+      agentKit.setTlsverification(tlsVerification);
+    }
+    if (tlsServerName.trim()) {
+      agentKit.setTlsservername(tlsServerName.trim());
+    }
+    if (connectTimeoutSeconds.trim()) {
+      agentKit.setConnecttimeoutms(
+        Number(connectTimeoutSeconds) * MILLISECONDS_PER_SECOND,
+      );
+    }
+    if (keepaliveTimeSeconds.trim()) {
+      agentKit.setKeepalivetimems(
+        Number(keepaliveTimeSeconds) * MILLISECONDS_PER_SECOND,
+      );
+    }
+    if (keepaliveTimeoutSeconds.trim()) {
+      agentKit.setKeepalivetimeoutms(
+        Number(keepaliveTimeoutSeconds) * MILLISECONDS_PER_SECOND,
+      );
+    }
+    if (maxRecvMessageMb.trim()) {
+      agentKit.setMaxrecvmessagebytes(Number(maxRecvMessageMb) * BYTES_PER_MB);
+    }
+    if (maxSendMessageMb.trim()) {
+      agentKit.setMaxsendmessagebytes(Number(maxSendMessageMb) * BYTES_PER_MB);
+    }
+
     parameters.forEach(p => {
       agentKit.getMetadataMap().set(p.key, p.value);
     });
@@ -188,6 +324,44 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
           if (assistantProvider) {
             setAgentKitUrl(assistantProvider.getUrl());
             setCertificate(assistantProvider.getCertificate());
+            setTransportSecurity(assistantProvider.getTransportsecurity());
+            setTlsVerification(assistantProvider.getTlsverification());
+            setTlsServerName(assistantProvider.getTlsservername());
+            const connectTimeoutMs = assistantProvider.getConnecttimeoutms();
+            const keepaliveTimeMs = assistantProvider.getKeepalivetimems();
+            const keepaliveTimeoutMs =
+              assistantProvider.getKeepalivetimeoutms();
+            const maxRecvMessageBytes =
+              assistantProvider.getMaxrecvmessagebytes();
+            const maxSendMessageBytes =
+              assistantProvider.getMaxsendmessagebytes();
+            setConnectTimeoutSeconds(
+              connectTimeoutMs
+                ? String(Math.round(connectTimeoutMs / MILLISECONDS_PER_SECOND))
+                : '',
+            );
+            setKeepaliveTimeSeconds(
+              keepaliveTimeMs
+                ? String(Math.round(keepaliveTimeMs / MILLISECONDS_PER_SECOND))
+                : '',
+            );
+            setKeepaliveTimeoutSeconds(
+              keepaliveTimeoutMs
+                ? String(
+                    Math.round(keepaliveTimeoutMs / MILLISECONDS_PER_SECOND),
+                  )
+                : '',
+            );
+            setMaxRecvMessageMb(
+              maxRecvMessageBytes
+                ? String(Math.round(maxRecvMessageBytes / BYTES_PER_MB))
+                : DEFAULT_MAX_RECV_MESSAGE_MB.toString(),
+            );
+            setMaxSendMessageMb(
+              maxSendMessageBytes
+                ? String(Math.round(maxSendMessageBytes / BYTES_PER_MB))
+                : DEFAULT_MAX_SEND_MESSAGE_MB.toString(),
+            );
             const _parameters: { key: string; value: string }[] = [];
             assistantProvider.getMetadataMap().forEach((value, key) => {
               _parameters.push({ key, value });
@@ -227,12 +401,14 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
               'Provide the connection configuration for your Rapida AgentKit setup.',
             actions: [
               <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
-                <SecondaryButton size="lg"
+                <SecondaryButton
+                  size="lg"
                   onClick={() => showDialog(navigator.goBack)}
                 >
                   Cancel
                 </SecondaryButton>
-                <PrimaryButton size="lg"
+                <PrimaryButton
+                  size="lg"
                   onClick={() => {
                     if (validateAgentKit()) {
                       setActiveTab('commit-assistant');
@@ -252,7 +428,7 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
                   New versions of the assistant will not be deployed
                   automatically. You must promote them manually.
                 </DocNoticeBlock>
-                <div className="px-8 pt-6 pb-8 max-w-4xl flex flex-col gap-8">
+                <div className="px-4 pt-6 pb-8 max-w-4xl flex flex-col gap-8">
                   {/* Connection section */}
                   <div className="flex flex-col gap-6">
                     <SectionDivider label="Connection" />
@@ -272,29 +448,169 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
                     </FieldSet>
                   </div>
 
-                  {/* Security section */}
-                  <div className="flex flex-col gap-6">
-                    <SectionDivider label="Security" />
-                    <FieldSet>
-                      <FormLabel>TLS Certificate (Optional)</FormLabel>
-                      <CodeEditor
-                        placeholder="-----BEGIN CERTIFICATE-----
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                    className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+                  >
+                    <ChevronDown
+                      size={16}
+                      className={`transition-transform duration-200 ${
+                        showAdvanced ? 'rotate-180' : ''
+                      }`}
+                    />
+                    {showAdvanced ? 'Hide' : 'Show'} advanced settings
+                  </button>
+
+                  {showAdvanced && (
+                    <div className="pt-6 border-t border-gray-200 dark:border-gray-800 flex flex-col gap-8">
+                      <div className="flex flex-col gap-6">
+                        <SectionDivider label="Connection tuning" />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <FieldSet>
+                            <div className="[&_.cds--slider-container]:!mt-0 [&_.cds--slider__range-label]:hidden">
+                              <Slider
+                                id="agentkit-version-connect-timeout-seconds"
+                                labelText="Connect Timeout (seconds)"
+                                min={1}
+                                max={300}
+                                step={1}
+                                value={
+                                  Number(connectTimeoutSeconds) ||
+                                  DEFAULT_CONNECT_TIMEOUT_SECONDS
+                                }
+                                onChange={({ value }: { value: number }) => {
+                                  setConnectTimeoutSeconds(value.toString());
+                                }}
+                              />
+                            </div>
+                          </FieldSet>
+                          <FieldSet>
+                            <div className="[&_.cds--slider-container]:!mt-0 [&_.cds--slider__range-label]:hidden">
+                              <Slider
+                                id="agentkit-version-keepalive-time-seconds"
+                                labelText="Keepalive Time (seconds)"
+                                min={10}
+                                max={3600}
+                                step={1}
+                                value={
+                                  Number(keepaliveTimeSeconds) ||
+                                  DEFAULT_KEEPALIVE_TIME_SECONDS
+                                }
+                                onChange={({ value }: { value: number }) => {
+                                  setKeepaliveTimeSeconds(value.toString());
+                                }}
+                              />
+                            </div>
+                          </FieldSet>
+                          <FieldSet>
+                            <div className="[&_.cds--slider-container]:!mt-0 [&_.cds--slider__range-label]:hidden">
+                              <Slider
+                                id="agentkit-version-keepalive-timeout-seconds"
+                                labelText="Keepalive Timeout (seconds)"
+                                min={1}
+                                max={300}
+                                step={1}
+                                value={
+                                  Number(keepaliveTimeoutSeconds) ||
+                                  DEFAULT_KEEPALIVE_TIMEOUT_SECONDS
+                                }
+                                onChange={({ value }: { value: number }) => {
+                                  setKeepaliveTimeoutSeconds(value.toString());
+                                }}
+                              />
+                            </div>
+                          </FieldSet>
+                          <FieldSet>
+                            <div className="[&_.cds--slider-container]:!mt-0 [&_.cds--slider__range-label]:hidden">
+                              <Slider
+                                id="agentkit-version-max-receive-message-mb"
+                                labelText="Max Receive Message (MB)"
+                                min={1}
+                                max={100}
+                                step={1}
+                                value={
+                                  Number(maxRecvMessageMb) ||
+                                  DEFAULT_MAX_RECV_MESSAGE_MB
+                                }
+                                onChange={({ value }: { value: number }) => {
+                                  setMaxRecvMessageMb(value.toString());
+                                }}
+                              />
+                            </div>
+                          </FieldSet>
+                          <FieldSet>
+                            <div className="[&_.cds--slider-container]:!mt-0 [&_.cds--slider__range-label]:hidden">
+                              <Slider
+                                id="agentkit-version-max-send-message-mb"
+                                labelText="Max Send Message (MB)"
+                                min={1}
+                                max={100}
+                                step={1}
+                                value={
+                                  Number(maxSendMessageMb) ||
+                                  DEFAULT_MAX_SEND_MESSAGE_MB
+                                }
+                                onChange={({ value }: { value: number }) => {
+                                  setMaxSendMessageMb(value.toString());
+                                }}
+                              />
+                            </div>
+                          </FieldSet>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-6">
+                        <SectionDivider label="Security" />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <FieldSet>
+                            <FormLabel>Transport Security</FormLabel>
+                            <Select
+                              value={transportSecurity}
+                              options={TRANSPORT_SECURITY_OPTIONS}
+                              onChange={v => {
+                                setTransportSecurity(v.target.value);
+                              }}
+                            />
+                          </FieldSet>
+                          <FieldSet>
+                            <FormLabel>TLS Verification</FormLabel>
+                            <Select
+                              value={tlsVerification}
+                              options={TLS_VERIFICATION_OPTIONS}
+                              onChange={v => {
+                                setTlsVerification(v.target.value);
+                              }}
+                            />
+                          </FieldSet>
+                          <FieldSet>
+                            <FormLabel>TLS Server Name</FormLabel>
+                            <Input
+                              placeholder="agent.your-domain.com"
+                              value={tlsServerName}
+                              onChange={v => {
+                                setTlsServerName(v.target.value);
+                              }}
+                            />
+                          </FieldSet>
+                        </div>
+                        <FieldSet>
+                          <FormLabel>TLS Certificate (Optional)</FormLabel>
+                          <CodeEditor
+                            placeholder="-----BEGIN CERTIFICATE-----
 ...
 -----END CERTIFICATE-----"
-                        value={certificate}
-                        onChange={value => {
-                          setCertificate(value);
-                        }}
-                        className="min-h-40 max-h-dvh "
-                      />
-                      <InputHelper>
-                        Custom CA certificate for server verification (optional,
-                        leave empty for system defaults)
-                      </InputHelper>
-                    </FieldSet>
-                  </div>
+                            value={certificate}
+                            onChange={value => {
+                              setCertificate(value);
+                            }}
+                            className="min-h-40 max-h-dvh "
+                          />
+                        </FieldSet>
+                      </div>
+                    </div>
+                  )}
 
-                  {/* Metadata section */}
                   <div className="flex flex-col gap-6">
                     <SectionDivider label="Metadata" />
                     <FieldSet>
@@ -319,12 +635,14 @@ const CreateNewVersion: FC<{ assistantId: string }> = ({ assistantId }) => {
               'Write a brief note describing what changed in this version.',
             actions: [
               <ButtonSet className="!w-full [&>button]:!flex-1 [&>button]:!max-w-none">
-                <SecondaryButton size="lg"
+                <SecondaryButton
+                  size="lg"
                   onClick={() => showDialog(navigator.goBack)}
                 >
                   Cancel
                 </SecondaryButton>
-                <PrimaryButton size="lg"
+                <PrimaryButton
+                  size="lg"
                   onClick={() => {
                     createProviderModel();
                   }}

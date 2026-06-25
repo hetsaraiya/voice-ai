@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 
+	agentkit "github.com/rapidaai/api/assistant-api/internal/llm/agentkit"
 	pkg_errors "github.com/rapidaai/pkg/errors"
 	"github.com/rapidaai/pkg/types"
 	type_enums "github.com/rapidaai/pkg/types/enums"
@@ -112,8 +113,17 @@ func (assistantApi *assistantGrpcApi) CreateAssistant(ctx context.Context, cer *
 			}, errors.New(pkg_errors.CreateAssistantMissingModelProviderName.Error)
 		}
 	}
+	var agentkitTransportSecurity *string
+	var agentkitTLSVerification *string
+	var agentkitTLSServerName *string
+	var agentkitConnectTimeoutMs *uint32
+	var agentkitKeepaliveTimeMs *uint32
+	var agentkitKeepaliveTimeoutMs *uint32
+	var agentkitMaxRecvMessageBytes *uint32
+	var agentkitMaxSendMessageBytes *uint32
 	if cer.GetAssistantProvider().GetAgentkit() != nil {
-		if !validator.NotBlank(cer.GetAssistantProvider().GetAgentkit().GetAgentKitUrl()) {
+		agentkitProviderRequest := cer.GetAssistantProvider().GetAgentkit()
+		if !validator.NotBlank(agentkitProviderRequest.GetAgentKitUrl()) {
 			return &assistant_api.GetAssistantResponse{
 				Code:    pkg_errors.CreateAssistantMissingAgentKitURL.HTTPStatusCodeInt32(),
 				Success: false,
@@ -123,6 +133,118 @@ func (assistantApi *assistantGrpcApi) CreateAssistant(ctx context.Context, cer *
 					HumanMessage: pkg_errors.CreateAssistantMissingAgentKitURL.ErrorMessage,
 				},
 			}, errors.New(pkg_errors.CreateAssistantMissingAgentKitURL.Error)
+		}
+		if validator.OneOf(agentkitProviderRequest.GetCertificate(), agentkit.CertificateInsecure, agentkit.CertificateSkipVerify) {
+			return &assistant_api.GetAssistantResponse{
+				Code:    pkg_errors.CreateAssistantInvalidAgentKitCertificate.HTTPStatusCodeInt32(),
+				Success: false,
+				Error: &assistant_api.Error{
+					ErrorCode:    uint64(pkg_errors.CreateAssistantInvalidAgentKitCertificate.Code),
+					ErrorMessage: pkg_errors.CreateAssistantInvalidAgentKitCertificate.Error,
+					HumanMessage: pkg_errors.CreateAssistantInvalidAgentKitCertificate.ErrorMessage,
+				},
+			}, errors.New(pkg_errors.CreateAssistantInvalidAgentKitCertificate.Error)
+		}
+		if agentkitProviderRequest.GetTransportSecurity() != "" {
+			agentkitTransportSecurity = utils.Ptr(agentkitProviderRequest.GetTransportSecurity())
+			if !validator.OneOf(*agentkitTransportSecurity, agentkit.TransportSecurityTLS, agentkit.TransportSecurityPlaintext) {
+				return &assistant_api.GetAssistantResponse{
+					Code:    pkg_errors.CreateAssistantInvalidAgentKitTransport.HTTPStatusCodeInt32(),
+					Success: false,
+					Error: &assistant_api.Error{
+						ErrorCode:    uint64(pkg_errors.CreateAssistantInvalidAgentKitTransport.Code),
+						ErrorMessage: pkg_errors.CreateAssistantInvalidAgentKitTransport.Error,
+						HumanMessage: pkg_errors.CreateAssistantInvalidAgentKitTransport.ErrorMessage,
+					},
+				}, errors.New(pkg_errors.CreateAssistantInvalidAgentKitTransport.Error)
+			}
+		}
+		if agentkitProviderRequest.GetTlsVerification() != "" {
+			agentkitTLSVerification = utils.Ptr(agentkitProviderRequest.GetTlsVerification())
+			if !validator.OneOf(*agentkitTLSVerification, agentkit.TLSVerificationVerify, agentkit.TLSVerificationSkipVerify) {
+				return &assistant_api.GetAssistantResponse{
+					Code:    pkg_errors.CreateAssistantInvalidAgentKitTLSVerification.HTTPStatusCodeInt32(),
+					Success: false,
+					Error: &assistant_api.Error{
+						ErrorCode:    uint64(pkg_errors.CreateAssistantInvalidAgentKitTLSVerification.Code),
+						ErrorMessage: pkg_errors.CreateAssistantInvalidAgentKitTLSVerification.Error,
+						HumanMessage: pkg_errors.CreateAssistantInvalidAgentKitTLSVerification.ErrorMessage,
+					},
+				}, errors.New(pkg_errors.CreateAssistantInvalidAgentKitTLSVerification.Error)
+			}
+		}
+		if agentkitProviderRequest.GetTlsServerName() != "" {
+			agentkitTLSServerName = utils.Ptr(agentkitProviderRequest.GetTlsServerName())
+		}
+		if agentkitProviderRequest.GetConnectTimeoutMs() != 0 {
+			agentkitConnectTimeoutMs = utils.Ptr(agentkitProviderRequest.GetConnectTimeoutMs())
+			if !validator.Between(int(*agentkitConnectTimeoutMs), agentkit.MinConnectTimeoutMs, agentkit.MaxConnectTimeoutMs) {
+				return &assistant_api.GetAssistantResponse{
+					Code:    pkg_errors.CreateAssistantInvalidAgentKitConnectTimeout.HTTPStatusCodeInt32(),
+					Success: false,
+					Error: &assistant_api.Error{
+						ErrorCode:    uint64(pkg_errors.CreateAssistantInvalidAgentKitConnectTimeout.Code),
+						ErrorMessage: pkg_errors.CreateAssistantInvalidAgentKitConnectTimeout.Error,
+						HumanMessage: pkg_errors.CreateAssistantInvalidAgentKitConnectTimeout.ErrorMessage,
+					},
+				}, errors.New(pkg_errors.CreateAssistantInvalidAgentKitConnectTimeout.Error)
+			}
+		}
+		if agentkitProviderRequest.GetKeepaliveTimeMs() != 0 {
+			agentkitKeepaliveTimeMs = utils.Ptr(agentkitProviderRequest.GetKeepaliveTimeMs())
+			if !validator.Between(int(*agentkitKeepaliveTimeMs), agentkit.MinKeepaliveTimeMs, agentkit.MaxKeepaliveTimeMs) {
+				return &assistant_api.GetAssistantResponse{
+					Code:    pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTime.HTTPStatusCodeInt32(),
+					Success: false,
+					Error: &assistant_api.Error{
+						ErrorCode:    uint64(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTime.Code),
+						ErrorMessage: pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTime.Error,
+						HumanMessage: pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTime.ErrorMessage,
+					},
+				}, errors.New(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTime.Error)
+			}
+		}
+		if agentkitProviderRequest.GetKeepaliveTimeoutMs() != 0 {
+			agentkitKeepaliveTimeoutMs = utils.Ptr(agentkitProviderRequest.GetKeepaliveTimeoutMs())
+			if !validator.Between(int(*agentkitKeepaliveTimeoutMs), agentkit.MinKeepaliveTimeoutMs, agentkit.MaxKeepaliveTimeoutMs) {
+				return &assistant_api.GetAssistantResponse{
+					Code:    pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTimeout.HTTPStatusCodeInt32(),
+					Success: false,
+					Error: &assistant_api.Error{
+						ErrorCode:    uint64(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTimeout.Code),
+						ErrorMessage: pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTimeout.Error,
+						HumanMessage: pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTimeout.ErrorMessage,
+					},
+				}, errors.New(pkg_errors.CreateAssistantInvalidAgentKitKeepaliveTimeout.Error)
+			}
+		}
+		if agentkitProviderRequest.GetMaxRecvMessageBytes() != 0 {
+			agentkitMaxRecvMessageBytes = utils.Ptr(agentkitProviderRequest.GetMaxRecvMessageBytes())
+			if !validator.Between(int(*agentkitMaxRecvMessageBytes), agentkit.MinMessageBytes, agentkit.MaxMessageBytes) {
+				return &assistant_api.GetAssistantResponse{
+					Code:    pkg_errors.CreateAssistantInvalidAgentKitMaxRecvMessageBytes.HTTPStatusCodeInt32(),
+					Success: false,
+					Error: &assistant_api.Error{
+						ErrorCode:    uint64(pkg_errors.CreateAssistantInvalidAgentKitMaxRecvMessageBytes.Code),
+						ErrorMessage: pkg_errors.CreateAssistantInvalidAgentKitMaxRecvMessageBytes.Error,
+						HumanMessage: pkg_errors.CreateAssistantInvalidAgentKitMaxRecvMessageBytes.ErrorMessage,
+					},
+				}, errors.New(pkg_errors.CreateAssistantInvalidAgentKitMaxRecvMessageBytes.Error)
+			}
+		}
+		if agentkitProviderRequest.GetMaxSendMessageBytes() != 0 {
+			agentkitMaxSendMessageBytes = utils.Ptr(agentkitProviderRequest.GetMaxSendMessageBytes())
+			if !validator.Between(int(*agentkitMaxSendMessageBytes), agentkit.MinMessageBytes, agentkit.MaxMessageBytes) {
+				return &assistant_api.GetAssistantResponse{
+					Code:    pkg_errors.CreateAssistantInvalidAgentKitMaxSendMessageBytes.HTTPStatusCodeInt32(),
+					Success: false,
+					Error: &assistant_api.Error{
+						ErrorCode:    uint64(pkg_errors.CreateAssistantInvalidAgentKitMaxSendMessageBytes.Code),
+						ErrorMessage: pkg_errors.CreateAssistantInvalidAgentKitMaxSendMessageBytes.Error,
+						HumanMessage: pkg_errors.CreateAssistantInvalidAgentKitMaxSendMessageBytes.ErrorMessage,
+					},
+				}, errors.New(pkg_errors.CreateAssistantInvalidAgentKitMaxSendMessageBytes.Error)
+			}
 		}
 	}
 	if cer.GetAssistantProvider().GetWebsocket() != nil {
@@ -219,6 +341,14 @@ func (assistantApi *assistantGrpcApi) CreateAssistant(ctx context.Context, cer *
 			provider.Agentkit.GetAgentKitUrl(),
 			provider.Agentkit.GetCertificate(),
 			provider.Agentkit.GetMetadata(),
+			agentkitTransportSecurity,
+			agentkitTLSVerification,
+			agentkitTLSServerName,
+			agentkitConnectTimeoutMs,
+			agentkitKeepaliveTimeMs,
+			agentkitKeepaliveTimeoutMs,
+			agentkitMaxRecvMessageBytes,
+			agentkitMaxSendMessageBytes,
 		)
 		if err != nil {
 

@@ -1226,6 +1226,27 @@ components:
           type: object
           additionalProperties:
             type: string
+        transportSecurity:
+          type: string
+        tlsVerification:
+          type: string
+        tlsServerName:
+          type: string
+        connectTimeoutMs:
+          type: integer
+          format: uint32
+        keepaliveTimeMs:
+          type: integer
+          format: uint32
+        keepaliveTimeoutMs:
+          type: integer
+          format: uint32
+        maxRecvMessageBytes:
+          type: integer
+          format: uint32
+        maxSendMessageBytes:
+          type: integer
+          format: uint32
     CreateAssistantProviderWebsocket:
       type: object
       required:
@@ -1772,6 +1793,27 @@ components:
           type: object
           additionalProperties:
             type: string
+        transportSecurity:
+          type: string
+        tlsVerification:
+          type: string
+        tlsServerName:
+          type: string
+        connectTimeoutMs:
+          type: integer
+          format: uint32
+        keepaliveTimeMs:
+          type: integer
+          format: uint32
+        keepaliveTimeoutMs:
+          type: integer
+          format: uint32
+        maxRecvMessageBytes:
+          type: integer
+          format: uint32
+        maxSendMessageBytes:
+          type: integer
+          format: uint32
     AssistantProviderWebsocket:
       type: object
       properties:

@@ -8,29 +8,37 @@ package errors
 import "net/http"
 
 const (
-	CreateAssistantInvalidRequestCode                 ErrorCode = 1001001
-	CreateAssistantUnauthenticatedCode                ErrorCode = 1001002
-	CreateAssistantMissingAuthScopeCode               ErrorCode = 1001003
-	CreateAssistantMissingNameCode                    ErrorCode = 1001004
-	CreateAssistantMissingProviderCode                ErrorCode = 1001005
-	CreateAssistantInvalidProviderCode                ErrorCode = 1001006
-	CreateAssistantMissingModelProviderNameCode       ErrorCode = 1001007
-	CreateAssistantMissingAgentKitURLCode             ErrorCode = 1001008
-	CreateAssistantMissingWebsocketURLCode            ErrorCode = 1001009
-	CreateAssistantInvalidSourceIdentifierCode        ErrorCode = 1001010
-	CreateAssistantCreateAssistantCode                ErrorCode = 1001011
-	CreateAssistantInvalidProviderTemplateCode        ErrorCode = 1001012
-	CreateAssistantCreateProviderModelCode            ErrorCode = 1001013
-	CreateAssistantAttachProviderModelCode            ErrorCode = 1001014
-	CreateAssistantCreateProviderAgentkitCode         ErrorCode = 1001015
-	CreateAssistantAttachProviderAgentkitCode         ErrorCode = 1001016
-	CreateAssistantCreateProviderWebsocketCode        ErrorCode = 1001017
-	CreateAssistantAttachProviderWebsocketCode        ErrorCode = 1001018
-	CreateAssistantInvalidKnowledgeIDCode             ErrorCode = 1001019
-	CreateAssistantInvalidRerankerModelProviderIDCode ErrorCode = 1001020
-	CreateAssistantCreateToolsCode                    ErrorCode = 1001021
-	CreateAssistantCreateKnowledgeCode                ErrorCode = 1001022
-	CreateAssistantCreateTagsCode                     ErrorCode = 1001023
+	CreateAssistantInvalidRequestCode                     ErrorCode = 1001001
+	CreateAssistantUnauthenticatedCode                    ErrorCode = 1001002
+	CreateAssistantMissingAuthScopeCode                   ErrorCode = 1001003
+	CreateAssistantMissingNameCode                        ErrorCode = 1001004
+	CreateAssistantMissingProviderCode                    ErrorCode = 1001005
+	CreateAssistantInvalidProviderCode                    ErrorCode = 1001006
+	CreateAssistantMissingModelProviderNameCode           ErrorCode = 1001007
+	CreateAssistantMissingAgentKitURLCode                 ErrorCode = 1001008
+	CreateAssistantMissingWebsocketURLCode                ErrorCode = 1001009
+	CreateAssistantInvalidSourceIdentifierCode            ErrorCode = 1001010
+	CreateAssistantCreateAssistantCode                    ErrorCode = 1001011
+	CreateAssistantInvalidProviderTemplateCode            ErrorCode = 1001012
+	CreateAssistantCreateProviderModelCode                ErrorCode = 1001013
+	CreateAssistantAttachProviderModelCode                ErrorCode = 1001014
+	CreateAssistantCreateProviderAgentkitCode             ErrorCode = 1001015
+	CreateAssistantAttachProviderAgentkitCode             ErrorCode = 1001016
+	CreateAssistantCreateProviderWebsocketCode            ErrorCode = 1001017
+	CreateAssistantAttachProviderWebsocketCode            ErrorCode = 1001018
+	CreateAssistantInvalidKnowledgeIDCode                 ErrorCode = 1001019
+	CreateAssistantInvalidRerankerModelProviderIDCode     ErrorCode = 1001020
+	CreateAssistantCreateToolsCode                        ErrorCode = 1001021
+	CreateAssistantCreateKnowledgeCode                    ErrorCode = 1001022
+	CreateAssistantCreateTagsCode                         ErrorCode = 1001023
+	CreateAssistantInvalidAgentKitCertificateCode         ErrorCode = 1001024
+	CreateAssistantInvalidAgentKitTransportCode           ErrorCode = 1001025
+	CreateAssistantInvalidAgentKitTLSVerificationCode     ErrorCode = 1001026
+	CreateAssistantInvalidAgentKitConnectTimeoutCode      ErrorCode = 1001027
+	CreateAssistantInvalidAgentKitKeepaliveTimeCode       ErrorCode = 1001028
+	CreateAssistantInvalidAgentKitKeepaliveTimeoutCode    ErrorCode = 1001029
+	CreateAssistantInvalidAgentKitMaxRecvMessageBytesCode ErrorCode = 1001030
+	CreateAssistantInvalidAgentKitMaxSendMessageBytesCode ErrorCode = 1001031
 )
 
 var (
@@ -171,5 +179,53 @@ var (
 		Code:           CreateAssistantCreateTagsCode,
 		Error:          "unable to create assistant tags",
 		ErrorMessage:   "Unable to create assistant tags, please try again.",
+	}
+	CreateAssistantInvalidAgentKitCertificate = PlatformError{
+		HTTPStatusCode: http.StatusBadRequest,
+		Code:           CreateAssistantInvalidAgentKitCertificateCode,
+		Error:          "invalid agentkit certificate parameter",
+		ErrorMessage:   "certificate must be a CA PEM. Use transportSecurity and tlsVerification for transport options.",
+	}
+	CreateAssistantInvalidAgentKitTransport = PlatformError{
+		HTTPStatusCode: http.StatusBadRequest,
+		Code:           CreateAssistantInvalidAgentKitTransportCode,
+		Error:          "invalid agentkit transport_security parameter",
+		ErrorMessage:   "transportSecurity must be TLS or PLAINTEXT.",
+	}
+	CreateAssistantInvalidAgentKitTLSVerification = PlatformError{
+		HTTPStatusCode: http.StatusBadRequest,
+		Code:           CreateAssistantInvalidAgentKitTLSVerificationCode,
+		Error:          "invalid agentkit tls_verification parameter",
+		ErrorMessage:   "tlsVerification must be VERIFY or SKIP_VERIFY.",
+	}
+	CreateAssistantInvalidAgentKitConnectTimeout = PlatformError{
+		HTTPStatusCode: http.StatusBadRequest,
+		Code:           CreateAssistantInvalidAgentKitConnectTimeoutCode,
+		Error:          "invalid agentkit connect_timeout_ms parameter",
+		ErrorMessage:   "connectTimeoutMs must be between 1 and 300000.",
+	}
+	CreateAssistantInvalidAgentKitKeepaliveTime = PlatformError{
+		HTTPStatusCode: http.StatusBadRequest,
+		Code:           CreateAssistantInvalidAgentKitKeepaliveTimeCode,
+		Error:          "invalid agentkit keepalive_time_ms parameter",
+		ErrorMessage:   "keepaliveTimeMs must be between 10000 and 3600000.",
+	}
+	CreateAssistantInvalidAgentKitKeepaliveTimeout = PlatformError{
+		HTTPStatusCode: http.StatusBadRequest,
+		Code:           CreateAssistantInvalidAgentKitKeepaliveTimeoutCode,
+		Error:          "invalid agentkit keepalive_timeout_ms parameter",
+		ErrorMessage:   "keepaliveTimeoutMs must be between 1000 and 300000.",
+	}
+	CreateAssistantInvalidAgentKitMaxRecvMessageBytes = PlatformError{
+		HTTPStatusCode: http.StatusBadRequest,
+		Code:           CreateAssistantInvalidAgentKitMaxRecvMessageBytesCode,
+		Error:          "invalid agentkit max_recv_message_bytes parameter",
+		ErrorMessage:   "maxRecvMessageBytes must be between 1024 and 104857600.",
+	}
+	CreateAssistantInvalidAgentKitMaxSendMessageBytes = PlatformError{
+		HTTPStatusCode: http.StatusBadRequest,
+		Code:           CreateAssistantInvalidAgentKitMaxSendMessageBytesCode,
+		Error:          "invalid agentkit max_send_message_bytes parameter",
+		ErrorMessage:   "maxSendMessageBytes must be between 1024 and 104857600.",
 	}
 )
