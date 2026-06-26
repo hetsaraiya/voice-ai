@@ -3390,6 +3390,12 @@
   .grid-cols-\[16rem_minmax\(0\,1fr\)\] {
     grid-template-columns: 16rem minmax(0,1fr);
   }
+  .grid-cols-\[112px_minmax\(0\,1fr\)_auto\] {
+    grid-template-columns: 112px minmax(0,1fr) auto;
+  }
+  .grid-cols-\[150px_minmax\(0\,1fr\)_auto\] {
+    grid-template-columns: 150px minmax(0,1fr) auto;
+  }
   .grid-cols-\[360px_120px_120px_minmax\(420px\,1fr\)\] {
     grid-template-columns: 360px 120px 120px minmax(420px,1fr);
   }

@@ -20,7 +20,6 @@ type inboundInviteIdentity struct {
 
 type inboundResolvedConfig struct {
 	config          *Config
-	extra           map[string]interface{}
 	auth            types.SimplePrinciple
 	assistant       *internal_assistant_entity.Assistant
 	vaultCredential *protos.VaultCredential

@@ -65,9 +65,9 @@ func TestInboundCall_InvalidIdentityRejectsWithoutSession(t *testing.T) {
 
 func TestInboundCall_ConfigRejectDoesNotCreateSession(t *testing.T) {
 	server := newServerForCommandTests(t)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Reject(403, "forbidden"), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		return &SIPError{Code: 403, Message: "forbidden", Err: ErrAuthRequired}
+	}})
 	request := newInboundInviteRequest("inbound-config-reject")
 	transaction := newTestServerTx()
 
@@ -79,11 +79,11 @@ func TestInboundCall_ConfigRejectDoesNotCreateSession(t *testing.T) {
 	assert.False(t, exists)
 }
 
-func TestInboundCall_ConfigResolverErrorRejectsWithoutSession(t *testing.T) {
+func TestInboundCall_MiddlewareErrorRejectsWithoutSession(t *testing.T) {
 	server := newServerForCommandTests(t)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return nil, errors.New("resolver unavailable")
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		return errors.New("resolver unavailable")
+	}})
 	request := newInboundInviteRequest("inbound-config-error")
 	transaction := newTestServerTx()
 
@@ -100,9 +100,10 @@ func TestInboundCall_InvalidSessionConfigRejectsWithoutSession(t *testing.T) {
 	invalidConfig := bridgeTestConfig()
 	invalidConfig.RTPPortRangeStart = 20000
 	invalidConfig.RTPPortRangeEnd = 10000
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(invalidConfig), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = invalidConfig
+		return nil
+	}})
 	request := newInboundInviteRequest("inbound-session-config-invalid")
 	transaction := newTestServerTx()
 
@@ -274,9 +275,10 @@ func TestInboundCall_RTPHandlerCreationFailureEndsLifecycle(t *testing.T) {
 	server.newRTPHandler = func(context.Context, *RTPConfig) (*RTPHandler, error) {
 		return nil, errors.New("rtp bind failed")
 	}
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	request := newInboundInviteRequest("inbound-rtp-handler-failed")
 	transaction := newActiveTestServerTx()
 
@@ -290,9 +292,10 @@ func TestInboundCall_RTPHandlerCreationFailureEndsLifecycle(t *testing.T) {
 
 func TestInboundCall_DialogSetupFailureDoesNotSendManualFinalResponse(t *testing.T) {
 	server := newServerForCommandTests(t)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	request := newInboundInviteRequest("inbound-dialog-create-failed")
 	transaction := newTestServerTx()
 
@@ -305,9 +308,10 @@ func TestInboundCall_DialogSetupFailureDoesNotSendManualFinalResponse(t *testing
 
 func TestInboundCall_TryingResponseFailureEndsLifecycle(t *testing.T) {
 	server := newServerForCommandTests(t)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	request := newInboundInviteRequest("inbound-trying-failed")
 	transaction := newFailingStatusServerTx(100)
 
@@ -322,9 +326,10 @@ func TestInboundCall_TryingResponseFailureEndsLifecycle(t *testing.T) {
 
 func TestInboundCall_RingingResponseFailureEndsLifecycle(t *testing.T) {
 	server := newServerForCommandTests(t)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	request := newInboundInviteRequest("inbound-ringing-failed")
 	transaction := newFailingStatusServerTx(180)
 
@@ -340,14 +345,15 @@ func TestInboundCall_RingingResponseFailureEndsLifecycle(t *testing.T) {
 
 func TestInboundCall_CancelBeforeSessionCreationStopsSetup(t *testing.T) {
 	server := newServerForCommandTests(t)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
 		cancelRequest := newSIPRequest(sip.CANCEL, "inbound-cancel-before-session")
 		cancelTransaction := newTestServerTx()
 		server.handleCancel(cancelRequest, cancelTransaction)
 		require.NotEmpty(t, cancelTransaction.responses)
 		assert.Equal(t, 200, cancelTransaction.lastStatus())
-		return Allow(bridgeTestConfig()), nil
-	})
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	request := newInboundInviteRequest("inbound-cancel-before-session")
 	transaction := newActiveTestServerTx()
 
@@ -364,9 +370,10 @@ func TestInboundCall_ApplicationReadyBeforeAnswerAndMediaStart(t *testing.T) {
 	server := newServerForCommandTests(t)
 	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
 	server.newRTPHandler = inboundNoopRTPHandler(server)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	phaseOrder := make([]string, 0, 2)
 	transaction := newActiveAckableTestServerTx()
 	server.SetOnApplicationReady(func(session *Session, _, _ string) error {
@@ -398,9 +405,10 @@ func TestInboundCall_ProvisionalResponsesBeforeAnswer(t *testing.T) {
 	server := newServerForCommandTests(t)
 	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
 	server.newRTPHandler = inboundNoopRTPHandler(server)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	transaction := newActiveAckableTestServerTx()
 	request := newInboundInviteRequest("inbound-provisional-order")
 	transaction.PushACK(newACKRequest("inbound-provisional-order"))
@@ -417,9 +425,10 @@ func TestInboundCall_StartsRTPAfterACK(t *testing.T) {
 	server := newServerForCommandTests(t)
 	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
 	server.newRTPHandler = inboundNoopRTPHandler(server)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	transaction := newActiveAckableTestServerTx()
 	request := newInboundInviteRequest("inbound-rtp-before-ack")
 	done := make(chan struct{})
@@ -451,9 +460,10 @@ func TestInboundCall_RetransmitsRingingUntilAnswer(t *testing.T) {
 	server.inboundRingingInterval = 5 * time.Millisecond
 	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
 	server.newRTPHandler = inboundNoopRTPHandler(server)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	applicationReady := make(chan struct{})
 	server.SetOnApplicationReady(func(_ *Session, _, _ string) error {
 		<-applicationReady
@@ -490,9 +500,10 @@ func TestInboundCall_WaitsForApplicationReadyBeforeAnswer(t *testing.T) {
 	server := newServerForCommandTests(t)
 	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
 	server.newRTPHandler = inboundNoopRTPHandler(server)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	applicationReady := make(chan struct{})
 	server.SetOnApplicationReady(func(_ *Session, _, _ string) error {
 		<-applicationReady
@@ -530,9 +541,10 @@ func TestInboundCall_MinRingPolicyDelaysAnswer(t *testing.T) {
 	config := bridgeTestConfig()
 	config.InboundAnswerMode = InboundAnswerModeAfterMinRingDuration
 	config.InboundMinRingDuration = minRingDuration
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(config), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = config
+		return nil
+	}})
 	transaction := newActiveAckableTestServerTx()
 	request := newInboundInviteRequest("inbound-min-ring")
 	transaction.PushACK(newACKRequest("inbound-min-ring"))
@@ -548,9 +560,10 @@ func TestInboundCall_MinRingConfigRequiresDuration(t *testing.T) {
 	server := newServerForCommandTests(t)
 	config := bridgeTestConfig()
 	config.InboundAnswerMode = InboundAnswerModeAfterMinRingDuration
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(config), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = config
+		return nil
+	}})
 	transaction := newTestServerTx()
 	request := newInboundInviteRequest("inbound-min-ring-requires-duration")
 
@@ -569,9 +582,10 @@ func TestInboundCall_AnswersAfterApplicationReadyWithoutAssistantAudio(t *testin
 	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
 	server.newRTPHandler = inboundNoopRTPHandler(server)
 	config := bridgeTestConfig()
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(config), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = config
+		return nil
+	}})
 	applicationReadyCalled := false
 	server.SetOnApplicationReady(func(_ *Session, _, _ string) error {
 		applicationReadyCalled = true
@@ -603,9 +617,10 @@ func TestInboundCall_UDPFinalResponseRetransmitsUntilACKTimeout(t *testing.T) {
 	server.inboundFinalResponseRetryMax = 5 * time.Millisecond
 	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
 	server.newRTPHandler = inboundNoopRTPHandler(server)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	transaction := newActiveAckableTestServerTx()
 	request := newInboundInviteRequest("inbound-200-retry")
 
@@ -626,9 +641,10 @@ func TestInboundCall_RecordsInboundLatencyMetrics(t *testing.T) {
 	server := newServerForCommandTests(t)
 	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
 	server.newRTPHandler = inboundNoopRTPHandler(server)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	transaction := newActiveAckableTestServerTx()
 	request := newInboundInviteRequest("inbound-latency-metrics")
 	transaction.PushACK(newACKRequest("inbound-latency-metrics"))
@@ -648,9 +664,10 @@ func TestInboundCall_ApplicationReadinessFailureRejectsBeforeAnswer(t *testing.T
 	server := newServerForCommandTests(t)
 	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
 	server.newRTPHandler = inboundNoopRTPHandler(server)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	server.SetOnApplicationReady(func(_ *Session, _, _ string) error {
 		return errors.New("assistant not ready")
 	})
@@ -677,9 +694,10 @@ func TestInboundCall_ACKTimeoutCleansPreparedApplication(t *testing.T) {
 	server.inboundACKTimeout = time.Millisecond
 	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
 	server.newRTPHandler = inboundNoopRTPHandler(server)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	cleanupCount := 0
 	server.SetOnApplicationReady(func(_ *Session, _, _ string) error {
 		return nil
@@ -707,9 +725,10 @@ func TestInboundCall_CancelWhileWaitingForACKDoesNotSend487After200(t *testing.T
 	server := newServerForCommandTests(t)
 	server.rtpAllocator = &testRTPAllocator{nextPort: 19000}
 	server.newRTPHandler = inboundNoopRTPHandler(server)
-	server.SetConfigResolver(func(_ *SIPRequestContext) (*InviteResult, error) {
-		return Allow(bridgeTestConfig()), nil
-	})
+	server.SetMiddlewares([]Middleware{func(ctx *SIPRequestContext) error {
+		ctx.Config = bridgeTestConfig()
+		return nil
+	}})
 	request := newInboundInviteRequest("inbound-cancel-waiting-ack")
 	transaction := newActiveAckableTestServerTx()
 	done := make(chan struct{})

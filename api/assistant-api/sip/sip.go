@@ -9,16 +9,14 @@ package assistant_sip
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/rapidaai/api/assistant-api/config"
 	callcontext "github.com/rapidaai/api/assistant-api/internal/callcontext"
-	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_services "github.com/rapidaai/api/assistant-api/internal/services"
 	internal_assistant_service "github.com/rapidaai/api/assistant-api/internal/services/assistant"
 	sip_infra "github.com/rapidaai/api/assistant-api/sip/infra"
+	sip_middleware "github.com/rapidaai/api/assistant-api/sip/middleware"
 	sip_pipeline "github.com/rapidaai/api/assistant-api/sip/pipeline"
 	sip_registration "github.com/rapidaai/api/assistant-api/sip/registration"
 	web_client "github.com/rapidaai/pkg/clients/web"
@@ -26,10 +24,6 @@ import (
 	"github.com/rapidaai/pkg/connectors"
 	"github.com/rapidaai/pkg/storages"
 	storage_files "github.com/rapidaai/pkg/storages/file-storage"
-	"github.com/rapidaai/pkg/types"
-	type_enums "github.com/rapidaai/pkg/types/enums"
-	"github.com/rapidaai/pkg/utils"
-	"github.com/rapidaai/protos"
 )
 
 // SIPEngine manages a multi-tenant SIP server. Config is resolved per-call
@@ -100,27 +94,17 @@ func (m *SIPEngine) listenConfig() *sip_infra.ListenConfig {
 	case "tls":
 		transportType = sip_infra.TransportTLS
 	}
-	lc := &sip_infra.ListenConfig{
+	return &sip_infra.ListenConfig{
 		Address:                 m.cfg.SIPConfig.Server,
 		ExternalIP:              m.cfg.SIPConfig.ExternalIP,
 		AllowLoopbackExternalIP: m.cfg.SIPConfig.AllowLoopbackExternalIP,
 		Port:                    m.cfg.SIPConfig.Port,
 		Transport:               transportType,
 	}
-	m.logger.Infow("SIP ListenConfig from app config",
-		"address", lc.Address,
-		"external_ip", lc.ExternalIP,
-		"port", lc.Port,
-		"transport", lc.Transport,
-		"raw_sip_config_external_ip", m.cfg.SIPConfig.ExternalIP,
-		"raw_sip_config_server", m.cfg.SIPConfig.Server)
-	return lc
 }
 
 // Connect initializes the SIP server. The middleware chain resolves the
-// assistant from the DID in the To-URI:
-//
-//	routingMiddleware (DID lookup) -> assistantMiddleware -> vaultConfigResolver
+// assistant from the SIP route user in the To-URI:
 func (m *SIPEngine) Connect(ctx context.Context) error {
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	server, err := sip_infra.NewServer(m.ctx, &sip_infra.ServerConfig{
@@ -135,10 +119,19 @@ func (m *SIPEngine) Connect(ctx context.Context) error {
 	}
 	server.SetMiddlewares(
 		[]sip_infra.Middleware{
-			m.routingMiddleware,   // Resolve assistant by DID
-			m.assistantMiddleware, // Load assistant entity
+			sip_middleware.NewRouteMiddleware(
+				sip_middleware.WithContext(m.ctx),
+				sip_middleware.WithLogger(m.logger),
+				sip_middleware.WithPostgres(m.postgres),
+				sip_middleware.WithAssistantService(m.assistantService),
+			),
+			sip_middleware.NewVaultMiddleware(
+				sip_middleware.WithContext(m.ctx),
+				sip_middleware.WithLogger(m.logger),
+				sip_middleware.WithVaultClient(m.vaultClient),
+				sip_middleware.WithApplySIPConfigDefaults(m.applySIPConfigDefaults),
+			),
 		},
-		m.vaultConfigResolver, // Fetch SIP config from vault
 	)
 	server.SetOnApplicationReady(m.onApplicationReady)
 	server.SetOnApplicationCleanup(m.onApplicationCleanup)
@@ -229,81 +222,6 @@ func (m *SIPEngine) GetServer() *sip_infra.Server {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.server
-}
-
-// assistantMiddleware loads the assistant entity and verifies project-level access.
-func (m *SIPEngine) assistantMiddleware(ctx *sip_infra.SIPRequestContext, next func() (*sip_infra.InviteResult, error)) (*sip_infra.InviteResult, error) {
-	authVal, _ := ctx.Get("auth")
-	auth, _ := authVal.(types.SimplePrinciple)
-	if auth == nil {
-		return sip_infra.Reject(401, "Authentication required"), nil
-	}
-
-	if ctx.AssistantID == "" {
-		return sip_infra.Reject(404, "Invalid SIP URI format, expected: sip:{assistantID}:{apiKey}@host"), nil
-	}
-	assistantID, err := strconv.ParseUint(ctx.AssistantID, 10, 64)
-	if err != nil {
-		m.logger.Warnw("SIP: invalid assistant ID", "call_id", ctx.CallID, "method", ctx.Method, "assistant_id", ctx.AssistantID)
-		return sip_infra.Reject(404, "Invalid assistant ID format"), nil
-	}
-
-	assistant, err := m.assistantService.Get(m.ctx, auth, assistantID, utils.GetVersionDefinition("latest"),
-		&internal_services.GetAssistantOption{InjectPhoneDeployment: true})
-	if err != nil {
-		m.logger.Error("SIP: assistant not found", "call_id", ctx.CallID, "method", ctx.Method, "assistant_id", assistantID, "error", err)
-		return sip_infra.Reject(404, "Assistant not found"), nil
-	}
-
-	if !m.hasAccessToAssistant(auth, assistant) {
-		return sip_infra.Reject(403, "API key does not have access to this assistant"), nil
-	}
-
-	ctx.Set("assistant", assistant)
-	return next()
-}
-
-// vaultConfigResolver is the terminal middleware handler. It fetches provider
-// config from vault and returns the InviteResult with resolved metadata.
-func (m *SIPEngine) vaultConfigResolver(ctx *sip_infra.SIPRequestContext) (*sip_infra.InviteResult, error) {
-	authVal, _ := ctx.Get("auth")
-	auth, _ := authVal.(types.SimplePrinciple)
-	assistantVal, _ := ctx.Get("assistant")
-	assistant, _ := assistantVal.(*internal_assistant_entity.Assistant)
-
-	if auth == nil || assistant == nil {
-		return sip_infra.Reject(500, "Middleware chain incomplete"), nil
-	}
-
-	sipConfig, vaultCred, err := m.fetchSIPConfigAndVaultCredential(auth, assistant)
-	if err != nil {
-		m.logger.Error("SIP: failed to resolve config", "call_id", ctx.CallID, "method", ctx.Method, "error", err)
-		return sip_infra.Reject(500, "Failed to resolve SIP configuration"), nil
-	}
-
-	var orgID uint64
-	if auth.GetCurrentOrganizationId() != nil {
-		orgID = *auth.GetCurrentOrganizationId()
-	}
-	m.logger.Infow("SIP request authenticated",
-		"call_id", ctx.CallID,
-		"method", ctx.Method,
-		"assistant_id", assistant.Id,
-		"org_id", orgID)
-
-	return sip_infra.AllowWithExtra(sipConfig, map[string]interface{}{
-		"auth":             auth,
-		"assistant":        assistant,
-		"sip_config":       sipConfig,
-		"vault_credential": vaultCred,
-	}), nil
-}
-
-func (m *SIPEngine) hasAccessToAssistant(auth types.SimplePrinciple, assistant *internal_assistant_entity.Assistant) bool {
-	if auth.GetCurrentProjectId() == nil || assistant.ProjectId == 0 {
-		return false
-	}
-	return *auth.GetCurrentProjectId() == assistant.ProjectId
 }
 
 func (m *SIPEngine) onApplicationReady(session *sip_infra.Session, fromURI, toURI string) error {
@@ -499,96 +417,4 @@ func (m *SIPEngine) Stop() {
 func (m *SIPEngine) Disconnect(ctx context.Context) error {
 	m.Stop()
 	return nil
-}
-
-func (m *SIPEngine) fetchSIPConfigAndVaultCredential(auth types.SimplePrinciple, assistant *internal_assistant_entity.Assistant) (*sip_infra.Config, *protos.VaultCredential, error) {
-	if assistant.AssistantPhoneDeployment == nil {
-		return nil, nil, fmt.Errorf("assistant has no phone deployment configured")
-	}
-
-	opts := assistant.AssistantPhoneDeployment.GetOptions()
-	credentialID, err := opts.GetUint64("rapida.credential_id")
-	if err != nil {
-		return nil, nil, fmt.Errorf("no credential_id in phone deployment: %w", err)
-	}
-
-	vaultCred, err := m.vaultClient.GetCredential(m.ctx, auth, credentialID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to fetch vault credential %d: %w", credentialID, err)
-	}
-
-	sipConfig, err := sip_infra.ParseConfigFromVault(vaultCred)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse SIP config from vault: %w", err)
-	}
-
-	// Set CallerID to the assistant's DID from the phone deployment.
-	// This is used as the From URI user in outbound INVITEs.
-	if did, err := opts.GetString("phone"); err == nil && did != "" {
-		sipConfig.CallerID = strings.TrimPrefix(did, "+")
-	}
-
-	m.applySIPConfigDefaults(sipConfig)
-
-	return sipConfig, vaultCred, nil
-}
-
-// routingMiddleware resolves the assistant for an inbound INVITE by looking up
-// the DID from the To-URI (or From-URI fallback) against phone deployments.
-func (m *SIPEngine) routingMiddleware(ctx *sip_infra.SIPRequestContext, next func() (*sip_infra.InviteResult, error)) (*sip_infra.InviteResult, error) {
-	did := sip_infra.ExtractDIDFromURI(ctx.ToURI)
-	if did == "" {
-		did = sip_infra.ExtractDIDFromURI(ctx.FromURI)
-	}
-	if did == "" {
-		return sip_infra.Reject(404, "No DID found in SIP URI"), nil
-	}
-
-	assistantID, auth, err := m.resolveAssistantByDID(did)
-	if err != nil {
-		m.logger.Warnw("SIP: DID lookup failed",
-			"call_id", ctx.CallID,
-			"did", did,
-			"error", err)
-		return sip_infra.Reject(404, "No assistant found for this number"), nil
-	}
-
-	ctx.AssistantID = strconv.FormatUint(assistantID, 10)
-	ctx.Set("auth", auth)
-
-	m.logger.Infow("SIP: Routed by DID",
-		"call_id", ctx.CallID,
-		"did", did,
-		"assistant_id", assistantID)
-
-	return next()
-}
-
-// resolveAssistantByDID looks up which assistant owns the given DID (phone number)
-// using a single joined query across assistants, phone deployments, and telephony options.
-func (m *SIPEngine) resolveAssistantByDID(did string) (uint64, types.SimplePrinciple, error) {
-	db := m.postgres.DB(m.ctx)
-	type didLookupResult struct {
-		AssistantID    uint64
-		ProjectID      uint64
-		OrganizationID uint64
-	}
-	var result didLookupResult
-	tx := db.Model(&internal_assistant_entity.Assistant{}).
-		Select("assistants.id AS assistant_id, assistants.project_id, assistants.organization_id").
-		Joins("JOIN assistant_phone_deployments apd ON apd.assistant_id = assistants.id").
-		Joins("JOIN assistant_deployment_telephony_options o ON o.assistant_deployment_telephony_id = apd.id").
-		Where("apd.telephony_provider = ? AND apd.status = ?", "sip", type_enums.RECORD_ACTIVE).
-		Where("o.key = ?", "phone").
-		Where("o.value IN ?", []string{did, strings.TrimPrefix(did, "+")}).
-		First(&result)
-	if tx.Error != nil {
-		return 0, nil, fmt.Errorf("no SIP phone deployment found for DID %s: %w", did, tx.Error)
-	}
-
-	projectScope := &types.ProjectScope{
-		ProjectId:      &result.ProjectID,
-		OrganizationId: &result.OrganizationID,
-	}
-	return result.AssistantID, projectScope, nil
 }

@@ -25,11 +25,19 @@ export function AssistantPhoneCallDeploymentDialog(
   props: AssistantPhoneCallDeploymentDialogProps,
 ) {
   const [selectedTab, setSelectedTab] = useState(0);
-  const providerName = props.deployment?.getPhoneprovidername()?.toLowerCase() || '';
+  const providerName =
+    props.deployment?.getPhoneprovidername()?.toLowerCase() || '';
   const assistantId = props.deployment?.getAssistantid();
   const mediaHost = CONFIG.connection.media;
   const sipHost = CONFIG.connection.sip;
   const socketHost = CONFIG.connection.socket;
+  const phoneOptions = props.deployment?.getPhoneoptionsList() || [];
+  const sipDid =
+    phoneOptions.find(option => option.getKey() === 'phone')?.getValue() || '';
+  const sipInboundEnabled =
+    phoneOptions
+      .find(option => option.getKey() === 'rapida.sip_inbound')
+      ?.getValue() === 'true';
 
   const webhookUrl = `${mediaHost}/v1/talk/${providerName || '<provider>'}/call/${assistantId}?x-api-key={{PROJECT_CRDENTIAL_KEY}}`;
   const eventUrl = `${mediaHost}/v1/talk/${providerName || '<provider>'}/event/${assistantId}?x-api-key={{PROJECT_CRDENTIAL_KEY}}`;
@@ -58,6 +66,8 @@ export function AssistantPhoneCallDeploymentDialog(
               <SipIntegrationInstructions
                 sipHost={sipHost}
                 assistantId={assistantId}
+                did={sipDid}
+                inboundRegistrationEnabled={sipInboundEnabled}
               />
             )}
             {providerName === 'asterisk' && (
@@ -71,9 +81,8 @@ export function AssistantPhoneCallDeploymentDialog(
               <>
                 <CodeRow label="Inbound webhook url" value={webhookUrl}>
                   <InputHelper>
-                    You can add additional agent arguments as query
-                    parameters — e.g.{' '}
-                    <code className="text-red-600">`?name=your-name`</code>
+                    You can add additional agent arguments as query parameters —
+                    e.g. <code className="text-red-600">`?name=your-name`</code>
                   </InputHelper>
                 </CodeRow>
                 <CodeRow
@@ -130,7 +139,9 @@ const TelephonyConfig: FC<{ deployment: AssistantPhoneDeployment }> = ({
         ))
       ) : (
         <div className="px-4 py-3">
-          <YellowNoticeBlock>No telephony options configured.</YellowNoticeBlock>
+          <YellowNoticeBlock>
+            No telephony options configured.
+          </YellowNoticeBlock>
         </div>
       )}
     </>
@@ -181,6 +192,27 @@ const CodeBlock: FC<{ label: string; code: string; helper?: ReactNode }> = ({
   </div>
 );
 
+const SipRouteRow: FC<{
+  route: string;
+  uri: string;
+  description: string;
+}> = ({ route, uri, description }) => (
+  <div className="grid grid-cols-[150px_minmax(0,1fr)_auto] gap-2 px-4 py-3 items-start">
+    <span className="font-mono text-xs text-gray-700 dark:text-gray-300 pt-2">
+      {route}
+    </span>
+    <div className="min-w-0 space-y-1">
+      <code className="block dark:bg-gray-950 bg-gray-100 px-3 py-2 font-mono text-xs break-all">
+        {uri}
+      </code>
+      <InputHelper>{description}</InputHelper>
+    </div>
+    <CopyButton className="h-7 w-7 shrink-0 border border-gray-200 dark:border-gray-800">
+      {uri}
+    </CopyButton>
+  </div>
+);
+
 /* -------------------------------------------------------------------------- */
 /*  SIP Provider Integration Instructions                                      */
 /* -------------------------------------------------------------------------- */
@@ -188,29 +220,49 @@ const CodeBlock: FC<{ label: string; code: string; helper?: ReactNode }> = ({
 const SipIntegrationInstructions: FC<{
   sipHost?: string;
   assistantId: string;
-}> = ({ sipHost, assistantId }) => {
-  const sipEndpoint = `sip:${sipHost}`;
-  const sipUri = `sip:${assistantId || '{ASSISTANT_ID}'}:{{PROJECT_CREDENTIAL_KEY}}@${sipHost}`;
+  did?: string;
+  inboundRegistrationEnabled?: boolean;
+}> = ({ sipHost, assistantId, did, inboundRegistrationEnabled }) => {
+  const routeHost = sipHost || 'rapida.example.com:5090';
+  const sipEndpoint = `sip:${routeHost}`;
+  const sipPort = routeHost.includes(':')
+    ? routeHost.split(':').pop() || '5060'
+    : '5060';
+  const assistantRoute = `sip:agent-${assistantId || '{ASSISTANT_ID}'}@${routeHost}`;
+  const didRoute = `sip:did-${did || '{DID}'}@${routeHost}`;
+  const rawDidRoute = `sip:${did || '{DID}'}@${routeHost}`;
 
   return (
     <>
-      <CodeRow label="SIP Server Endpoint" value={sipEndpoint}>
+      <CodeRow
+        label={
+          inboundRegistrationEnabled ? 'Default SIP DNS' : 'SIP Server Endpoint'
+        }
+        value={inboundRegistrationEnabled ? routeHost : sipEndpoint}
+      >
         <InputHelper>
-          Point your SIP trunk / PBX outbound proxy to this address. Rapida
-          accepts SIP INVITE and establishes an RTP media session directly.
+          {inboundRegistrationEnabled
+            ? 'Inbound registration is enabled. Use this DNS as the default Rapida SIP target.'
+            : 'Point your SIP trunk / PBX outbound proxy to this address. Rapida accepts SIP INVITE and establishes an RTP media session directly.'}
         </InputHelper>
       </CodeRow>
 
-      <CodeRow label="SIP URI (Authentication)" value={sipUri}>
-        <InputHelper>
-          Replace{' '}
-          <code className="text-red-600">
-            {'{{'}PROJECT_CREDENTIAL_KEY{'}}'}
-          </code>{' '}
-          with your project API key. Format:{' '}
-          <code className="text-red-600">sip:assistantID:apiKey@host</code>
-        </InputHelper>
-      </CodeRow>
+      <SectionHeader label="Inbound SIP Routes" />
+      <SipRouteRow
+        route="agent-{assistantID}"
+        uri={assistantRoute}
+        description="Route by numeric assistant ID."
+      />
+      <SipRouteRow
+        route="did-{did}"
+        uri={didRoute}
+        description="Route by active SIP phone deployment phone value."
+      />
+      <SipRouteRow
+        route="{did}"
+        uri={rawDidRoute}
+        description="Same DID lookup without the did- prefix."
+      />
 
       <SectionHeader label="SIP Configuration" />
       <Row label="Transport">
@@ -220,7 +272,7 @@ const SipIntegrationInstructions: FC<{
       </Row>
       <Row label="Port">
         <span className="text-sm font-mono text-gray-900 dark:text-gray-100">
-          5060
+          {sipPort}
         </span>
       </Row>
       <Row label="Codec">
@@ -228,9 +280,9 @@ const SipIntegrationInstructions: FC<{
           G.711 μ-law / A-law + DTMF
         </span>
       </Row>
-      <Row label="Authentication">
+      <Row label="Routing">
         <span className="text-sm text-gray-900 dark:text-gray-100 text-right">
-          URI-based (assistantID:apiKey)
+          {'Route user: agent-{assistantID}, did-{did}, or raw DID'}
         </span>
       </Row>
       <Row label="Media">
@@ -244,7 +296,7 @@ const SipIntegrationInstructions: FC<{
         code={`<extension name="rapida-ai">
   <condition field="destination_number" expression="^(\\d+)$">
     <action application="bridge"
-            data="sofia/external/${sipUri}"/>
+            data="sofia/external/sip:did-+\${destination_number}@${routeHost}"/>
   </condition>
 </extension>`}
       />
@@ -256,22 +308,15 @@ const SipIntegrationInstructions: FC<{
 type = endpoint
 transport = transport-udp
 context = from-rapida
-aors = rapida-trunk
-outbound_auth = rapida-trunk-auth
+aors = rapida-trunk-aor
 
-[rapida-trunk-auth]
-type = auth
-auth_type = userpass
-username = ${assistantId || '{ASSISTANT_ID}'}
-password = <YOUR_API_KEY>
-
-[rapida-trunk]
+[rapida-trunk-aor]
 type = aor
-contact = sip:${sipHost}:5060
+contact = ${sipEndpoint}
 
 ; extensions.conf
 [rapida-outbound]
-exten => _X.,1,Dial(PJSIP/\${EXTEN}@rapida-trunk)`}
+exten => _X.,1,Dial(PJSIP/did-+\${EXTEN}@rapida-trunk)`}
       />
     </>
   );

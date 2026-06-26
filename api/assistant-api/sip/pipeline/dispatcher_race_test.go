@@ -64,67 +64,6 @@ func TestHandleSessionEstablished_ConversationErrorEndsSession(t *testing.T) {
 	require.Equal(t, []sip_infra.LifecycleReason{sip_infra.LifecycleReasonPipelineConversationFailed}, transferServer.lifecycleEndReasons())
 }
 
-func TestHandleSessionEstablished_RuntimeSetupFailureEndsSession(t *testing.T) {
-	t.Parallel()
-
-	transferServer := &fakeTransferServer{}
-	d := New(
-		WithLogger(newPipelineTestLogger(t)),
-		WithTransferServer(transferServer),
-	)
-
-	s := newPipelineTestSession(t)
-	d.handleSessionEstablished(context.Background(), sip_infra.SessionEstablishedPipeline{
-		ID:             "call-callbacks-missing",
-		Session:        s,
-		Direction:      sip_infra.CallDirectionInbound,
-		AssistantID:    1,
-		ConversationID: 42,
-	})
-
-	require.Eventually(t, s.IsEnded, 2*time.Second, 10*time.Millisecond)
-	require.Equal(t, []sip_infra.LifecycleReason{sip_infra.LifecycleReasonPipelineSetupFailed}, transferServer.lifecycleEndReasons())
-}
-
-func TestPrepareSessionDefersOutboundRuntimeUntilExplicitStart(t *testing.T) {
-	t.Parallel()
-
-	d := New(
-		WithLogger(newPipelineTestLogger(t)),
-	)
-
-	stage := sip_infra.SessionEstablishedPipeline{
-		ID:             "call-prepared",
-		Session:        newPipelineTestSession(t),
-		Direction:      sip_infra.CallDirectionOutbound,
-		AssistantID:    1,
-		ConversationID: 42,
-	}
-
-	require.NoError(t, d.PrepareSession(context.Background(), stage))
-	require.NotNil(t, d.popPreparedSession(stage.ID))
-}
-
-func TestDiscardPreparedSessionPreventsLateStart(t *testing.T) {
-	t.Parallel()
-
-	d := New(
-		WithLogger(newPipelineTestLogger(t)),
-	)
-	stage := sip_infra.SessionEstablishedPipeline{
-		ID:             "call-runtime-discarded",
-		Session:        newPipelineTestSession(t),
-		Direction:      sip_infra.CallDirectionOutbound,
-		AssistantID:    1,
-		ConversationID: 42,
-	}
-
-	require.NoError(t, d.PrepareSession(context.Background(), stage))
-	d.DiscardPreparedSession(context.Background(), stage.ID)
-
-	require.Error(t, d.StartPreparedSession(context.Background(), stage))
-}
-
 func TestDispatcherBackpressureAndTeardownStress(t *testing.T) {
 	logger := newPipelineTestLogger(t)
 

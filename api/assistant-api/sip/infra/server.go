@@ -29,12 +29,47 @@ func (s *Server) Stop() {
 	s.inner.Stop()
 }
 
-func (s *Server) SetConfigResolver(resolver ConfigResolver) {
-	s.inner.SetConfigResolver(adaptConfigResolver(resolver))
-}
-
-func (s *Server) SetMiddlewares(middlewares []Middleware, final ConfigResolver) {
-	s.SetConfigResolver(MiddlewareChain(middlewares, final))
+func (s *Server) SetMiddlewares(middlewares []Middleware) {
+	coreMiddlewares := make([]internal_core.Middleware, 0, len(middlewares))
+	for _, middleware := range middlewares {
+		if middleware == nil {
+			continue
+		}
+		current := middleware
+		coreMiddlewares = append(coreMiddlewares, func(ctx *internal_core.SIPRequestContext) error {
+			var config *Config
+			if ctx.Config != nil {
+				converted := configFromCore(ctx.Config)
+				config = &converted
+			}
+			infraCtx := &SIPRequestContext{
+				Method:          ctx.Method,
+				CallID:          ctx.CallID,
+				FromURI:         ctx.FromURI,
+				ToURI:           ctx.ToURI,
+				SDPInfo:         sdpInfoFromCore(ctx.SDPInfo),
+				APIKey:          ctx.APIKey,
+				AssistantID:     ctx.AssistantID,
+				Auth:            ctx.Auth,
+				Assistant:       ctx.Assistant,
+				VaultCredential: ctx.VaultCredential,
+				Config:          config,
+			}
+			err := current(infraCtx)
+			ctx.APIKey = infraCtx.APIKey
+			ctx.AssistantID = infraCtx.AssistantID
+			ctx.Auth = infraCtx.Auth
+			ctx.Assistant = infraCtx.Assistant
+			ctx.VaultCredential = infraCtx.VaultCredential
+			if infraCtx.Config != nil {
+				ctx.Config = infraCtx.Config.toCore()
+			} else {
+				ctx.Config = nil
+			}
+			return err
+		})
+	}
+	s.inner.SetMiddlewares(coreMiddlewares)
 }
 
 func (s *Server) IsRunning() bool {
@@ -139,46 +174,4 @@ func (s *Server) SetOnError(fn func(session *Session, err error)) {
 
 func (s *Server) HealthSnapshot() ServerHealthSnapshot {
 	return serverHealthSnapshotFromCore(s.inner.HealthSnapshot())
-}
-
-func adaptConfigResolver(resolver ConfigResolver) internal_core.ConfigResolver {
-	if resolver == nil {
-		return nil
-	}
-	return func(ctx *internal_core.SIPRequestContext) (*internal_core.InviteResult, error) {
-		result, err := resolver(sipRequestContextFromCore(ctx))
-		if err != nil {
-			return nil, err
-		}
-		return inviteResultToCore(result), nil
-	}
-}
-
-func sipRequestContextFromCore(ctx *internal_core.SIPRequestContext) *SIPRequestContext {
-	if ctx == nil {
-		return nil
-	}
-	return &SIPRequestContext{
-		Method:      ctx.Method,
-		CallID:      ctx.CallID,
-		FromURI:     ctx.FromURI,
-		ToURI:       ctx.ToURI,
-		SDPInfo:     sdpInfoFromCore(ctx.SDPInfo),
-		APIKey:      ctx.APIKey,
-		AssistantID: ctx.AssistantID,
-		Extra:       cloneMap(ctx.Extra),
-	}
-}
-
-func inviteResultToCore(result *InviteResult) *internal_core.InviteResult {
-	if result == nil {
-		return nil
-	}
-	return &internal_core.InviteResult{
-		Config:      result.Config.toCore(),
-		ShouldAllow: result.ShouldAllow,
-		RejectCode:  result.RejectCode,
-		RejectMsg:   result.RejectMsg,
-		Extra:       cloneMap(result.Extra),
-	}
 }

@@ -15,10 +15,7 @@ import (
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
-	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_inbound "github.com/rapidaai/api/assistant-api/sip/internal/inbound"
-	"github.com/rapidaai/pkg/types"
-	"github.com/rapidaai/protos"
 )
 
 type inboundCall struct {
@@ -317,10 +314,10 @@ func (inboundCall *inboundCall) resolveConfig() error {
 	server := inboundCall.server
 
 	server.mu.RLock()
-	resolver := server.configResolver
+	middlewares := append([]Middleware(nil), server.middlewares...)
 	server.mu.RUnlock()
-	if resolver == nil {
-		return fmt.Errorf("no SIP config resolver configured")
+	if len(middlewares) == 0 {
+		return fmt.Errorf("no SIP middleware configured")
 	}
 
 	requestContext := &SIPRequestContext{
@@ -330,48 +327,39 @@ func (inboundCall *inboundCall) resolveConfig() error {
 		ToURI:   inboundCall.identity.toURI,
 		SDPInfo: inboundCall.mediaOffer.sdpInfo,
 	}
-	inviteResult, err := resolver(requestContext)
-	if err != nil {
-		return fmt.Errorf("SIP authentication/config resolution failed: %w", err)
-	}
-	if inviteResult == nil {
-		return fmt.Errorf("SIP config resolver returned nil result")
+	for _, middleware := range middlewares {
+		if err := middleware(requestContext); err != nil {
+			var sipErr *SIPError
+			if errors.As(err, &sipErr) && sipErr.Code > 0 {
+				server.logger.Warnw("Call rejected by SIP middleware chain",
+					"call_id", inboundCall.identity.callID,
+					"status_code", sipErr.Code,
+					"reason", sipErr.Message)
+				rejectErr := fmt.Errorf("%w: %s", ErrAuthRequired, sipErr.Message)
+				return newInboundSetupError(sipErr.Code, internal_inbound.FailureAuth, LifecycleReasonInboundInviteFailed, rejectErr)
+			}
+			return fmt.Errorf("SIP middleware failed: %w", err)
+		}
 	}
 	if server.isInviteCancelled(inboundCall.identity.callID) {
 		return ErrInboundInviteCancelled
 	}
-	if !inviteResult.ShouldAllow {
-		rejectCode := inviteResult.RejectCode
-		if rejectCode <= 0 {
-			rejectCode = 403
-		}
-		server.logger.Warnw("Call rejected by authentication chain",
-			"call_id", inboundCall.identity.callID,
-			"status_code", rejectCode,
-			"reason", inviteResult.RejectMsg)
-		err := fmt.Errorf("%w: rejected by authentication chain", ErrAuthRequired)
-		return newInboundSetupError(rejectCode, internal_inbound.FailureAuth, LifecycleReasonInboundInviteFailed, err)
-	}
-	if inviteResult.Config == nil {
+	if requestContext.Config == nil {
 		return fmt.Errorf("no SIP config resolved for inbound call")
 	}
 	inboundCall.recordPhase(InboundSetupPhaseAuthenticated, LifecycleReasonInboundAuthenticated)
 
 	resolvedConfig := inboundResolvedConfig{
-		config: inviteResult.Config,
-		extra:  inviteResult.Extra,
+		config: requestContext.Config,
 	}
-	if resolvedConfig.extra == nil {
-		resolvedConfig.extra = map[string]interface{}{}
+	if requestContext.Auth != nil {
+		resolvedConfig.auth = requestContext.Auth
 	}
-	if auth, ok := resolvedConfig.extra["auth"].(types.SimplePrinciple); ok {
-		resolvedConfig.auth = auth
+	if requestContext.VaultCredential != nil {
+		resolvedConfig.vaultCredential = requestContext.VaultCredential
 	}
-	if vaultCredential, ok := resolvedConfig.extra["vault_credential"].(*protos.VaultCredential); ok {
-		resolvedConfig.vaultCredential = vaultCredential
-	}
-	if assistant, ok := resolvedConfig.extra["assistant"].(*internal_assistant_entity.Assistant); ok {
-		resolvedConfig.assistant = assistant
+	if requestContext.Assistant != nil {
+		resolvedConfig.assistant = requestContext.Assistant
 	}
 	if resolvedConfig.assistant != nil {
 		inboundCall.recordPhase(InboundSetupPhaseRouted, LifecycleReasonInboundRouted)
@@ -404,9 +392,6 @@ func (inboundCall *inboundCall) createSession() error {
 		return fmt.Errorf("failed to create inbound session: %w", err)
 	}
 
-	for key, value := range inboundCall.resolvedConfig.extra {
-		session.SetMetadata(key, value)
-	}
 	if inboundCall.setupPhase != "" {
 		session.SetInboundSetupPhase(inboundCall.setupPhase)
 	}

@@ -15,8 +15,11 @@ import (
 
 	"github.com/emiago/sipgo"
 	"github.com/emiago/sipgo/sip"
+	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_outbound "github.com/rapidaai/api/assistant-api/sip/internal/outbound"
 	"github.com/rapidaai/pkg/commons"
+	"github.com/rapidaai/pkg/types"
+	"github.com/rapidaai/protos"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -34,9 +37,8 @@ const (
 //
 // Middleware enriches this context as it flows through the chain:
 //
-//	routingMiddleware   → resolves assistant by DID lookup, sets Extra["auth"]
-//	assistantMiddleware → loads assistant entity, sets Extra["assistant"]
-//	vaultConfigResolver → fetches SIP config from vault, sets Extra["sip_config"]
+//	RouteMiddleware → resolves assistant route, sets Auth and Assistant
+//	VaultMiddleware → fetches SIP config from vault, sets VaultCredential
 type SIPRequestContext struct {
 	Method  string // SIP method (INVITE, REGISTER, BYE, etc.)
 	CallID  string
@@ -44,101 +46,26 @@ type SIPRequestContext struct {
 	ToURI   string
 	SDPInfo *SDPMediaInfo
 
-	// Authentication fields extracted from URI userinfo
-	// Parsed from: sip:{assistantID}:{apiKey}@host
-	APIKey      string // API key (password part of userinfo)
-	AssistantID string // Assistant ID (user part of userinfo)
+	// Route/auth fields resolved by middleware.
+	APIKey      string
+	AssistantID string
 
-	// Extra holds middleware-resolved state (auth principal, assistant entity, etc.).
-	// Using interface{} keeps the infra package decoupled from business types.
-	// Keys: "auth" → types.SimplePrinciple, "assistant" → *Assistant, "sip_config" → *Config
-	Extra map[string]interface{}
+	Auth            types.SimplePrinciple
+	Assistant       *internal_assistant_entity.Assistant
+	VaultCredential *protos.VaultCredential
+	Config          *Config
 }
 
-// Set stores a value in the middleware context.
-func (c *SIPRequestContext) Set(key string, value interface{}) {
-	if c.Extra == nil {
-		c.Extra = make(map[string]interface{})
-	}
-	c.Extra[key] = value
-}
-
-// Get retrieves a value from the middleware context.
-func (c *SIPRequestContext) Get(key string) (interface{}, bool) {
-	if c.Extra == nil {
-		return nil, false
-	}
-	v, ok := c.Extra[key]
-	return v, ok
-}
-
-// InviteResult contains the resolved configuration for handling the call
-type InviteResult struct {
-	Config      *Config // Tenant-specific config (RTP ports, credentials, etc.)
-	ShouldAllow bool    // Whether to accept the call
-	RejectCode  int     // SIP response code if rejecting (e.g., 403, 404)
-	RejectMsg   string  // Optional message for rejection
-
-	// Extra carries middleware-resolved state (auth, assistant, etc.) back to the
-	// infra layer so it can be stored as session metadata. The server copies this
-	// map onto the Session after creation, making it available to onInvite handlers.
-	Extra map[string]interface{}
-}
-
-// Reject creates an InviteResult that rejects the call with the given SIP code and message.
-func Reject(code int, msg string) *InviteResult {
-	return &InviteResult{ShouldAllow: false, RejectCode: code, RejectMsg: msg}
-}
-
-// Allow creates an InviteResult that accepts the call with the resolved config.
-func Allow(config *Config) *InviteResult {
-	return &InviteResult{ShouldAllow: true, Config: config}
-}
-
-// AllowWithExtra creates an InviteResult that accepts the call and carries
-// resolved state (auth principal, assistant entity, etc.) so the infra layer
-// can propagate it to session metadata.
-func AllowWithExtra(config *Config, extra map[string]interface{}) *InviteResult {
-	return &InviteResult{ShouldAllow: true, Config: config, Extra: extra}
-}
-
-// ConfigResolver resolves tenant-specific config from a SIP request.
-// Returns an InviteResult with Config (for RTP/SIP setup) and optionally Extra
-// (auth, assistant, etc. to be stored as session metadata).
-type ConfigResolver func(ctx *SIPRequestContext) (*InviteResult, error)
-
-// Middleware processes a SIP request context and either enriches it or rejects it.
-// Each middleware receives the context, enriches it (e.g., sets auth, assistant),
-// and calls next() to continue the chain. Returning an InviteResult with
-// ShouldAllow=false short-circuits the chain.
+// Middleware processes a SIP request context and mutates it in place.
+// Returning nil continues to the next middleware by index. Returning an error
+// stops execution.
 //
 // Example chain for INVITE:
 //
-//	routingMiddleware → assistantMiddleware → vaultConfigResolver
-type Middleware func(ctx *SIPRequestContext, next func() (*InviteResult, error)) (*InviteResult, error)
+//	RouteMiddleware → VaultMiddleware
+type Middleware func(ctx *SIPRequestContext) error
 
-// MiddlewareChain composes a slice of Middleware into a single ConfigResolver.
-// The chain executes each middleware in order; the final handler is called
-// if all middlewares pass. This replaces the monolithic ConfigResolver approach
-// with composable, testable middleware functions.
-func MiddlewareChain(middlewares []Middleware, final ConfigResolver) ConfigResolver {
-	return func(ctx *SIPRequestContext) (*InviteResult, error) {
-		var run func(i int) (*InviteResult, error)
-		run = func(i int) (*InviteResult, error) {
-			if i >= len(middlewares) {
-				return final(ctx)
-			}
-			return middlewares[i](ctx, func() (*InviteResult, error) {
-				return run(i + 1)
-			})
-		}
-		return run(0)
-	}
-}
-
-// Server wraps sipgo for handling SIP signaling
-// Uses native SIP signaling (UDP/TCP/TLS) - no WebSocket needed
-// Multi-tenant: Config is resolved per-call via ConfigResolver callback
+// Server wraps sipgo for handling SIP signaling.
 type Server struct {
 	mu     sync.RWMutex
 	logger commons.Logger
@@ -177,8 +104,8 @@ type Server struct {
 	inboundFinalResponseRetryMax     time.Duration
 	inboundRingingInterval           time.Duration
 
-	// Multi-tenant config resolver - called for each incoming INVITE
-	configResolver ConfigResolver
+	// Middlewares are called by index for each incoming INVITE.
+	middlewares []Middleware
 
 	// Event callbacks
 	onApplicationReady   func(session *Session, fromURI, toURI string) error
@@ -243,8 +170,8 @@ func buildSIPContactHeader(config *ListenConfig) sip.ContactHeader {
 // ServerConfig holds configuration for creating a SIP server
 // Multi-tenant: Only holds shared listen config, tenant config resolved per-call
 type ServerConfig struct {
-	ListenConfig      *ListenConfig  // Shared server listen configuration
-	ConfigResolver    ConfigResolver // Resolves tenant-specific config per-call
+	ListenConfig      *ListenConfig // Shared server listen configuration
+	Middlewares       []Middleware  // Resolves tenant-specific config per-call
 	Logger            commons.Logger
 	RedisClient       *redis.Client // Redis client for distributed RTP port allocation
 	RTPPortRangeStart int           // Start of RTP port range (even, >= 1024)
@@ -278,7 +205,7 @@ func (c *ServerConfig) Validate() error {
 }
 
 // NewServer creates a new shared SIP server instance
-// Multi-tenant: Server listens on shared address, config resolved per-call via ConfigResolver
+// Multi-tenant: Server listens on shared address, config resolved per-call via middleware.
 func NewServer(ctx context.Context, cfg *ServerConfig) (*Server, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, NewSIPError("NewServer", "", "configuration validation failed", err)
@@ -367,7 +294,7 @@ func NewServer(ctx context.Context, cfg *ServerConfig) (*Server, error) {
 		newRTPHandler:                    NewRTPHandler,
 		dialogClientCache:                dialogClientCache,
 		dialogServerCache:                dialogServerCache,
-		configResolver:                   cfg.ConfigResolver,
+		middlewares:                      append([]Middleware(nil), cfg.Middlewares...),
 		sessions:                         make(map[string]*Session),
 		lifecycles:                       make(map[string]*CallLifecycle),
 		pendingInvites:                   make(map[string]*pendingInvite),
@@ -481,26 +408,17 @@ func (s *Server) Stop() {
 	s.logger.Infow("SIP server stopped", "sessions_ended", len(sessions))
 }
 
-// SetConfigResolver sets the callback for resolving tenant-specific config.
-// For middleware-based auth, use SetMiddlewares instead.
-func (s *Server) SetConfigResolver(resolver ConfigResolver) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.configResolver = resolver
-}
-
-// SetMiddlewares composes a middleware chain with a final handler and sets it
-// as the config resolver. This is the preferred way to set up authentication
-// for all SIP requests.
+// SetMiddlewares sets the ordered middleware list for all SIP requests.
 //
 // Example:
 //
 //	server.SetMiddlewares(
-//	    []Middleware{routingMiddleware, assistantMiddleware},
-//	    vaultConfigResolver,
+//	    []Middleware{RouteMiddleware, VaultMiddleware},
 //	)
-func (s *Server) SetMiddlewares(middlewares []Middleware, final ConfigResolver) {
-	s.SetConfigResolver(MiddlewareChain(middlewares, final))
+func (s *Server) SetMiddlewares(middlewares []Middleware) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.middlewares = append([]Middleware(nil), middlewares...)
 }
 
 // IsRunning returns true if the server is running

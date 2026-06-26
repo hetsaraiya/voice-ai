@@ -240,80 +240,39 @@ func TestListenConfigAndServerConfigConversions(t *testing.T) {
 	}
 }
 
-func TestSIPRequestContextMiddlewareAndInviteResultHelpers(t *testing.T) {
+func TestSIPRequestContextMiddleware(t *testing.T) {
 	requestContext := &SIPRequestContext{}
-	if _, ok := requestContext.Get("assistant"); ok {
-		t.Fatal("expected missing context value")
-	}
-	requestContext.Set("assistant", "assistant-1")
-	if got, ok := requestContext.Get("assistant"); !ok || got != "assistant-1" {
-		t.Fatalf("unexpected context value: value=%v ok=%v", got, ok)
-	}
 
 	var order []string
-	chain := MiddlewareChain([]Middleware{
-		func(ctx *SIPRequestContext, next func() (*InviteResult, error)) (*InviteResult, error) {
-			order = append(order, "first-before")
-			result, err := next()
-			order = append(order, "first-after")
-			return result, err
+	middlewares := []Middleware{
+		func(ctx *SIPRequestContext) error {
+			order = append(order, "first")
+			return nil
 		},
-		func(ctx *SIPRequestContext, next func() (*InviteResult, error)) (*InviteResult, error) {
-			order = append(order, "second-before")
-			result, err := next()
-			order = append(order, "second-after")
-			return result, err
+		func(ctx *SIPRequestContext) error {
+			order = append(order, "second")
+			return nil
 		},
-	}, func(ctx *SIPRequestContext) (*InviteResult, error) {
-		order = append(order, "final")
-		return AllowWithExtra(&Config{Server: "sip.example.com"}, map[string]interface{}{"route": "ok"}), nil
-	})
+		func(ctx *SIPRequestContext) error {
+			order = append(order, "final")
+			ctx.Config = &Config{Server: "sip.example.com"}
+			return nil
+		},
+	}
 
-	result, err := chain(requestContext)
-	if err != nil {
-		t.Fatalf("middleware chain returned error: %v", err)
+	for _, middleware := range middlewares {
+		if err := middleware(requestContext); err != nil {
+			t.Fatalf("middleware returned error: %v", err)
+		}
 	}
-	if result == nil || !result.ShouldAllow || result.Config.Server != "sip.example.com" {
-		t.Fatalf("unexpected middleware result: %#v", result)
+	if requestContext.Config == nil || requestContext.Config.Server != "sip.example.com" {
+		t.Fatalf("unexpected middleware context: %#v", requestContext)
 	}
-	expectedOrder := []string{"first-before", "second-before", "final", "second-after", "first-after"}
+	expectedOrder := []string{"first", "second", "final"}
 	for i := range expectedOrder {
 		if order[i] != expectedOrder[i] {
 			t.Fatalf("middleware order mismatch at %d: got %q want %q", i, order[i], expectedOrder[i])
 		}
-	}
-
-	if Reject(403, "forbidden").ShouldAllow {
-		t.Fatal("reject helper should not allow invite")
-	}
-	if !Allow(&Config{}).ShouldAllow {
-		t.Fatal("allow helper should allow invite")
-	}
-}
-
-func TestInviteResultAndRequestContextCoreConversionsCloneExtra(t *testing.T) {
-	extra := map[string]interface{}{"route": "assistant"}
-	result := AllowWithExtra(&Config{Server: "sip.example.com"}, extra)
-	coreResult := inviteResultToCore(result)
-	extra["route"] = "mutated"
-
-	if coreResult.Extra["route"] != "assistant" {
-		t.Fatalf("expected invite result extra to be cloned, got %#v", coreResult.Extra)
-	}
-
-	coreContext := &internal_core.SIPRequestContext{
-		Method:      "INVITE",
-		CallID:      "call-123",
-		FromURI:     "sip:from@example.com",
-		ToURI:       "sip:to@example.com",
-		AssistantID: "assistant-1",
-		Extra:       map[string]interface{}{"assistant": "assistant-1"},
-	}
-	infraContext := sipRequestContextFromCore(coreContext)
-	coreContext.Extra["assistant"] = "mutated"
-
-	if infraContext.Extra["assistant"] != "assistant-1" {
-		t.Fatalf("expected request context extra to be cloned, got %#v", infraContext.Extra)
 	}
 }
 

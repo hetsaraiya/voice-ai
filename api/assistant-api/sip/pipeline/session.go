@@ -101,8 +101,7 @@ func (d *Dispatcher) ensureCallContext(ctx context.Context, stage sip_infra.Sess
 		callContext.AssistantProviderId = assistant.AssistantProviderId
 	}
 	if _, err := d.callContextStore.Save(ctx, callContext); err != nil {
-		d.logger.Warnw("failed to persist inbound call context — continuing in-memory",
-			"call_id", callID, "error", err)
+		d.logger.Warnw("failed to persist inbound call context — continuing in-memory", "call_id", callID, "error", err)
 		return callContext, nil
 	}
 	if _, err := d.callContextStore.Claim(ctx, callContext.ContextID); err != nil {

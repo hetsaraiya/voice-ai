@@ -9,8 +9,11 @@ package sip_infra
 import (
 	"fmt"
 
+	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
 	internal_core "github.com/rapidaai/api/assistant-api/sip/internal/core"
 	"github.com/rapidaai/pkg/commons"
+	"github.com/rapidaai/pkg/types"
+	"github.com/rapidaai/protos"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -23,69 +26,20 @@ const (
 )
 
 type SIPRequestContext struct {
-	Method      string
-	CallID      string
-	FromURI     string
-	ToURI       string
-	SDPInfo     *SDPMediaInfo
-	APIKey      string
-	AssistantID string
-	Extra       map[string]interface{}
+	Method          string
+	CallID          string
+	FromURI         string
+	ToURI           string
+	APIKey          string
+	AssistantID     string
+	Auth            types.SimplePrinciple
+	SDPInfo         *SDPMediaInfo
+	Assistant       *internal_assistant_entity.Assistant
+	VaultCredential *protos.VaultCredential
+	Config          *Config
 }
 
-func (c *SIPRequestContext) Set(key string, value interface{}) {
-	if c.Extra == nil {
-		c.Extra = make(map[string]interface{})
-	}
-	c.Extra[key] = value
-}
-
-func (c *SIPRequestContext) Get(key string) (interface{}, bool) {
-	if c.Extra == nil {
-		return nil, false
-	}
-	v, ok := c.Extra[key]
-	return v, ok
-}
-
-type InviteResult struct {
-	Config      *Config
-	ShouldAllow bool
-	RejectCode  int
-	RejectMsg   string
-	Extra       map[string]interface{}
-}
-
-func Reject(code int, msg string) *InviteResult {
-	return &InviteResult{ShouldAllow: false, RejectCode: code, RejectMsg: msg}
-}
-
-func Allow(config *Config) *InviteResult {
-	return &InviteResult{ShouldAllow: true, Config: config}
-}
-
-func AllowWithExtra(config *Config, extra map[string]interface{}) *InviteResult {
-	return &InviteResult{ShouldAllow: true, Config: config, Extra: extra}
-}
-
-type ConfigResolver func(ctx *SIPRequestContext) (*InviteResult, error)
-
-type Middleware func(ctx *SIPRequestContext, next func() (*InviteResult, error)) (*InviteResult, error)
-
-func MiddlewareChain(middlewares []Middleware, final ConfigResolver) ConfigResolver {
-	return func(ctx *SIPRequestContext) (*InviteResult, error) {
-		var run func(i int) (*InviteResult, error)
-		run = func(i int) (*InviteResult, error) {
-			if i >= len(middlewares) {
-				return final(ctx)
-			}
-			return middlewares[i](ctx, func() (*InviteResult, error) {
-				return run(i + 1)
-			})
-		}
-		return run(0)
-	}
-}
+type Middleware func(ctx *SIPRequestContext) error
 
 type Server struct {
 	inner *internal_core.Server
@@ -151,7 +105,7 @@ func listenConfigFromCore(config *internal_core.ListenConfig) *ListenConfig {
 
 type ServerConfig struct {
 	ListenConfig      *ListenConfig
-	ConfigResolver    ConfigResolver
+	Middlewares       []Middleware
 	Logger            commons.Logger
 	RedisClient       *redis.Client
 	RTPPortRangeStart int
@@ -166,9 +120,45 @@ func (c *ServerConfig) toCore() *internal_core.ServerConfig {
 	if c == nil {
 		return nil
 	}
+	coreMiddlewares := make([]internal_core.Middleware, 0, len(c.Middlewares))
+	for _, middleware := range c.Middlewares {
+		current := middleware
+		coreMiddlewares = append(coreMiddlewares, func(ctx *internal_core.SIPRequestContext) error {
+			var config *Config
+			if ctx.Config != nil {
+				converted := configFromCore(ctx.Config)
+				config = &converted
+			}
+			infraCtx := &SIPRequestContext{
+				Method:          ctx.Method,
+				CallID:          ctx.CallID,
+				FromURI:         ctx.FromURI,
+				ToURI:           ctx.ToURI,
+				SDPInfo:         sdpInfoFromCore(ctx.SDPInfo),
+				APIKey:          ctx.APIKey,
+				AssistantID:     ctx.AssistantID,
+				Auth:            ctx.Auth,
+				Assistant:       ctx.Assistant,
+				VaultCredential: ctx.VaultCredential,
+				Config:          config,
+			}
+			err := current(infraCtx)
+			ctx.APIKey = infraCtx.APIKey
+			ctx.AssistantID = infraCtx.AssistantID
+			ctx.Auth = infraCtx.Auth
+			ctx.Assistant = infraCtx.Assistant
+			ctx.VaultCredential = infraCtx.VaultCredential
+			if infraCtx.Config != nil {
+				ctx.Config = infraCtx.Config.toCore()
+			} else {
+				ctx.Config = nil
+			}
+			return err
+		})
+	}
 	return &internal_core.ServerConfig{
 		ListenConfig:      c.ListenConfig.toCore(),
-		ConfigResolver:    adaptConfigResolver(c.ConfigResolver),
+		Middlewares:       coreMiddlewares,
 		Logger:            c.Logger,
 		RedisClient:       c.RedisClient,
 		RTPPortRangeStart: c.RTPPortRangeStart,

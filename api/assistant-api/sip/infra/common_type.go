@@ -9,7 +9,6 @@ package sip_infra
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	internal_core "github.com/rapidaai/api/assistant-api/sip/internal/core"
@@ -34,24 +33,7 @@ var (
 	ErrBridgeLifecycleRejected    = internal_core.ErrBridgeLifecycleRejected
 )
 
-type SIPError struct {
-	Op      string
-	CallID  string
-	Code    int
-	Message string
-	Err     error
-}
-
-func (e *SIPError) Error() string {
-	if e.CallID != "" {
-		return fmt.Sprintf("sip %s [call_id=%s]: %s: %v", e.Op, e.CallID, e.Message, e.Err)
-	}
-	return fmt.Sprintf("sip %s: %s: %v", e.Op, e.Message, e.Err)
-}
-
-func (e *SIPError) Unwrap() error {
-	return e.Err
-}
+type SIPError = internal_core.SIPError
 
 func NewSIPError(op, callID, message string, err error) *SIPError {
 	return &SIPError{Op: op, CallID: callID, Message: message, Err: err}

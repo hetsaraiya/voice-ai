@@ -105,8 +105,11 @@ func newFreeSWITCHHarness(t *testing.T, credentials sipCredentialConfig) *freeSW
 			Port:                    config.listenPort,
 			Transport:               sip_infra.TransportUDP,
 		},
-		ConfigResolver: func(_ *sip_infra.SIPRequestContext) (*sip_infra.InviteResult, error) {
-			return sip_infra.Allow(sipConfig), nil
+		Middlewares: []sip_infra.Middleware{
+			func(ctx *sip_infra.SIPRequestContext) error {
+				ctx.Config = sipConfig
+				return nil
+			},
 		},
 		Logger:            logger,
 		RedisClient:       redisClient,
