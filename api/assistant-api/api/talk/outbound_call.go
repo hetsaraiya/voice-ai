@@ -326,7 +326,6 @@ func (cApi *ConversationGrpcApi) CreateBulkPhoneCall(ctx context.Context, ir *pr
 		}
 
 		observer := cApi.Observability(ctx, auth, observability.WithGracePeriod())
-
 		result := cApi.channelPipeline.Run(ctx, channel_pipeline.OutboundRequestedPipeline{
 			ID:          fmt.Sprintf("%d", phoneCall.GetAssistant().GetAssistantId()),
 			Auth:        auth,

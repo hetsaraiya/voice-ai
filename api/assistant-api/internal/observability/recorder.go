@@ -30,7 +30,7 @@ const (
 	recorderReplayBufferSize               = 2048
 	collectorQueueSize                     = 2048
 	defaultCloseGracePeriod  time.Duration = 0
-	recorderCloseGracePeriod               = 5 * time.Second
+	recorderCloseGracePeriod               = 10 * time.Second
 )
 
 type recorder struct {

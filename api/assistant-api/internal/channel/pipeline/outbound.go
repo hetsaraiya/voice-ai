@@ -19,6 +19,7 @@ import (
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	type_enums "github.com/rapidaai/pkg/types/enums"
 	"github.com/rapidaai/pkg/utils"
+	"github.com/rapidaai/pkg/validator"
 	"github.com/rapidaai/protos"
 )
 
@@ -41,7 +42,7 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 		utils.GetVersionDefinition("latest"),
 		&internal_services.GetAssistantOption{InjectPhoneDeployment: true})
 	if err != nil {
-		_ = v.Observer.Record(ctx, observability.AssistantScope{AssistantID: v.AssistantID}, observability.RecordLog{
+		v.Observer.Record(ctx, observability.AssistantScope{AssistantID: v.AssistantID}, observability.RecordLog{
 			Level:   observability.LevelError,
 			Message: "Outbound call pipeline failed to load assistant",
 			Attributes: observability.Attributes{
@@ -63,7 +64,7 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 		return &PipelineResult{Error: fmt.Errorf("invalid assistant: %w", err)}
 	}
 	if assistant.AssistantPhoneDeployment == nil {
-		_ = v.Observer.Record(ctx,
+		v.Observer.Record(ctx,
 			observability.AssistantScope{AssistantID: v.AssistantID},
 			observability.RecordLog{
 				Level:   observability.LevelError,
@@ -73,34 +74,35 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 					"to":           v.ToPhone,
 					"from":         v.FromPhone,
 				},
-			}, observability.RecordWebhook{
+			},
+			observability.RecordWebhook{
 				Event: observability.CallFailed,
 				Payload: map[string]interface{}{
 					"to":        v.ToPhone,
 					"from":      v.FromPhone,
 					"stage":     "phone_deployment",
 					"direction": "outbound",
-					"error":     "phone deployment not enabled",
+					"error":     "Please check phone deployment not enabled",
 				},
 			})
 		return &PipelineResult{Error: fmt.Errorf("phone deployment not enabled")}
 	}
 
 	fromPhone := v.FromPhone
-	if fromPhone == "" {
+	if !validator.NotBlank(fromPhone) {
 		fn, err := assistant.AssistantPhoneDeployment.GetOptions().GetString("phone")
 		if err != nil {
-			_ = v.Observer.Record(ctx,
+			v.Observer.Record(ctx,
 				observability.AssistantScope{AssistantID: v.AssistantID},
 				observability.RecordLog{
 					Level:   observability.LevelError,
 					Message: "Outbound call pipeline failed to resolve from phone number",
 					Attributes: observability.Attributes{
 						"provider":     assistant.AssistantPhoneDeployment.TelephonyProvider,
-						"assistant_id": fmt.Sprintf("%d", assistant.Id),
 						"to":           v.ToPhone,
 						"from":         v.FromPhone,
 						"error":        err.Error(),
+						"assistant_id": fmt.Sprintf("%d", assistant.Id),
 					},
 				},
 				observability.RecordWebhook{
@@ -118,34 +120,36 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 		}
 		fromPhone = fn
 	}
-
 	conversation, err := d.conversationService.CreateConversation(ctx, v.Auth, v.ToPhone, assistant.Id, assistant.AssistantProviderId, type_enums.DIRECTION_OUTBOUND, utils.PhoneCall)
 	if err != nil {
-		_ = v.Observer.Record(ctx, observability.AssistantScope{AssistantID: v.AssistantID}, observability.RecordLog{
-			Level:   observability.LevelError,
-			Message: "Outbound call pipeline failed to create conversation",
-			Attributes: observability.Attributes{
-				"assistant_id": fmt.Sprintf("%d", assistant.Id),
-				"provider":     assistant.AssistantPhoneDeployment.TelephonyProvider,
-				"to":           v.ToPhone,
-				"from":         fromPhone,
-				"error":        err.Error(),
+		v.Observer.Record(ctx,
+			observability.AssistantScope{AssistantID: v.AssistantID},
+			observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "Outbound call pipeline failed to create conversation",
+				Attributes: observability.Attributes{
+					"assistant_id": fmt.Sprintf("%d", assistant.Id),
+					"provider":     assistant.AssistantPhoneDeployment.TelephonyProvider,
+					"to":           v.ToPhone,
+					"from":         fromPhone,
+					"error":        err.Error(),
+				},
 			},
-		}, observability.RecordWebhook{
-			Event: observability.CallFailed,
-			Payload: map[string]interface{}{
-				"provider":  assistant.AssistantPhoneDeployment.TelephonyProvider,
-				"to":        v.ToPhone,
-				"from":      fromPhone,
-				"stage":     "conversation_create",
-				"direction": "outbound",
-				"error":     err.Error(),
-			},
-		})
+			observability.RecordWebhook{
+				Event: observability.CallFailed,
+				Payload: map[string]interface{}{
+					"provider":  assistant.AssistantPhoneDeployment.TelephonyProvider,
+					"to":        v.ToPhone,
+					"from":      fromPhone,
+					"stage":     "conversation_create",
+					"direction": "outbound",
+					"error":     err.Error(),
+				},
+			})
 		return &PipelineResult{Error: fmt.Errorf("failed to create conversation: %w", err)}
 	}
 
-	_ = v.Observer.Record(ctx,
+	v.Observer.Record(ctx,
 		observability.ConversationScope{
 			AssistantScope: observability.AssistantScope{AssistantID: v.AssistantID},
 			ConversationID: conversation.Id,
@@ -174,12 +178,14 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 		for key, value := range v.Metadata {
 			conversationMetadata = append(conversationMetadata, &protos.Metadata{Key: key, Value: fmt.Sprintf("%v", value)})
 		}
-		_ = v.Observer.Record(ctx, observability.ConversationScope{
-			AssistantScope: observability.AssistantScope{AssistantID: v.AssistantID},
-			ConversationID: conversation.Id,
-		}, observability.RecordMetadata{
-			Metadata: conversationMetadata,
-		})
+		v.Observer.Record(ctx,
+			observability.ConversationScope{
+				AssistantScope: observability.AssistantScope{AssistantID: v.AssistantID},
+				ConversationID: conversation.Id,
+			},
+			observability.RecordMetadata{
+				Metadata: conversationMetadata,
+			})
 	}
 
 	//
@@ -192,7 +198,7 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 	}
 	contextID, err := d.inboundDispatcher.SaveCallContext(ctx, v.Auth, assistant, conversation.Id, callInfo, assistant.AssistantPhoneDeployment.TelephonyProvider)
 	if err != nil {
-		_ = v.Observer.Record(ctx,
+		v.Observer.Record(ctx,
 			observability.ConversationScope{
 				AssistantScope: observability.AssistantScope{AssistantID: v.AssistantID},
 				ConversationID: conversation.Id,
@@ -203,13 +209,14 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 				Attributes: observability.Attributes{
 					"provider":   assistant.AssistantPhoneDeployment.TelephonyProvider,
 					"to":         v.ToPhone,
-					"context_id": contextID,
 					"from":       fromPhone,
+					"context_id": contextID,
 					"error":      err.Error(),
 				},
 			},
 			observability.RecordWebhook{
-				Event: observability.CallFailed,
+				ContextID: contextID,
+				Event:     observability.CallFailed,
 				Payload: map[string]interface{}{
 					"provider":   assistant.AssistantPhoneDeployment.TelephonyProvider,
 					"to":         v.ToPhone,
@@ -222,7 +229,7 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 			})
 		return &PipelineResult{Error: fmt.Errorf("failed to save call context: %w", err)}
 	}
-	_ = v.Observer.Record(ctx,
+	v.Observer.Record(ctx,
 		observability.ConversationScope{
 			AssistantScope: observability.AssistantScope{AssistantID: v.AssistantID},
 			ConversationID: conversation.Id,
@@ -268,7 +275,7 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 
 	callInfo, err = d.outboundDispatcher.Dispatch(ctx, contextID)
 	if err != nil {
-		_ = v.Observer.Record(ctx,
+		v.Observer.Record(ctx,
 			observability.ConversationScope{
 				AssistantScope: observability.AssistantScope{AssistantID: v.AssistantID},
 				ConversationID: conversation.Id,
@@ -311,7 +318,7 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 		return &PipelineResult{ContextID: contextID, ConversationID: conversation.Id, Error: err}
 	}
 
-	_ = v.Observer.Record(ctx,
+	v.Observer.Record(ctx,
 		observability.ConversationScope{
 			AssistantScope: observability.AssistantScope{AssistantID: v.AssistantID},
 			ConversationID: conversation.Id,
@@ -327,7 +334,8 @@ func (d *Dispatcher) runOutbound(ctx context.Context, v OutboundRequestedPipelin
 				"status_event":      callInfo.StatusInfo.Event,
 				"provider_response": observability.AttributeValue(callInfo.StatusInfo.Payload),
 			},
-		}, observability.RecordWebhook{
+		},
+		observability.RecordWebhook{
 			Event:     observability.CallOutboundDispatched,
 			ContextID: contextID,
 			Payload: map[string]interface{}{

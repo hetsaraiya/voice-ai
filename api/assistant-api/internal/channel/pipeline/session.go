@@ -19,7 +19,7 @@ import (
 )
 
 // runSession handles telephony media setup and keeps the Talk lifecycle synchronous.
-func (d *Dispatcher) runSession(ctx context.Context, v SessionConnectedPipeline) *PipelineResult {
+func (d *Dispatcher) runSession(ctx context.Context, v SessionConnectedPipeline) (result *PipelineResult) {
 	startTime := time.Now()
 	contextID := v.ContextID
 	if contextID == "" {
@@ -83,105 +83,46 @@ func (d *Dispatcher) runSession(ctx context.Context, v SessionConnectedPipeline)
 				"call_id":    v.CallContext.ChannelUUID,
 			},
 		})
-	reason := "talk_completed"
-	status := "COMPLETE"
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				reason = fmt.Sprintf("panic: %v", r)
-				status = "FAILED"
-				v.Observer.Record(ctx,
-					observability.ConversationScope{
-						AssistantScope: observability.AssistantScope{AssistantID: v.CallContext.AssistantID},
-						ConversationID: v.CallContext.ConversationID,
-					},
-					observability.RecordLog{
-						Level:   observability.LevelError,
-						Message: "Pipeline talk panicked",
-						Attributes: observability.Attributes{
-							"context_id": contextID,
-							"provider":   v.CallContext.Provider,
-							"direction":  v.CallContext.Direction,
-							"panic":      fmt.Sprintf("%v", r),
-						},
-					})
-			}
-		}()
 
-		err := v.Talker.Talk(ctx, v.CallContext.ToAuth())
-		if err != nil {
-			reason = fmt.Sprintf("talk_error: %v", err)
-			status = "FAILED"
-			_ = v.Observer.Record(ctx,
+	// recovering from panic in case talker panic
+	defer func() {
+		if r := recover(); r != nil {
+			v.Observer.Record(ctx,
 				observability.ConversationScope{
 					AssistantScope: observability.AssistantScope{AssistantID: v.CallContext.AssistantID},
 					ConversationID: v.CallContext.ConversationID,
 				},
 				observability.RecordLog{
 					Level:   observability.LevelError,
-					Message: "Pipeline talk failed",
+					Message: "Error while starting session",
 					Attributes: observability.Attributes{
+						"context_id": contextID,
 						"provider":   v.CallContext.Provider,
 						"direction":  v.CallContext.Direction,
-						"error":      err.Error(),
-						"context_id": contextID,
+						"error":      fmt.Sprintf("%v", r),
 					},
 				})
+			result = &PipelineResult{ContextID: contextID, Error: fmt.Errorf("%v", r)}
 		}
 	}()
+	err := v.Talker.Talk(ctx, v.CallContext.ToAuth())
+	if err != nil {
+		v.Observer.Record(ctx,
+			observability.ConversationScope{
+				AssistantScope: observability.AssistantScope{AssistantID: v.CallContext.AssistantID},
+				ConversationID: v.CallContext.ConversationID,
+			},
+			observability.RecordLog{
+				Level:   observability.LevelError,
+				Message: "Pipeline talk failed",
+				Attributes: observability.Attributes{
+					"provider":   v.CallContext.Provider,
+					"direction":  v.CallContext.Direction,
+					"error":      err.Error(),
+					"context_id": contextID,
+				},
+			})
 
-	durationMs := time.Since(startTime).Milliseconds()
-	v.Observer.Record(ctx,
-		observability.ConversationScope{
-			AssistantScope: observability.AssistantScope{AssistantID: v.CallContext.AssistantID},
-			ConversationID: v.CallContext.ConversationID,
-		},
-		observability.RecordEvent{
-			Component: observability.ComponentCall,
-			Event:     observability.CallEnded,
-			Attributes: observability.Attributes{
-				"provider":    v.CallContext.Provider,
-				"to":          v.CallContext.CallerNumber,
-				"from":        v.CallContext.FromNumber,
-				"call_id":     v.CallContext.ChannelUUID,
-				"context_id":  contextID,
-				"direction":   v.CallContext.Direction,
-				"reason":      reason,
-				"status":      status,
-				"duration_ms": fmt.Sprintf("%d", durationMs),
-			},
-		},
-		observability.RecordWebhook{
-			Event:     observability.CallEnded,
-			ContextID: contextID,
-			Payload: map[string]interface{}{
-				"provider":    v.CallContext.Provider,
-				"to":          v.CallContext.CallerNumber,
-				"from":        v.CallContext.FromNumber,
-				"call_id":     v.CallContext.ChannelUUID,
-				"context_id":  contextID,
-				"direction":   v.CallContext.Direction,
-				"reason":      reason,
-				"status":      status,
-				"duration_ms": durationMs,
-			},
-		},
-		observability.RecordMetric{
-			Metrics: []*protos.Metric{
-				{
-					Name:        observability.MetricCallStatus,
-					Value:       status,
-					Description: reason,
-				},
-				{
-					Name:        observability.MetricCallDurationMs,
-					Value:       fmt.Sprintf("%d", durationMs),
-					Description: "Call duration in milliseconds",
-				},
-			},
-		},
-	)
-	if status == "FAILED" {
 		v.Observer.Record(ctx,
 			observability.ConversationScope{
 				AssistantScope: observability.AssistantScope{AssistantID: v.CallContext.AssistantID},
@@ -197,17 +138,62 @@ func (d *Dispatcher) runSession(ctx context.Context, v SessionConnectedPipeline)
 					"call_id":     v.CallContext.ChannelUUID,
 					"context_id":  contextID,
 					"direction":   v.CallContext.Direction,
-					"reason":      reason,
-					"status":      status,
-					"duration_ms": durationMs,
+					"error":       err.Error(),
+					"duration_ms": fmt.Sprintf("%d", time.Since(startTime).Milliseconds()),
 				},
 			})
-		return &PipelineResult{Error: fmt.Errorf("%s", reason)}
+		return &PipelineResult{ContextID: contextID, Error: err}
 	}
+	v.Observer.Record(ctx,
+		observability.ConversationScope{
+			AssistantScope: observability.AssistantScope{AssistantID: v.CallContext.AssistantID},
+			ConversationID: v.CallContext.ConversationID,
+		},
+		observability.RecordEvent{
+			Component: observability.ComponentCall,
+			Event:     observability.CallEnded,
+			Attributes: observability.Attributes{
+				"provider":    v.CallContext.Provider,
+				"to":          v.CallContext.CallerNumber,
+				"from":        v.CallContext.FromNumber,
+				"call_id":     v.CallContext.ChannelUUID,
+				"context_id":  contextID,
+				"direction":   v.CallContext.Direction,
+				"duration_ms": fmt.Sprintf("%d", time.Since(startTime).Milliseconds()),
+			},
+		},
+		observability.RecordWebhook{
+			Event:     observability.CallEnded,
+			ContextID: contextID,
+			Payload: map[string]interface{}{
+				"provider":    v.CallContext.Provider,
+				"to":          v.CallContext.CallerNumber,
+				"from":        v.CallContext.FromNumber,
+				"call_id":     v.CallContext.ChannelUUID,
+				"context_id":  contextID,
+				"direction":   v.CallContext.Direction,
+				"duration_ms": fmt.Sprintf("%d", time.Since(startTime).Milliseconds()),
+			},
+		},
+		observability.RecordMetric{
+			Metrics: []*protos.Metric{
+				{
+					Name:        observability.MetricCallStatus,
+					Value:       "COMPLETE",
+					Description: "Call talk return with success",
+				},
+				{
+					Name:        observability.MetricCallDurationMs,
+					Value:       fmt.Sprintf("%d", time.Since(startTime).Milliseconds()),
+					Description: "Call duration in milliseconds",
+				},
+			},
+		},
+	)
 	return &PipelineResult{
 		ContextID:      contextID,
 		ConversationID: v.CallContext.ConversationID,
 		Provider:       v.CallContext.Provider,
-		CallStatus:     status,
+		CallStatus:     "COMPLETE",
 	}
 }

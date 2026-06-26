@@ -2990,22 +2990,24 @@ func (h requestorDispatchHandler) HandleFinalizeConversation(ctx context.Context
 				"description": metric.GetDescription(),
 			})
 		}
-		if err := h.r.observabilityRecorder.Record(ctx, observability.ConversationScope{
-			AssistantScope: observability.AssistantScope{
-				AssistantID: h.r.Assistant().Id,
+		if err := h.r.observabilityRecorder.Record(ctx,
+			observability.ConversationScope{
+				AssistantScope: observability.AssistantScope{
+					AssistantID: h.r.Assistant().Id,
+				},
+				ConversationID: h.r.Conversation().Id,
 			},
-			ConversationID: h.r.Conversation().Id,
-		}, observability.RecordWebhook{
-			Event:     observability.ConversationCompleted,
-			ContextID: p.ContextID,
-			Payload: map[string]interface{}{
-				"reason":   "conversation_completed",
-				"status":   "completed",
-				"messages": messagesPayload,
-				"metadata": metadataPayload,
-				"metrics":  metricsPayload,
-			},
-		}); err != nil {
+			observability.RecordWebhook{
+				Event:     observability.ConversationCompleted,
+				ContextID: p.ContextID,
+				Payload: map[string]interface{}{
+					"reason":   "conversation_completed",
+					"status":   "completed",
+					"messages": messagesPayload,
+					"metadata": metadataPayload,
+					"metrics":  metricsPayload,
+				},
+			}); err != nil {
 			h.r.logger.Errorw("observability completed webhook failed to record", "error", err, "context_id", p.ContextID)
 		}
 	}
