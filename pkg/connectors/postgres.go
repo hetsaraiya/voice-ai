@@ -21,15 +21,6 @@ import (
 
 type postgresTxContextKey struct{}
 
-type SQLConnector interface {
-	Connector
-	Query(ctx context.Context, qry string, dest interface{}) error
-	DB(ctx context.Context) *gorm.DB
-}
-
-// PostgresConnector is an alias for SQLConnector for backward compatibility.
-type PostgresConnector = SQLConnector
-
 type postgresConnector struct {
 	logger commons.Logger
 	cfg    *configs.PostgresConfig

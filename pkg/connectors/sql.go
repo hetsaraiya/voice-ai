@@ -6,11 +6,24 @@
 package connectors
 
 import (
+	"context"
 	"fmt"
+
+	"gorm.io/gorm"
 
 	commons "github.com/rapidaai/pkg/commons"
 	configs "github.com/rapidaai/pkg/configs"
 )
+
+// SQLConnector is the shared database connector abstraction (Postgres, SQLite, etc.).
+type SQLConnector interface {
+	Connector
+	Query(ctx context.Context, qry string, dest interface{}) error
+	DB(ctx context.Context) *gorm.DB
+}
+
+// PostgresConnector is an alias for SQLConnector for backward compatibility.
+type PostgresConnector = SQLConnector
 
 func NewSQLConnector(config configs.SQLConfig, logger commons.Logger) (SQLConnector, error) {
 	if config == nil {

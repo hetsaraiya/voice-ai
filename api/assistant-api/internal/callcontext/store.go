@@ -18,7 +18,7 @@ import (
 	"github.com/rapidaai/pkg/validator"
 )
 
-// Store provides operations to save and retrieve call contexts from Postgres.
+// Store provides operations to save and retrieve call contexts from the SQL backend.
 //
 // Call contexts bridge the HTTP call-setup request and the media connection.
 // Save creates PENDING; Claim atomically marks the context consumed by the media
@@ -43,25 +43,25 @@ type CallStatusUpdate struct {
 	ProviderStatusCode int
 }
 
-type postgresStore struct {
-	postgres connectors.SQLConnector
-	logger   commons.Logger
+type sqlStore struct {
+	sql    connectors.SQLConnector
+	logger commons.Logger
 }
 
-func NewStore(postgres connectors.SQLConnector, logger commons.Logger) Store {
-	return &postgresStore{
-		postgres: postgres,
-		logger:   logger,
+func NewStore(sql connectors.SQLConnector, logger commons.Logger) Store {
+	return &sqlStore{
+		sql:    sql,
+		logger: logger,
 	}
 }
 
-func (s *postgresStore) Save(ctx context.Context, cc *CallContext) (string, error) {
+func (s *sqlStore) Save(ctx context.Context, cc *CallContext) (string, error) {
 	if cc.ContextID == "" {
 		cc.ContextID = uuid.New().String()
 	}
 	cc.Status = StatusPending
 
-	db := s.postgres.DB(ctx)
+	db := s.sql.DB(ctx)
 	if err := db.Create(cc).Error; err != nil {
 		return "", fmt.Errorf("failed to save call context %s: %w", cc.ContextID, err)
 	}
@@ -72,8 +72,8 @@ func (s *postgresStore) Save(ctx context.Context, cc *CallContext) (string, erro
 	return cc.ContextID, nil
 }
 
-func (s *postgresStore) Get(ctx context.Context, contextID string) (*CallContext, error) {
-	db := s.postgres.DB(ctx)
+func (s *sqlStore) Get(ctx context.Context, contextID string) (*CallContext, error) {
+	db := s.sql.DB(ctx)
 	var cc CallContext
 	if err := db.Where("context_id = ?", contextID).First(&cc).Error; err != nil {
 		return nil, fmt.Errorf("call context not found: %s: %w", contextID, err)
@@ -81,7 +81,7 @@ func (s *postgresStore) Get(ctx context.Context, contextID string) (*CallContext
 	return &cc, nil
 }
 
-func (s *postgresStore) GetByChannelUUID(ctx context.Context, provider string, assistantID uint64, channelUUID string) (*CallContext, error) {
+func (s *sqlStore) GetByChannelUUID(ctx context.Context, provider string, assistantID uint64, channelUUID string) (*CallContext, error) {
 	if !validator.NotBlank(provider) {
 		return nil, fmt.Errorf("provider is required to get call context by channel uuid")
 	}
@@ -92,7 +92,7 @@ func (s *postgresStore) GetByChannelUUID(ctx context.Context, provider string, a
 		return nil, fmt.Errorf("channel uuid is required to get call context")
 	}
 
-	db := s.postgres.DB(ctx)
+	db := s.sql.DB(ctx)
 	var cc CallContext
 	if err := db.
 		Where("provider = ? AND assistant_id = ? AND channel_uuid = ?", provider, assistantID, channelUUID).
@@ -104,8 +104,8 @@ func (s *postgresStore) GetByChannelUUID(ctx context.Context, provider string, a
 }
 
 // Claim atomically transitions PENDING → CLAIMED in a single query.
-func (s *postgresStore) Claim(ctx context.Context, contextID string) (*CallContext, error) {
-	db := s.postgres.DB(ctx)
+func (s *sqlStore) Claim(ctx context.Context, contextID string) (*CallContext, error) {
+	db := s.sql.DB(ctx)
 
 	var cc CallContext
 	result := db.Raw(`
@@ -129,8 +129,8 @@ func (s *postgresStore) Claim(ctx context.Context, contextID string) (*CallConte
 	return &cc, nil
 }
 
-func (s *postgresStore) UpdateField(ctx context.Context, contextID, field, value string) error {
-	db := s.postgres.DB(ctx)
+func (s *sqlStore) UpdateField(ctx context.Context, contextID, field, value string) error {
+	db := s.sql.DB(ctx)
 
 	allowed := map[string]bool{
 		"channel_uuid": true,
@@ -155,8 +155,8 @@ func (s *postgresStore) UpdateField(ctx context.Context, contextID, field, value
 	return nil
 }
 
-func (s *postgresStore) UpdateCallStatus(ctx context.Context, contextID string, status CallStatusUpdate) error {
-	db := s.postgres.DB(ctx)
+func (s *sqlStore) UpdateCallStatus(ctx context.Context, contextID string, status CallStatusUpdate) error {
+	db := s.sql.DB(ctx)
 	updates := map[string]interface{}{
 		"call_status":          status.CallStatus,
 		"call_error":           status.CallError,

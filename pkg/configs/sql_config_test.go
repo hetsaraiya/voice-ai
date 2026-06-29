@@ -1,6 +1,7 @@
 package configs
 
 import (
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -65,7 +66,7 @@ func TestResolveSQLConfig(t *testing.T) {
 	t.Run("missing", func(t *testing.T) {
 		v := viper.NewWithOptions(viper.KeyDelimiter("__"))
 		_, err := ResolveSQLConfig(v, validate, nil, nil)
-		if err != ErrNoSQLConfigConfigured {
+		if !errors.Is(err, ErrNoSQLConfigConfigured) {
 			t.Fatalf("ResolveSQLConfig() error = %v, want %v", err, ErrNoSQLConfigConfigured)
 		}
 	})
@@ -76,7 +77,7 @@ func TestResolveSQLConfig(t *testing.T) {
 		v.Set("SQLITE__PATH", "/tmp/rapida.db")
 
 		_, err := ResolveSQLConfig(v, validate, &PostgresConfig{}, &SQLiteConfig{})
-		if err != ErrMultipleSQLConfigsDetected {
+		if !errors.Is(err, ErrMultipleSQLConfigsDetected) {
 			t.Fatalf("ResolveSQLConfig() error = %v, want %v", err, ErrMultipleSQLConfigsDetected)
 		}
 	})
@@ -99,14 +100,14 @@ func TestSelectedSQLConfig(t *testing.T) {
 
 	t.Run("multiple", func(t *testing.T) {
 		_, err := SelectedSQLConfig(&PostgresConfig{DBName: "app"}, &SQLiteConfig{Path: "/tmp/rapida.db"})
-		if err != ErrMultipleSQLConfigsDetected {
+		if !errors.Is(err, ErrMultipleSQLConfigsDetected) {
 			t.Fatalf("SelectedSQLConfig() error = %v, want %v", err, ErrMultipleSQLConfigsDetected)
 		}
 	})
 
 	t.Run("none", func(t *testing.T) {
 		cfg, err := SelectedSQLConfig(nil, nil)
-		if err != ErrNoSQLConfigConfigured {
+		if !errors.Is(err, ErrNoSQLConfigConfigured) {
 			t.Fatalf("SelectedSQLConfig() error = %v, want %v", err, ErrNoSQLConfigConfigured)
 		}
 		if cfg != nil {

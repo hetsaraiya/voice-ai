@@ -6,6 +6,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"os"
 
@@ -40,9 +42,14 @@ func InitConfig() (*viper.Viper, error) {
 	}
 
 	if err := vConfig.ReadInConfig(); err != nil {
-		if !os.IsNotExist(err) {
-			log.Printf("Error while reading the config: %v", err)
+		var notFound viper.ConfigFileNotFoundError
+		if errors.As(err, &notFound) {
+			if path != "" {
+				return nil, fmt.Errorf("read config file from ENV_PATH: %w", err)
+			}
+			return vConfig, nil
 		}
+		return nil, fmt.Errorf("read config: %w", err)
 	}
 
 	return vConfig, nil
@@ -53,16 +60,13 @@ func GetApplicationConfig(v *viper.Viper) (*EndpointConfig, error) {
 	var config EndpointConfig
 	err := v.Unmarshal(&config)
 	if err != nil {
-		log.Printf("%+v\n", err)
-		return nil, err
+		return nil, fmt.Errorf("unmarshal application config: %w", err)
 	}
 
-	// valdating the app config
 	validate := validator.New()
 	sqlConfig, err := configs.ResolveSQLConfig(v, validate, config.PostgresConfig, config.SQLiteConfig)
 	if err != nil {
-		log.Printf("%+v\n", err)
-		return nil, err
+		return nil, fmt.Errorf("resolve SQL config: %w", err)
 	}
 	switch cfg := sqlConfig.(type) {
 	case *configs.PostgresConfig:
@@ -75,12 +79,15 @@ func GetApplicationConfig(v *viper.Viper) (*EndpointConfig, error) {
 
 	err = validate.Struct(&config)
 	if err != nil {
-		log.Printf("%+v\n", err)
-		return nil, err
+		return nil, fmt.Errorf("validate application config: %w", err)
 	}
 	return &config, nil
 }
 
 func (c *EndpointConfig) SQLConfig() (configs.SQLConfig, error) {
-	return configs.SelectedSQLConfig(c.PostgresConfig, c.SQLiteConfig)
+	cfg, err := configs.SelectedSQLConfig(c.PostgresConfig, c.SQLiteConfig)
+	if err != nil {
+		return nil, fmt.Errorf("select SQL config: %w", err)
+	}
+	return cfg, nil
 }

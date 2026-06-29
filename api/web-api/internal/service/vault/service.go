@@ -64,7 +64,7 @@ func (vS *vaultService) Delete(ctx context.Context, auth types.Principle, vaultI
 	}
 	tx := db.Where("id = ? AND organization_id = ? AND project_id = ?", vaultId, *auth.GetCurrentOrganizationId(), *auth.GetCurrentProjectId()).Clauses(clause.Returning{}).Updates(vlt)
 	if err := tx.Error; err != nil {
-		vS.logger.Debugf("unable to delete vault %v")
+		vS.logger.Debugf("unable to delete vault: %v", err)
 		return nil, err
 	}
 	return vlt, nil
