@@ -10,18 +10,18 @@ import (
 	"gorm.io/gorm"
 )
 
-type testPostgresConnector struct {
+type testSQLConnector struct {
 	db *gorm.DB
 }
 
-func (t *testPostgresConnector) Connect(ctx context.Context) error    { return nil }
-func (t *testPostgresConnector) Name() string                         { return "test-postgres" }
-func (t *testPostgresConnector) IsConnected(ctx context.Context) bool { return t.db != nil }
-func (t *testPostgresConnector) Disconnect(ctx context.Context) error { return nil }
-func (t *testPostgresConnector) Query(ctx context.Context, qry string, dest interface{}) error {
+func (t *testSQLConnector) Connect(ctx context.Context) error    { return nil }
+func (t *testSQLConnector) Name() string                         { return "test-sql" }
+func (t *testSQLConnector) IsConnected(ctx context.Context) bool { return t.db != nil }
+func (t *testSQLConnector) Disconnect(ctx context.Context) error { return nil }
+func (t *testSQLConnector) Query(ctx context.Context, qry string, dest interface{}) error {
 	return t.db.WithContext(ctx).Raw(qry).Scan(dest).Error
 }
-func (t *testPostgresConnector) DB(ctx context.Context) *gorm.DB { return t.db.WithContext(ctx) }
+func (t *testSQLConnector) DB(ctx context.Context) *gorm.DB { return t.db.WithContext(ctx) }
 
 func newTestStore(t *testing.T) (Store, context.Context) {
 	t.Helper()
@@ -70,7 +70,39 @@ func newTestStore(t *testing.T) (Store, context.Context) {
 		t.Fatalf("failed to create logger: %v", err)
 	}
 
-	return NewStore(&testPostgresConnector{db: db}, logger), context.Background()
+	sql := &testSQLConnector{db: db}
+	return NewStore(sql, logger), context.Background()
+}
+
+func TestNewStoreWiresSQLConnector(t *testing.T) {
+	store, _ := newTestStore(t)
+	if _, ok := store.(*sqlStore); !ok {
+		t.Fatalf("NewStore returned %T, want *sqlStore", store)
+	}
+}
+
+func TestStoreGetNotFound(t *testing.T) {
+	store, ctx := newTestStore(t)
+	_, err := store.Get(ctx, "missing-context-id")
+	if err == nil {
+		t.Fatal("expected error for missing context")
+	}
+	if !contains(err.Error(), "not found") {
+		t.Fatalf("expected not found error, got %v", err)
+	}
+}
+
+func contains(s, sub string) bool {
+	return len(sub) == 0 || (len(s) >= len(sub) && stringIndex(s, sub) >= 0)
+}
+
+func stringIndex(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }
 
 func TestStoreUpdateCallStatus(t *testing.T) {

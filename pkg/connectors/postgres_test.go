@@ -21,10 +21,7 @@ import (
 
 // Local config struct for testing - removed since we can use configs package
 
-func TestNewSQLConnector(t *testing.T) {
-	// Requires external config and logger packages
-	t.Skip("Requires external packages - integration test")
-}
+
 
 func TestSQLConnector_Name(t *testing.T) {
 	connector := &postgresConnector{

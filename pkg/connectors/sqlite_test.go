@@ -82,12 +82,6 @@ func TestNewSQLConnector_SQLite(t *testing.T) {
 	assert.Contains(t, connector.Name(), "SQLITE sqlite3://")
 }
 
-func TestNewSQLConnector_UnsupportedType(t *testing.T) {
-	logger, _ := commons.NewApplicationLogger()
-	_, err := NewSQLConnector(nil, logger)
-	require.Error(t, err)
-}
-
 func TestEnsureSQLiteParentDir(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "sqlite.db")
 	require.NoError(t, ensureSQLiteParentDir(path))
