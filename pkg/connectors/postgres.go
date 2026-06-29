@@ -79,7 +79,7 @@ func (psql *postgresConnector) Connect(ctx context.Context) error {
 		return err
 	}
 	// SetMaxIdleConns sets the maximum number of connections in the idle connection pool.
-	sqlDB.SetMaxIdleConns(psql.cfg.MaxIdealConnection)
+	sqlDB.SetMaxIdleConns(psql.cfg.MaxIdleConnection)
 	// SetMaxOpenConns sets the maximum number of open connections to the database.
 	sqlDB.SetMaxOpenConns(psql.cfg.MaxOpenConnection)
 	// SetConnMaxLifetime sets the maximum amount of time a connection may be reused.

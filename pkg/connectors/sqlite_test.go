@@ -17,9 +17,9 @@ func TestSQLiteConnector_Lifecycle(t *testing.T) {
 	logger, _ := commons.NewApplicationLogger()
 	path := filepath.Join(t.TempDir(), "data", "rapida.db")
 	connector := NewSQLiteConnector(&configs.SQLiteConfig{
-		Path:               path,
-		MaxIdealConnection: 1,
-		MaxOpenConnection:  1,
+		Path:              path,
+		MaxIdleConnection: 1,
+		MaxOpenConnection: 1,
 	}, logger)
 
 	ctx := context.Background()
@@ -28,6 +28,7 @@ func TestSQLiteConnector_Lifecycle(t *testing.T) {
 	assert.Equal(t, "SQLITE sqlite3://"+path, connector.Name())
 
 	db := connector.DB(ctx)
+	require.NoError(t, db.Error)
 	require.NoError(t, db.Exec("CREATE TABLE test_items (name TEXT NOT NULL)").Error)
 	require.NoError(t, db.Exec("INSERT INTO test_items(name) VALUES (?)", "sqlite").Error)
 
@@ -41,16 +42,50 @@ func TestSQLiteConnector_Lifecycle(t *testing.T) {
 
 	require.NoError(t, connector.Disconnect(ctx))
 	assert.False(t, connector.IsConnected(ctx))
+	require.NoError(t, connector.Disconnect(ctx))
+}
+
+func TestSQLiteConnector_ConnectInvalidPath(t *testing.T) {
+	logger, _ := commons.NewApplicationLogger()
+	connector := NewSQLiteConnector(&configs.SQLiteConfig{
+		Path:              "",
+		MaxIdleConnection: 1,
+		MaxOpenConnection: 1,
+	}, logger)
+	err := connector.Connect(context.Background())
+	require.Error(t, err)
+}
+
+func TestSQLiteConnector_DBBeforeConnect(t *testing.T) {
+	logger, _ := commons.NewApplicationLogger()
+	connector := NewSQLiteConnector(&configs.SQLiteConfig{
+		Path:              filepath.Join(t.TempDir(), "x.db"),
+		MaxIdleConnection: 1,
+		MaxOpenConnection: 1,
+	}, logger)
+	db := connector.DB(context.Background())
+	require.Error(t, db.Error)
 }
 
 func TestNewSQLConnector_SQLite(t *testing.T) {
 	logger, _ := commons.NewApplicationLogger()
-	connector := NewSQLConnector(&configs.SQLiteConfig{
-		Path:               filepath.Join(t.TempDir(), "rapida.db"),
-		MaxIdealConnection: 1,
-		MaxOpenConnection:  1,
+	path := filepath.Join(t.TempDir(), "rapida.db")
+	connector, err := NewSQLConnector(&configs.SQLiteConfig{
+		Path:              path,
+		MaxIdleConnection: 1,
+		MaxOpenConnection: 1,
 	}, logger)
+	require.NoError(t, err)
 	require.NotNil(t, connector)
+	ctx := context.Background()
+	require.NoError(t, connector.Connect(ctx))
+	assert.Contains(t, connector.Name(), "SQLITE sqlite3://")
+}
+
+func TestNewSQLConnector_UnsupportedType(t *testing.T) {
+	logger, _ := commons.NewApplicationLogger()
+	_, err := NewSQLConnector(nil, logger)
+	require.Error(t, err)
 }
 
 func TestEnsureSQLiteParentDir(t *testing.T) {

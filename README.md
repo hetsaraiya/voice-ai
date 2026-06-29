@@ -187,7 +187,7 @@ SQLite is also supported for simpler single-node or demo setups in the Go servic
 ```bash
 SQLITE__PATH=$PWD/.local/rapida/web.db
 SQLITE__MAX_OPEN_CONNECTION=1
-SQLITE__MAX_IDEAL_CONNECTION=1
+SQLITE__MAX_IDLE_CONNECTION=1
 REDIS__HOST=localhost
 REDIS__PORT=6379
 REDIS__MAX_CONNECTION=5

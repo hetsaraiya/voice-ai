@@ -8,7 +8,7 @@ package configs
 import (
 	"errors"
 	"fmt"
-	"os"
+	"net/url"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
@@ -36,15 +36,16 @@ func (c *PostgresConfig) MigrationDriverName() string {
 }
 
 func (c *PostgresConfig) MigrationDSN() string {
-	return fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		c.Auth.User,
-		c.Auth.Password,
-		c.Host,
-		c.Port,
-		c.DBName,
-		c.SslMode,
-	)
+	u := url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(c.Auth.User, c.Auth.Password),
+		Host:   fmt.Sprintf("%s:%d", c.Host, c.Port),
+		Path:   "/" + c.DBName,
+	}
+	q := url.Values{}
+	q.Set("sslmode", c.SslMode)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func (c *PostgresConfig) DisplayName() string {
@@ -94,14 +95,17 @@ func ResolveSQLConfig(v *viper.Viper, validate *validator.Validate, postgres *Po
 	}
 }
 
-func SelectedSQLConfig(postgres *PostgresConfig, sqlite *SQLiteConfig) SQLConfig {
-	if postgres != nil && sqlite != nil {
-		panic("SelectedSQLConfig requires exactly one SQL config; both postgres and sqlite were provided")
+func SelectedSQLConfig(postgres *PostgresConfig, sqlite *SQLiteConfig) (SQLConfig, error) {
+	switch {
+	case postgres != nil && sqlite != nil:
+		return nil, ErrMultipleSQLConfigsDetected
+	case sqlite != nil:
+		return sqlite, nil
+	case postgres != nil:
+		return postgres, nil
+	default:
+		return nil, ErrNoSQLConfigConfigured
 	}
-	if sqlite != nil {
-		return sqlite
-	}
-	return postgres
 }
 
 func detectSQLPrefixes(v *viper.Viper) (bool, bool) {
@@ -112,13 +116,7 @@ func hasConfigPrefix(v *viper.Viper, prefix string) bool {
 	prefix = strings.ToUpper(prefix) + "__"
 	for _, key := range v.AllKeys() {
 		normalizedKey := strings.ToUpper(strings.ReplaceAll(key, ".", "__"))
-		if strings.HasPrefix(normalizedKey, prefix) {
-			return true
-		}
-	}
-	for _, env := range os.Environ() {
-		name, _, found := strings.Cut(env, "=")
-		if found && strings.HasPrefix(strings.ToUpper(name), prefix) {
+		if strings.HasPrefix(normalizedKey, prefix) && v.IsSet(key) {
 			return true
 		}
 	}

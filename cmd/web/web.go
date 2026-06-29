@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/database/sqlite3"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
 
@@ -187,7 +188,14 @@ func (app *AppRunner) Logging() error {
 }
 
 func (g *AppRunner) AllConnectors() {
-	postgres := connectors.NewSQLConnector(g.Cfg.SQLConfig(), g.Logger)
+	sqlCfg, err := g.Cfg.SQLConfig()
+	if err != nil {
+		log.Fatalf("invalid SQL configuration: %v", err)
+	}
+	postgres, err := connectors.NewSQLConnector(sqlCfg, g.Logger)
+	if err != nil {
+		log.Fatalf("failed to create SQL connector: %v", err)
+	}
 	redis := connectors.NewRedisConnector(&g.Cfg.RedisConfig, g.Logger)
 	g.Postgres = postgres
 	g.Redis = redis
@@ -297,7 +305,10 @@ func (app *AppRunner) Migrate() error {
 		return nil
 	}
 
-	sqlConfig := app.Cfg.SQLConfig()
+	sqlConfig, err := app.Cfg.SQLConfig()
+	if err != nil {
+		return fmt.Errorf("invalid SQL configuration: %w", err)
+	}
 	if sqlConfig.DriverName() == "sqlite" {
 		app.Logger.Warnf("Skipping migrations for %s: bundled migrations are PostgreSQL-specific today.", sqlConfig.DisplayName())
 		return nil

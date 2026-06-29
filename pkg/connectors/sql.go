@@ -6,17 +6,22 @@
 package connectors
 
 import (
+	"fmt"
+
 	commons "github.com/rapidaai/pkg/commons"
 	configs "github.com/rapidaai/pkg/configs"
 )
 
-func NewSQLConnector(config configs.SQLConfig, logger commons.Logger) SQLConnector {
+func NewSQLConnector(config configs.SQLConfig, logger commons.Logger) (SQLConnector, error) {
+	if config == nil {
+		return nil, fmt.Errorf("sql config is nil")
+	}
 	switch cfg := config.(type) {
 	case *configs.PostgresConfig:
-		return NewPostgresConnector(cfg, logger)
+		return NewPostgresConnector(cfg, logger), nil
 	case *configs.SQLiteConfig:
-		return NewSQLiteConnector(cfg, logger)
+		return NewSQLiteConnector(cfg, logger), nil
 	default:
-		return nil
+		return nil, fmt.Errorf("unsupported SQL config type %T; expected *PostgresConfig or *SQLiteConfig", config)
 	}
 }

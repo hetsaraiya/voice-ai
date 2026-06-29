@@ -32,7 +32,7 @@ postgres:
     user: "rapida_user"
     password: "rapida_db_password"
   max_open_connection: 50
-  max_ideal_connection: 25
+  max_idle_connection: 25
   ssl_mode: "disable"
 
 redis:
@@ -254,7 +254,7 @@ func TestGetApplicationConfig_SQLite(t *testing.T) {
 
 	vConfig.Set("SQLITE__PATH", filepath.Join(t.TempDir(), "assistant.db"))
 	vConfig.Set("SQLITE__MAX_OPEN_CONNECTION", 1)
-	vConfig.Set("SQLITE__MAX_IDEAL_CONNECTION", 1)
+	vConfig.Set("SQLITE__MAX_IDLE_CONNECTION", 1)
 
 	vConfig.Set("REDIS__HOST", "127.0.0.1")
 	vConfig.Set("REDIS__PORT", 6379)
@@ -264,12 +264,12 @@ func TestGetApplicationConfig_SQLite(t *testing.T) {
 	vConfig.Set("ASSET_STORE__STORAGE_TYPE", "local")
 	vConfig.Set("ASSET_STORE__STORAGE_PATH_PREFIX", os.Getenv("HOME")+"/rapida-data/assets/workflow")
 
-	vConfig.Set("INTEGRATION_HOST", "localhost:9004")
-	vConfig.Set("ENDPOINT_HOST", "localhost:9005")
-	vConfig.Set("ASSISTANT_HOST", "localhost:9007")
-	vConfig.Set("WEB_HOST", "localhost:9001")
-	vConfig.Set("DOCUMENT_HOST", "http://localhost:9010")
-	vConfig.Set("UI_HOST", "http://localhost:3000")
+	vConfig.Set("INTEGRATION__HOST", "localhost:9004")
+	vConfig.Set("ENDPOINT__HOST", "localhost:9005")
+	vConfig.Set("ASSISTANT__HOST", "localhost:9007")
+	vConfig.Set("WEB__HOST", "localhost:9001")
+	vConfig.Set("DOCUMENT__HOST", "http://localhost:9010")
+	vConfig.Set("UI__HOST", "http://localhost:3000")
 
 	appConfig, err := GetApplicationConfig(vConfig)
 	if err != nil {
@@ -298,12 +298,12 @@ func TestGetApplicationConfig_MultipleSQLConfigs(t *testing.T) {
 	vConfig.Set("POSTGRES__AUTH__PASSWORD", "rapida_db_password")
 	vConfig.Set("POSTGRES__PORT", 5432)
 	vConfig.Set("POSTGRES__MAX_OPEN_CONNECTION", 50)
-	vConfig.Set("POSTGRES__MAX_IDEAL_CONNECTION", 25)
+	vConfig.Set("POSTGRES__MAX_IDLE_CONNECTION", 25)
 	vConfig.Set("POSTGRES__SSL_MODE", "disable")
 
 	vConfig.Set("SQLITE__PATH", filepath.Join(t.TempDir(), "assistant.db"))
 	vConfig.Set("SQLITE__MAX_OPEN_CONNECTION", 1)
-	vConfig.Set("SQLITE__MAX_IDEAL_CONNECTION", 1)
+	vConfig.Set("SQLITE__MAX_IDLE_CONNECTION", 1)
 
 	vConfig.Set("REDIS__HOST", "127.0.0.1")
 	vConfig.Set("REDIS__PORT", 6379)
@@ -312,12 +312,12 @@ func TestGetApplicationConfig_MultipleSQLConfigs(t *testing.T) {
 
 	vConfig.Set("ASSET_STORE__STORAGE_TYPE", "local")
 	vConfig.Set("ASSET_STORE__STORAGE_PATH_PREFIX", os.Getenv("HOME")+"/rapida-data/assets/workflow")
-	vConfig.Set("INTEGRATION_HOST", "localhost:9004")
-	vConfig.Set("ENDPOINT_HOST", "localhost:9005")
-	vConfig.Set("ASSISTANT_HOST", "localhost:9007")
-	vConfig.Set("WEB_HOST", "localhost:9001")
-	vConfig.Set("DOCUMENT_HOST", "http://localhost:9010")
-	vConfig.Set("UI_HOST", "http://localhost:3000")
+	vConfig.Set("INTEGRATION__HOST", "localhost:9004")
+	vConfig.Set("ENDPOINT__HOST", "localhost:9005")
+	vConfig.Set("ASSISTANT__HOST", "localhost:9007")
+	vConfig.Set("WEB__HOST", "localhost:9001")
+	vConfig.Set("DOCUMENT__HOST", "http://localhost:9010")
+	vConfig.Set("UI__HOST", "http://localhost:3000")
 
 	_, err := GetApplicationConfig(vConfig)
 	if err == nil || !strings.Contains(err.Error(), "set only one") {

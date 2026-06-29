@@ -112,6 +112,6 @@ func GetApplicationConfig(v *viper.Viper) (*WebAppConfig, error) {
 	return &config, nil
 }
 
-func (c *WebAppConfig) SQLConfig() configs.SQLConfig {
+func (c *WebAppConfig) SQLConfig() (configs.SQLConfig, error) {
 	return configs.SelectedSQLConfig(c.PostgresConfig, c.SQLiteConfig)
 }

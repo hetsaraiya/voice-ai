@@ -76,6 +76,6 @@ func GetApplicationConfig(v *viper.Viper) (*IntegrationConfig, error) {
 	return &config, nil
 }
 
-func (c *IntegrationConfig) SQLConfig() configs.SQLConfig {
+func (c *IntegrationConfig) SQLConfig() (configs.SQLConfig, error) {
 	return configs.SelectedSQLConfig(c.PostgresConfig, c.SQLiteConfig)
 }

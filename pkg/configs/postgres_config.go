@@ -10,8 +10,8 @@ type PostgresConfig struct {
 	Port               int       `mapstructure:"port"`
 	Auth               BasicAuth `mapstructure:"auth"`
 	DBName             string    `mapstructure:"db_name" validate:"required"`
-	MaxIdealConnection int       `mapstructure:"max_ideal_connection" validate:"required"`
-	MaxOpenConnection  int       `mapstructure:"max_open_connection" validate:"required"`
+	MaxIdleConnection int       `mapstructure:"max_idle_connection" validate:"gte=0"`
+	MaxOpenConnection int       `mapstructure:"max_open_connection" validate:"gte=0"`
 	SslMode            string    `mapstructure:"ssl_mode" validate:"required"`
 	// currently we only support redis caching // later you know me i will add multiple
 	SLCache *RedisConfig `mapstructure:"slc_cache"`

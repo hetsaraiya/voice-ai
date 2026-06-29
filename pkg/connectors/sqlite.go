@@ -7,9 +7,11 @@ package connectors
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gorm.io/driver/sqlite"
@@ -19,6 +21,8 @@ import (
 	commons "github.com/rapidaai/pkg/commons"
 	configs "github.com/rapidaai/pkg/configs"
 )
+
+var errSQLiteNotConnected = errors.New("sqlite connector not connected")
 
 type sqliteConnector struct {
 	logger commons.Logger
@@ -31,36 +35,48 @@ func NewSQLiteConnector(config *configs.SQLiteConfig, logger commons.Logger) SQL
 }
 
 func (sqlt *sqliteConnector) DB(ctx context.Context) *gorm.DB {
+	if sqlt.db == nil {
+		return &gorm.DB{Error: errSQLiteNotConnected}
+	}
 	return sqlt.db.WithContext(ctx)
 }
 
+func sqliteDSN(path string) string {
+	if path == "" || path == ":memory:" {
+		return path
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "_foreign_keys=1"
+}
+
 func (sqlt *sqliteConnector) Connect(ctx context.Context) error {
+	if sqlt.cfg.Path == "" {
+		return fmt.Errorf("sqlite path is required")
+	}
 	if err := ensureSQLiteParentDir(sqlt.cfg.Path); err != nil {
 		return err
 	}
 
 	lgr := logger.Discard.LogMode(logger.Silent)
-	db, err := gorm.Open(sqlite.Open(sqlt.cfg.Path), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(sqliteDSN(sqlt.cfg.Path)), &gorm.Config{
 		Logger: lgr,
 	})
 	if err != nil {
-		sqlt.logger.Errorf("Failed to open sqlite connection %s.", err)
+		sqlt.logger.Errorf("Failed to open sqlite connection: %v", err)
 		return err
 	}
 
 	sqlDB, err := db.DB()
 	if err != nil {
-		sqlt.logger.Errorf("Failed to create sqlite client connection pool %s.", err)
+		sqlt.logger.Errorf("Failed to create sqlite client connection pool: %v", err)
 		return err
 	}
-	sqlDB.SetMaxIdleConns(sqlt.cfg.MaxIdealConnection)
+	sqlDB.SetMaxIdleConns(sqlt.cfg.MaxIdleConnection)
 	sqlDB.SetMaxOpenConns(sqlt.cfg.MaxOpenConnection)
 	sqlDB.SetConnMaxLifetime(time.Hour)
-
-	if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
-		sqlt.logger.Errorf("Failed to enable sqlite foreign keys %s.", err)
-		return err
-	}
 
 	sqlt.db = db
 	return nil
@@ -76,11 +92,11 @@ func (sqlt *sqliteConnector) IsConnected(ctx context.Context) bool {
 	}
 	db, err := sqlt.db.DB()
 	if err != nil {
-		sqlt.logger.Errorf("Failed to get sqlite client %s.", err)
+		sqlt.logger.Errorf("Failed to get sqlite client: %v", err)
 		return false
 	}
 	if err := db.PingContext(ctx); err != nil {
-		sqlt.logger.Errorf("Failed to ping sqlite client %s.", err)
+		sqlt.logger.Errorf("Failed to ping sqlite client: %v", err)
 		return false
 	}
 	return true
@@ -88,20 +104,26 @@ func (sqlt *sqliteConnector) IsConnected(ctx context.Context) bool {
 
 func (sqlt *sqliteConnector) Disconnect(ctx context.Context) error {
 	sqlt.logger.Debug("Disconnecting sqlite client.")
+	if sqlt.db == nil {
+		return nil
+	}
 	db, err := sqlt.db.DB()
 	sqlt.db = nil
 	if err != nil {
-		sqlt.logger.Errorf("Disconnecting sqlite client %s.", err)
+		sqlt.logger.Errorf("Failed to get underlying sqlite DB: %v", err)
 		return err
 	}
 	if err := db.Close(); err != nil {
-		sqlt.logger.Debug("Disconnecting sqlite client %s.", err)
+		sqlt.logger.Errorf("Failed to close sqlite client: %v", err)
 		return err
 	}
 	return nil
 }
 
 func (sqlt *sqliteConnector) Query(ctx context.Context, qry string, dest interface{}) error {
+	if sqlt.db == nil {
+		return errSQLiteNotConnected
+	}
 	tx := sqlt.db.WithContext(ctx).Raw(qry).Scan(dest)
 	return tx.Error
 }

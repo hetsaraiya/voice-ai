@@ -6,7 +6,7 @@
 package configs
 
 type SQLiteConfig struct {
-	Path               string `mapstructure:"path" validate:"required"`
-	MaxIdealConnection int    `mapstructure:"max_ideal_connection" validate:"required"`
-	MaxOpenConnection  int    `mapstructure:"max_open_connection" validate:"required"`
+	Path              string `mapstructure:"path" validate:"required"`
+	MaxIdleConnection int    `mapstructure:"max_idle_connection" validate:"gte=0"`
+	MaxOpenConnection int    `mapstructure:"max_open_connection" validate:"gte=0"`
 }
