@@ -21,43 +21,112 @@ import (
 func (e *agentkitExecutor) Execute(ctx context.Context, comm internal_type.Communication, pctk internal_type.Packet) error {
 	switch p := pctk.(type) {
 	case internal_type.UserInputPacket:
-		return e.Run(ctx, comm, UserTurnPipeline{Packet: p})
-	case internal_type.UserTextReceivedPacket:
-		return e.Run(ctx, comm, UserTextPipeline{Packet: p})
+		return e.handleUserTurn(ctx, comm, p.ContextID, p.Text)
 	case internal_type.InjectMessagePacket:
-		return e.Run(ctx, comm, InjectMessagePipeline{Packet: p})
+		return e.handleInjectMessage(p)
+	case internal_type.LLMToolCallPacket:
+		return e.handleToolCall(p)
+	case internal_type.LLMToolResultPacket:
+		return e.handleToolResult(p)
 	case internal_type.LLMInterruptPacket:
-		return e.Run(ctx, comm, InterruptionPipeline{Packet: p})
+		return e.handleInterrupt(p)
 	default:
-		return fmt.Errorf("unsupported packet type: %T", pctk)
+		return fmt.Errorf("%w: %T", ErrAgentkitExecuteUnsupportedPacket, pctk)
 	}
 }
 
-func (e *agentkitExecutor) Run(ctx context.Context, comm internal_type.Communication, p AgentPipeline) error {
-	switch v := p.(type) {
-	case UserTurnPipeline:
-		return e.handleUserTurn(ctx, comm, v.Packet.ContextID, v.Packet.Text)
-	case UserTextPipeline:
-		return e.handleUserTurn(ctx, comm, v.Packet.ContextID, v.Packet.Text)
-	case InjectMessagePipeline:
-		// no-op: external agent manages its own history
-		return nil
-	case InterruptionPipeline:
-		e.stateMu.Lock()
-		e.activeContextID = ""
-		e.stateMu.Unlock()
-		return nil
-	case ResponsePipeline:
-		e.handleResponse(ctx, comm, v.Response)
-		return nil
-	default:
-		return fmt.Errorf("unknown pipeline type: %T", p)
+func (e *agentkitExecutor) handleInjectMessage(packet internal_type.InjectMessagePacket) error {
+	e.stateMu.RLock()
+	activeConnection := e.connection
+	e.stateMu.RUnlock()
+	if !validator.NonNil(activeConnection) {
+		return ErrAgentkitExecutorNotConnected
 	}
+	return activeConnection.Send(&protos.TalkInput{
+		Request: &protos.TalkInput_Assistant{
+			Assistant: &protos.ConversationAssistantMessage{
+				Id:        packet.ContextID,
+				Completed: true,
+				Message:   &protos.ConversationAssistantMessage_Text{Text: packet.Text},
+				Time:      timestamppb.Now(),
+			},
+		},
+	})
+}
+
+func (e *agentkitExecutor) handleToolCall(packet internal_type.LLMToolCallPacket) error {
+	e.stateMu.RLock()
+	activeConnection := e.connection
+	e.stateMu.RUnlock()
+	if !validator.NonNil(activeConnection) {
+		return ErrAgentkitExecutorNotConnected
+	}
+	return activeConnection.Send(&protos.TalkInput{
+		Request: &protos.TalkInput_ToolCall{
+			ToolCall: &protos.ConversationToolCall{
+				Id:     packet.ContextID,
+				ToolId: packet.ToolID,
+				Name:   packet.Name,
+				Action: packet.Action,
+				Args:   packet.Arguments,
+				Time:   timestamppb.Now(),
+			},
+		},
+	})
+}
+
+func (e *agentkitExecutor) handleToolResult(packet internal_type.LLMToolResultPacket) error {
+	e.stateMu.RLock()
+	activeConnection := e.connection
+	e.stateMu.RUnlock()
+	if !validator.NonNil(activeConnection) {
+		return ErrAgentkitExecutorNotConnected
+	}
+	return activeConnection.Send(&protos.TalkInput{
+		Request: &protos.TalkInput_ToolCallResult{
+			ToolCallResult: &protos.ConversationToolCallResult{
+				Id:     packet.ContextID,
+				ToolId: packet.ToolID,
+				Name:   packet.Name,
+				Action: packet.Action,
+				Result: packet.Result,
+				Time:   timestamppb.Now(),
+			},
+		},
+	})
+}
+
+func (e *agentkitExecutor) handleInterrupt(packet internal_type.LLMInterruptPacket) error {
+	e.stateMu.RLock()
+	activeConnection := e.connection
+	e.stateMu.RUnlock()
+	if !validator.NonNil(activeConnection) {
+		return ErrAgentkitExecutorNotConnected
+	}
+	e.stateMu.Lock()
+	e.activeContextID = ""
+	e.stateMu.Unlock()
+	return activeConnection.Send(&protos.TalkInput{
+		Request: &protos.TalkInput_Interruption{
+			Interruption: &protos.ConversationInterruption{
+				Id:   packet.ContextID,
+				Type: protos.ConversationInterruption_INTERRUPTION_TYPE_WORD,
+				Time: timestamppb.Now(),
+			},
+		},
+	})
 }
 
 func (e *agentkitExecutor) handleUserTurn(ctx context.Context, comm internal_type.Communication, contextID, text string) error {
 	if !validator.NotBlank(contextID) {
 		return nil
+	}
+	e.stateMu.RLock()
+	activeConnection := e.connection
+	e.stateMu.RUnlock()
+
+	if !validator.NonNil(activeConnection) {
+		return ErrAgentkitExecutorNotConnected
 	}
 	e.stateMu.Lock()
 	e.activeContextID = contextID
@@ -103,17 +172,15 @@ func (e *agentkitExecutor) handleUserTurn(ctx context.Context, comm internal_typ
 			},
 		},
 	)
-	if err := e.send(&protos.TalkInput{
-		Request: &protos.TalkInput_Message{
-			Message: &protos.ConversationUserMessage{
+
+	return activeConnection.Send(&protos.TalkInput{
+		Request: &protos.TalkInput_User{
+			User: &protos.ConversationUserMessage{
 				Message:   &protos.ConversationUserMessage_Text{Text: text},
 				Id:        contextID,
 				Completed: true,
 				Time:      timestamppb.Now(),
 			},
 		},
-	}); err != nil {
-		return err
-	}
-	return nil
+	})
 }

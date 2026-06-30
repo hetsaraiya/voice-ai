@@ -12,6 +12,7 @@ import (
 
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
+	"github.com/rapidaai/pkg/validator"
 )
 
 type IdleTimeoutEvent struct {
@@ -57,16 +58,13 @@ type IdleTimeoutWatchdog struct {
 func NewIdleTimeoutWatchdog(opts ...IdleTimeoutOption) *IdleTimeoutWatchdog {
 	options := IdleTimeoutOptions{}
 	for _, opt := range opts {
-		if opt == nil {
-			continue
-		}
 		opt.applyIdleTimeoutOptions(&options)
 	}
 
-	if options.PacketContext == nil {
+	if !validator.NonNil(options.PacketContext) {
 		options.PacketContext = context.Background()
 	}
-	if options.RecordScope == "" {
+	if !validator.NotBlank(options.RecordScope.String()) {
 		options.RecordScope = internal_type.ObservabilityRecordScopeConversation
 	}
 

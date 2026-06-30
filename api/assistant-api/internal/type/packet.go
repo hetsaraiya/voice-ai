@@ -1400,6 +1400,10 @@ const (
 	ObservabilityRecordScopeAssistantMessage ObservabilityRecordScope = "assistant-message"
 )
 
+func (t ObservabilityRecordScope) String() string {
+	return string(t)
+}
+
 type ObservabilityRecordPacket interface {
 	Packet
 	GetScope() ObservabilityRecordScope

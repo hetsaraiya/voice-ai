@@ -24,9 +24,10 @@ _sym_db = _symbol_database.Default()
 
 import app.bridges.artifacts.protos.common_pb2 as common__pb2
 import app.bridges.artifacts.protos.talk_api_pb2 as talk__api__pb2
+import app.bridges.artifacts.protos.observability_api_pb2 as observability__api__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0e\x61gentkit.proto\x12\x08talk_api\x1a\x0c\x63ommon.proto\x1a\x0etalk-api.proto\"\xea\x02\n\tTalkInput\x12>\n\x0einitialization\x18\x01 \x01(\x0b\x32$.talk_api.ConversationInitializationH\x00\x12<\n\rconfiguration\x18\x02 \x01(\x0b\x32#.talk_api.ConversationConfigurationH\x00\x12\x34\n\x07message\x18\x03 \x01(\x0b\x32!.talk_api.ConversationUserMessageH\x00\x12:\n\x0cinterruption\x18\x04 \x01(\x0b\x32\".talk_api.ConversationInterruptionH\x00\x12\x32\n\x08metadata\x18\x05 \x01(\x0b\x32\x1e.talk_api.ConversationMetadataH\x00\x12.\n\x06metric\x18\x06 \x01(\x0b\x32\x1c.talk_api.ConversationMetricH\x00\x42\t\n\x07request\"\xf9\x02\n\nTalkOutput\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12>\n\x0einitialization\x18\t \x01(\x0b\x32$.talk_api.ConversationInitializationH\x00\x12:\n\x0cinterruption\x18\n \x01(\x0b\x32\".talk_api.ConversationInterruptionH\x00\x12;\n\tassistant\x18\x0c \x01(\x0b\x32&.talk_api.ConversationAssistantMessageH\x00\x12\x32\n\x08toolCall\x18\r \x01(\x0b\x32\x1e.talk_api.ConversationToolCallH\x00\x12>\n\x0etoolCallResult\x18\x0e \x01(\x0b\x32$.talk_api.ConversationToolCallResultH\x00\x12\x17\n\x05\x65rror\x18\x0f \x01(\x0b\x32\x06.ErrorH\x00\x42\x06\n\x04\x64\x61ta2A\n\x08\x41gentKit\x12\x35\n\x04Talk\x12\x13.talk_api.TalkInput\x1a\x14.talk_api.TalkOutput(\x01\x30\x01\x42\x35\n\x17\x61i.rapida.sdk.artifactsZ\x1agithub.com/rapidaai/protosb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0e\x61gentkit.proto\x12\x08talk_api\x1a\x0c\x63ommon.proto\x1a\x0etalk-api.proto\x1a\x17observability-api.proto\"\x98\x04\n\tTalkInput\x12>\n\x0einitialization\x18\x01 \x01(\x0b\x32$.talk_api.ConversationInitializationH\x00\x12<\n\rconfiguration\x18\x02 \x01(\x0b\x32#.talk_api.ConversationConfigurationH\x00\x12\x31\n\x04user\x18\x03 \x01(\x0b\x32!.talk_api.ConversationUserMessageH\x00\x12:\n\x0cinterruption\x18\x04 \x01(\x0b\x32\".talk_api.ConversationInterruptionH\x00\x12\x32\n\x08metadata\x18\x05 \x01(\x0b\x32\x1e.talk_api.ConversationMetadataH\x00\x12.\n\x06metric\x18\x06 \x01(\x0b\x32\x1c.talk_api.ConversationMetricH\x00\x12\x32\n\x08toolCall\x18\x07 \x01(\x0b\x32\x1e.talk_api.ConversationToolCallH\x00\x12>\n\x0etoolCallResult\x18\x08 \x01(\x0b\x32$.talk_api.ConversationToolCallResultH\x00\x12;\n\tassistant\x18\t \x01(\x0b\x32&.talk_api.ConversationAssistantMessageH\x00\x42\t\n\x07request\"\xed\x03\n\nTalkOutput\x12\x0c\n\x04\x63ode\x18\x01 \x01(\x05\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12>\n\x0einitialization\x18\t \x01(\x0b\x32$.talk_api.ConversationInitializationH\x00\x12:\n\x0cinterruption\x18\n \x01(\x0b\x32\".talk_api.ConversationInterruptionH\x00\x12\x31\n\x04user\x18\x0b \x01(\x0b\x32!.talk_api.ConversationUserMessageH\x00\x12;\n\tassistant\x18\x0c \x01(\x0b\x32&.talk_api.ConversationAssistantMessageH\x00\x12\x32\n\x08toolCall\x18\r \x01(\x0b\x32\x1e.talk_api.ConversationToolCallH\x00\x12>\n\x0etoolCallResult\x18\x0e \x01(\x0b\x32$.talk_api.ConversationToolCallResultH\x00\x12\x17\n\x05\x65rror\x18\x0f \x01(\x0b\x32\x06.ErrorH\x00\x12?\n\robservability\x18\x10 \x01(\x0b\x32&.observability_api.ObservabilityRecordH\x00\x42\x06\n\x04\x64\x61ta2A\n\x08\x41gentKit\x12\x35\n\x04Talk\x12\x13.talk_api.TalkInput\x1a\x14.talk_api.TalkOutput(\x01\x30\x01\x42\x35\n\x17\x61i.rapida.sdk.artifactsZ\x1agithub.com/rapidaai/protosb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,10 +35,10 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'agentkit_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\027ai.rapida.sdk.artifactsZ\032github.com/rapidaai/protos'
-  _globals['_TALKINPUT']._serialized_start=59
-  _globals['_TALKINPUT']._serialized_end=421
-  _globals['_TALKOUTPUT']._serialized_start=424
-  _globals['_TALKOUTPUT']._serialized_end=801
-  _globals['_AGENTKIT']._serialized_start=803
-  _globals['_AGENTKIT']._serialized_end=868
+  _globals['_TALKINPUT']._serialized_start=84
+  _globals['_TALKINPUT']._serialized_end=620
+  _globals['_TALKOUTPUT']._serialized_start=623
+  _globals['_TALKOUTPUT']._serialized_end=1116
+  _globals['_AGENTKIT']._serialized_start=1118
+  _globals['_AGENTKIT']._serialized_end=1183
 # @@protoc_insertion_point(module_scope)

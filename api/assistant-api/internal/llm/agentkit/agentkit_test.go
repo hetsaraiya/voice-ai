@@ -2,22 +2,25 @@ package internal_llm_agentkit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	internal_assistant_entity "github.com/rapidaai/api/assistant-api/internal/entity/assistants"
+	internal_conversation_entity "github.com/rapidaai/api/assistant-api/internal/entity/conversations"
 	"github.com/rapidaai/api/assistant-api/internal/observability"
 	internal_type "github.com/rapidaai/api/assistant-api/internal/type"
 	"github.com/rapidaai/pkg/commons"
 	"github.com/rapidaai/protos"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 )
 
 type packetCollector struct {
@@ -69,6 +72,10 @@ func newMockTalker() *mockTalker {
 	}
 }
 
+func newTestConnection(talker *mockTalker) *AgentkitConnection {
+	return &AgentkitConnection{stream: talker}
+}
+
 func (m *mockTalker) Send(req *protos.TalkInput) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -102,24 +109,92 @@ func (m *mockTalker) RecvMsg(any) error            { return nil }
 type mockCommunication struct {
 	internal_type.Communication // embedded nil — panics if unoverridden methods called
 	collector                   *packetCollector
+	assistant                   *internal_assistant_entity.Assistant
+	conversation                *internal_conversation_entity.AssistantConversation
+}
+
+func (m *mockCommunication) Assistant() *internal_assistant_entity.Assistant {
+	return m.assistant
+}
+
+func (m *mockCommunication) Conversation() *internal_conversation_entity.AssistantConversation {
+	return m.conversation
 }
 
 func (m *mockCommunication) OnPacket(ctx context.Context, pkts ...internal_type.Packet) error {
 	return m.collector.collect(ctx, pkts...)
 }
 
+type testAgentKitServer struct {
+	protos.UnimplementedAgentKitServer
+	talkFn func(stream grpc.BidiStreamingServer[protos.TalkInput, protos.TalkOutput]) error
+}
+
+func (s *testAgentKitServer) Talk(stream grpc.BidiStreamingServer[protos.TalkInput, protos.TalkOutput]) error {
+	if s.talkFn == nil {
+		return nil
+	}
+	return s.talkFn(stream)
+}
+
 // =============================================================================
 // Helpers
 // =============================================================================
 
-func newTestExecutor() *agentkitExecutor {
+func newTestExecutor(talkers ...*mockTalker) *agentkitExecutor {
 	lgr, _ := commons.NewApplicationLogger()
-	return &agentkitExecutor{logger: lgr}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	executor := &agentkitExecutor{logger: lgr, ctx: ctx, cancel: cancel}
+	if len(talkers) > 0 && talkers[0] != nil {
+		executor.connection = newTestConnection(talkers[0])
+	}
+	return executor
 }
 
 func newTestComm() (*mockCommunication, *packetCollector) {
 	c := &packetCollector{}
 	return &mockCommunication{collector: c}, c
+}
+
+func newTestAgentkitComm(provider *internal_assistant_entity.AssistantProviderAgentkit, conversationID uint64) (*mockCommunication, *packetCollector) {
+	comm, collector := newTestComm()
+	comm.assistant = &internal_assistant_entity.Assistant{
+		AssistantProviderAgentkit: provider,
+	}
+	comm.assistant.Id = 77
+	comm.conversation = &internal_conversation_entity.AssistantConversation{}
+	comm.conversation.Id = conversationID
+	return comm, collector
+}
+
+func startAgentKitTestServer(
+	t *testing.T,
+	talkFn func(stream grpc.BidiStreamingServer[protos.TalkInput, protos.TalkOutput]) error,
+) (string, func()) {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	server := grpc.NewServer()
+	protos.RegisterAgentKitServer(server, &testAgentKitServer{talkFn: talkFn})
+	go func() {
+		_ = server.Serve(listener)
+	}()
+
+	return listener.Addr().String(), func() {
+		server.Stop()
+		_ = listener.Close()
+	}
+}
+
+func acquireClosedTCPAddress(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := listener.Addr().String()
+	_ = listener.Close()
+	return addr
 }
 
 // findPacket returns the first packet of type T from the collector.
@@ -156,200 +231,150 @@ func findActionToolCalls(pkts []internal_type.Packet) []internal_type.LLMToolCal
 }
 
 // =============================================================================
-// Tests: Execute — 3 cases
+// Tests: New — 3 cases
 // =============================================================================
 
-func TestExecute_UserTextReceivedPacket(t *testing.T) {
-	e := newTestExecutor()
-	talker := newMockTalker()
-	e.transport.stream = talker
-	comm, collector := newTestComm()
+func TestNew_ReturnsErrorWhenConnectionFails(t *testing.T) {
+	transportSecurity := TransportSecurityPlaintext
+	comm, _ := newTestAgentkitComm(&internal_assistant_entity.AssistantProviderAgentkit{
+		Url:               acquireClosedTCPAddress(t),
+		TransportSecurity: &transportSecurity,
+	}, 2002)
 
-	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
-		ContextID: "ctx-1",
-		Text:      "hello world",
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
 
-	require.NoError(t, err)
-
-	// Verify observability event emitted
-	evs := findPackets[internal_type.ObservabilityEventRecordPacket](collector.all())
-	require.Len(t, evs, 1)
-	assert.Equal(t, observability.LLMStarted, evs[0].Record.Event)
-	assert.Equal(t, "11", evs[0].Record.Attributes["input_char_count"])
-
-	// Verify talker.Send was called
-	talker.mu.Lock()
-	defer talker.mu.Unlock()
-	require.Len(t, talker.sendCalls, 1)
-	msg := talker.sendCalls[0].GetMessage()
-	require.NotNil(t, msg)
-	assert.Equal(t, "hello world", msg.GetText())
-}
-
-func TestExecute_InjectMessagePacket(t *testing.T) {
-	e := newTestExecutor()
-	comm, collector := newTestComm()
-
-	err := e.Execute(context.Background(), comm, internal_type.InjectMessagePacket{
-		ContextID: "ctx-1",
-		Text:      "static text",
-	})
-
-	require.NoError(t, err)
-	assert.Empty(t, collector.all(), "InjectMessagePacket should emit no packets")
-}
-
-func TestExecute_UnsupportedPacket(t *testing.T) {
-	e := newTestExecutor()
-	comm, _ := newTestComm()
-
-	err := e.Execute(context.Background(), comm, internal_type.EndOfSpeechPacket{ContextID: "x"})
+	e, err := New(
+		WithContext(ctx),
+		WithLogger(newTestExecutor().logger),
+		WithCommunication(comm),
+		WithConfiguration(&protos.ConversationInitialization{}),
+	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported packet")
+	assert.Nil(t, e)
+	assert.True(
+		t,
+		errors.Is(err, ErrAgentkitInitializationConnect) || errors.Is(err, ErrAgentkitInitializationOpenTalkStream),
+		"unexpected New error: %v",
+		err,
+	)
 }
 
-// =============================================================================
-// Tests: listen lifecycle — 4 cases
-// =============================================================================
+func TestNew_SendsInitializationAndEmitsInitializedEvent(t *testing.T) {
+	receivedInitialization := make(chan *protos.TalkInput, 1)
+	addr, shutdown := startAgentKitTestServer(t, func(stream grpc.BidiStreamingServer[protos.TalkInput, protos.TalkOutput]) error {
+		req, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+		receivedInitialization <- req
 
-func TestListen_ContextCancelled(t *testing.T) {
-	e := newTestExecutor()
-	talker := newMockTalker()
-	e.transport.stream = talker
-	comm, _ := newTestComm()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel immediately
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		e.listen(ctx, comm)
-	}()
-
-	select {
-	case <-done:
-		// success — listener exited
-	case <-time.After(2 * time.Second):
-		t.Fatal("listen did not exit after context cancellation")
-	}
-}
-
-func TestListen_NilTalker(t *testing.T) {
-	e := newTestExecutor()
-	e.transport.stream = nil
-	comm, _ := newTestComm()
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		e.listen(context.Background(), comm)
-	}()
-
-	select {
-	case <-done:
-		// success — exited because talker is nil
-	case <-time.After(2 * time.Second):
-		t.Fatal("listen did not exit with nil talker")
-	}
-}
-
-func TestListen_RecvEOF(t *testing.T) {
-	e := newTestExecutor()
-	talker := newMockTalker()
-	e.transport.stream = talker
-	comm, collector := newTestComm()
-
-	// Push EOF to the recv channel
-	talker.recvCh <- recvResult{err: io.EOF}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		e.listen(context.Background(), comm)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("listen did not exit on EOF")
-	}
-
-	dirs := findActionToolCalls(collector.all())
-	require.Len(t, dirs, 1)
-	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, dirs[0].Action)
-	assert.Equal(t, "server closed connection", dirs[0].Arguments["reason"])
-}
-
-func TestListen_RecvUnavailable(t *testing.T) {
-	e := newTestExecutor()
-	talker := newMockTalker()
-	e.transport.stream = talker
-	comm, collector := newTestComm()
-
-	talker.recvCh <- recvResult{err: status.Error(codes.Unavailable, "gone")}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		e.listen(context.Background(), comm)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("listen did not exit on Unavailable")
-	}
-
-	dirs := findActionToolCalls(collector.all())
-	require.Len(t, dirs, 1)
-	assert.Equal(t, "server unavailable", dirs[0].Arguments["reason"])
-}
-
-// =============================================================================
-// Tests: send — 2 cases
-// =============================================================================
-
-func TestSend_NilTalker(t *testing.T) {
-	e := newTestExecutor()
-	e.transport.stream = nil
-
-	err := e.send(&protos.TalkInput{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not connected")
-}
-
-func TestSend_Success(t *testing.T) {
-	e := newTestExecutor()
-	talker := newMockTalker()
-	e.transport.stream = talker
-
-	req := &protos.TalkInput{
-		Request: &protos.TalkInput_Message{
-			Message: &protos.ConversationUserMessage{
-				Message: &protos.ConversationUserMessage_Text{Text: "test"},
+		if err := stream.Send(&protos.TalkOutput{
+			Data: &protos.TalkOutput_Initialization{
+				Initialization: &protos.ConversationInitialization{
+					AssistantConversationId: req.GetInitialization().GetAssistantConversationId(),
+				},
 			},
-		},
-	}
-	err := e.send(req)
-	require.NoError(t, err)
+		}); err != nil {
+			return err
+		}
 
-	talker.mu.Lock()
-	defer talker.mu.Unlock()
-	require.Len(t, talker.sendCalls, 1)
-	assert.Equal(t, "test", talker.sendCalls[0].GetMessage().GetText())
+		for {
+			if _, err := stream.Recv(); err != nil {
+				if errors.Is(err, io.EOF) {
+					return nil
+				}
+				return err
+			}
+		}
+	})
+	defer shutdown()
+
+	transportSecurity := TransportSecurityPlaintext
+	comm, collector := newTestAgentkitComm(&internal_assistant_entity.AssistantProviderAgentkit{
+		AssistantProvider: internal_assistant_entity.AssistantProvider{
+			AssistantId: 5005,
+		},
+		Url:               addr,
+		TransportSecurity: &transportSecurity,
+	}, 3003)
+
+	e, err := New(
+		WithLogger(newTestExecutor().logger),
+		WithCommunication(comm),
+		WithConfiguration(&protos.ConversationInitialization{}),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = e.Close(context.Background())
+	})
+
+	select {
+	case req := <-receivedInitialization:
+		initReq := req.GetInitialization()
+		require.NotNil(t, initReq)
+		assert.Equal(t, uint64(3003), initReq.GetAssistantConversationId())
+		require.NotNil(t, initReq.GetAssistant())
+		assert.Equal(t, uint64(5005), initReq.GetAssistant().GetAssistantId())
+	case <-time.After(time.Second):
+		t.Fatal("did not receive initialization request on server")
+	}
+
+	pkts := collector.all()
+	eventPackets := findPackets[internal_type.ObservabilityEventRecordPacket](pkts)
+	for _, event := range eventPackets {
+		assert.NotEqual(t, observability.LLMStarted, event.Record.Event, "init should not emit llm.started")
+	}
+
+	metricPackets := findPackets[internal_type.ObservabilityMetricRecordPacket](pkts)
+	require.NotEmpty(t, metricPackets, "expected llm init metric")
+	assert.Equal(t, internal_type.ObservabilityRecordScopeConversation, metricPackets[0].Scope)
+	assert.Equal(t, "agentkit", metricPackets[0].Record.Attributes["provider"])
+
+	logPackets := findPackets[internal_type.ObservabilityLogRecordPacket](pkts)
+	require.NotEmpty(t, logPackets, "expected llm init log")
+	assert.Equal(t, internal_type.ObservabilityRecordScopeConversation, logPackets[0].Scope)
+	assert.Equal(t, "agentkit", logPackets[0].Record.Attributes["provider"])
+	assert.Equal(t, addr, logPackets[0].Record.Attributes["url"])
+
+	e.stateMu.RLock()
+	defer e.stateMu.RUnlock()
+	assert.NotNil(t, e.connection)
+}
+
+func TestNew_UsesMaxSendMessageBytes(t *testing.T) {
+	addr, shutdown := startAgentKitTestServer(t, func(stream grpc.BidiStreamingServer[protos.TalkInput, protos.TalkOutput]) error {
+		_, err := stream.Recv()
+		return err
+	})
+	defer shutdown()
+
+	transportSecurity := TransportSecurityPlaintext
+	maxSendMessageBytes := uint32(1)
+	comm, _ := newTestAgentkitComm(&internal_assistant_entity.AssistantProviderAgentkit{
+		Url:                 addr,
+		TransportSecurity:   &transportSecurity,
+		MaxSendMessageBytes: &maxSendMessageBytes,
+	}, 4004)
+
+	e, err := New(
+		WithLogger(newTestExecutor().logger),
+		WithCommunication(comm),
+		WithConfiguration(&protos.ConversationInitialization{}),
+	)
+	require.Error(t, err)
+	assert.Nil(t, e)
+	assert.ErrorIs(t, err, ErrAgentkitInitializationSend)
 }
 
 // =============================================================================
 // Tests: Concurrency — 2 cases (run with -race)
 // =============================================================================
 
-func TestConcurrency_SendAndClose(t *testing.T) {
-	e := newTestExecutor()
+func TestConcurrency_ExecuteAndClose(t *testing.T) {
 	talker := newMockTalker()
-	e.transport.stream = talker
-	e.transport.listenerDone = make(chan struct{})
+	e := newTestExecutor(talker)
+	comm, _ := newTestComm()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -357,14 +382,16 @@ func TestConcurrency_SendAndClose(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
-			_ = e.send(&protos.TalkInput{})
+			_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
+				ContextID: fmt.Sprintf("ctx-%d", i),
+				Text:      "test",
+			})
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
 		time.Sleep(time.Millisecond) // let some sends happen
-		close(e.transport.listenerDone)
 		_ = e.Close(context.Background())
 	}()
 
@@ -372,22 +399,19 @@ func TestConcurrency_SendAndClose(t *testing.T) {
 	// If no race detected (with -race flag), test passes
 }
 
-func TestConcurrency_ListenAndClose(t *testing.T) {
-	e := newTestExecutor()
+func TestConcurrency_ReadAndClose(t *testing.T) {
 	talker := newMockTalker()
-	e.transport.stream = talker
-	e.transport.listenerDone = make(chan struct{})
+	e := newTestExecutor(talker)
 	comm, _ := newTestComm()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Start listener
+	// Start Reader
 	go func() {
-		defer close(e.transport.listenerDone)
-		e.listen(ctx, comm)
+		e.Read(ctx, comm, e.connection)
 	}()
 
-	// Let listener run briefly then close
+	// Let Reader run briefly then close
 	time.Sleep(5 * time.Millisecond)
 	cancel()
 	err := e.Close(context.Background())
@@ -404,142 +428,92 @@ func TestName(t *testing.T) {
 }
 
 // =============================================================================
-// Tests: Execute with send error
+// Tests: Close — 6 cases
 // =============================================================================
 
-func TestExecute_UserTextReceivedPacket_SendError(t *testing.T) {
-	e := newTestExecutor()
+func TestClose_ClosesStreamWhenPresent(t *testing.T) {
 	talker := newMockTalker()
-	talker.sendErr = fmt.Errorf("connection lost")
-	e.transport.stream = talker
-	comm, _ := newTestComm()
+	e := newTestExecutor(talker)
 
+	err := e.Close(context.Background())
+	require.NoError(t, err)
+	assert.True(t, talker.closeSent.Load(), "CloseSend should have been called")
+}
+
+func TestClose_SucceedsWhenConnectionIsEmpty(t *testing.T) {
+	e := newTestExecutor()
+
+	err := e.Close(context.Background())
+	require.NoError(t, err)
+}
+
+func TestClose_ClearsConnectionState(t *testing.T) {
+	talker := newMockTalker()
+	e := newTestExecutor(talker)
+
+	_ = e.Close(context.Background())
+
+	e.stateMu.RLock()
+	defer e.stateMu.RUnlock()
+	assert.Nil(t, e.connection)
+}
+
+func TestClose_CancelsExecutorContext(t *testing.T) {
+	talker := newMockTalker()
+	e := newTestExecutor(talker)
+
+	err := e.Close(context.Background())
+	require.NoError(t, err)
+	assert.ErrorIs(t, context.Cause(e.ctx), context.Canceled)
+}
+
+func TestClose_ResetsActiveContextID(t *testing.T) {
+	talker := newMockTalker()
+	e := newTestExecutor(talker)
+	e.activeContextID = "active"
+
+	_ = e.Close(context.Background())
+
+	e.stateMu.RLock()
+	defer e.stateMu.RUnlock()
+	assert.Equal(t, "", e.activeContextID)
+	assert.Nil(t, e.connection)
+}
+
+func TestClose_DisconnectsExecutorForFutureExecute(t *testing.T) {
+	talker := newMockTalker()
+	e := newTestExecutor(talker)
+	_ = e.Close(context.Background())
+
+	comm, _ := newTestComm()
 	err := e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 		ContextID: "ctx-1",
-		Text:      "hello",
+		Text:      "after close",
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "connection lost")
+	assert.ErrorIs(t, err, ErrAgentkitExecutorNotConnected)
 }
 
 // =============================================================================
-// Tests: listen processes multiple messages before error
+// Tests: concurrent user turns are serialized by connection send
 // =============================================================================
 
-func TestListen_ProcessesMultipleMessages(t *testing.T) {
-	e := newTestExecutor()
+func TestConcurrency_MultipleUserTurns(t *testing.T) {
 	talker := newMockTalker()
-	e.transport.stream = talker
-	comm, collector := newTestComm()
-
-	// Send two deltas, then EOF
-	talker.recvCh <- recvResult{out: &protos.TalkOutput{
-		Data: &protos.TalkOutput_Assistant{
-			Assistant: &protos.ConversationAssistantMessage{
-				Id:      "m1",
-				Message: &protos.ConversationAssistantMessage_Text{Text: "hi"},
-			},
-		},
-	}}
-	talker.recvCh <- recvResult{out: &protos.TalkOutput{
-		Data: &protos.TalkOutput_Assistant{
-			Assistant: &protos.ConversationAssistantMessage{
-				Id:      "m1",
-				Message: &protos.ConversationAssistantMessage_Text{Text: " there"},
-			},
-		},
-	}}
-	talker.recvCh <- recvResult{err: io.EOF}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		e.listen(context.Background(), comm)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("listen did not exit")
-	}
-
-	pkts := collector.all()
-	deltas := findPackets[internal_type.LLMResponseDeltaPacket](pkts)
-	assert.Len(t, deltas, 2)
-	dirs := findActionToolCalls(pkts)
-	assert.Len(t, dirs, 1)
-}
-
-// =============================================================================
-// Tests: handleResponse with completed text includes correct contextID
-// =============================================================================
-
-func TestHandleResponse_CompletedTextContextID(t *testing.T) {
-	e := newTestExecutor()
-	comm, collector := newTestComm()
-
-	resp := &protos.TalkOutput{
-		Data: &protos.TalkOutput_Assistant{
-			Assistant: &protos.ConversationAssistantMessage{
-				Id:        "unique-ctx",
-				Completed: true,
-				Message:   &protos.ConversationAssistantMessage_Text{Text: "done"},
-			},
-		},
-	}
-	e.handleResponse(context.Background(), comm, resp)
-
-	pkts := collector.all()
-	done, ok := findPacket[internal_type.LLMResponseDonePacket](pkts)
-	require.True(t, ok)
-	assert.Equal(t, "unique-ctx", done.ContextID)
-
-	ev, ok := findPacket[internal_type.ObservabilityEventRecordPacket](pkts)
-	require.True(t, ok)
-	assert.Equal(t, "unique-ctx", ev.ContextID)
-}
-
-// =============================================================================
-// Tests: tool_result success=false
-// =============================================================================
-
-func TestHandleResponse_ToolResultFailed(t *testing.T) {
-	e := newTestExecutor()
-	comm, collector := newTestComm()
-
-	resp := &protos.TalkOutput{
-		Data: &protos.TalkOutput_ToolCallResult{
-			ToolCallResult: &protos.ConversationToolCallResult{
-				Id:     "tr-2",
-				ToolId: "tool-99",
-				Name:   "calculator",
-			},
-		},
-	}
-	e.handleResponse(context.Background(), comm, resp)
-
-	logs := findPackets[internal_type.ObservabilityLogRecordPacket](collector.all())
-	require.Len(t, logs, 1)
-	assert.Equal(t, "tool_result", logs[0].Record.Attributes["operation"])
-}
-
-// =============================================================================
-// Tests: concurrent send calls are serialized
-// =============================================================================
-
-func TestConcurrency_MultipleSends(t *testing.T) {
-	e := newTestExecutor()
-	talker := newMockTalker()
-	e.transport.stream = talker
+	e := newTestExecutor(talker)
+	comm, _ := newTestComm()
 
 	var wg sync.WaitGroup
 	count := 50
 	wg.Add(count)
 	for i := 0; i < count; i++ {
-		go func() {
+		go func(index int) {
 			defer wg.Done()
-			_ = e.send(&protos.TalkInput{})
-		}()
+			_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
+				ContextID: fmt.Sprintf("ctx-%d", index),
+				Text:      "test",
+			})
+		}(i)
 	}
 	wg.Wait()
 
@@ -549,79 +523,12 @@ func TestConcurrency_MultipleSends(t *testing.T) {
 }
 
 // =============================================================================
-// Tests: error packet includes correct error message format
+// Concurrent read/write on mu — Reader reads, Execute writes
 // =============================================================================
 
-func TestHandleResponse_ErrorMessageFormat(t *testing.T) {
-	e := newTestExecutor()
-	comm, collector := newTestComm()
-
-	resp := &protos.TalkOutput{
-		Data: &protos.TalkOutput_Error{
-			Error: &protos.Error{
-				ErrorCode:    403,
-				ErrorMessage: "forbidden",
-			},
-		},
-	}
-	e.handleResponse(context.Background(), comm, resp)
-
-	errPkts := findPackets[internal_type.LLMErrorPacket](collector.all())
-	require.Len(t, errPkts, 1)
-	assert.Contains(t, errPkts[0].Error.Error(), "agentkit error 403: forbidden")
-}
-
-func TestHandleResponse_StaleContext_Dropped(t *testing.T) {
-	e := newTestExecutor()
-	e.activeContextID = "ctx-active"
-	comm, collector := newTestComm()
-
-	resp := &protos.TalkOutput{
-		Data: &protos.TalkOutput_Assistant{
-			Assistant: &protos.ConversationAssistantMessage{
-				Id:        "ctx-stale",
-				Completed: true,
-				Message:   &protos.ConversationAssistantMessage_Text{Text: "ignore"},
-			},
-		},
-	}
-	e.handleResponse(context.Background(), comm, resp)
-	assert.Empty(t, collector.all())
-}
-
-func TestExecute_LLMInterruptPacket_ClearsCurrentContext(t *testing.T) {
-	e := newTestExecutor()
-	e.activeContextID = "ctx-1"
-	comm, _ := newTestComm()
-
-	err := e.Execute(context.Background(), comm, internal_type.LLMInterruptPacket{ContextID: "ctx-1"})
-	require.NoError(t, err)
-	assert.Equal(t, "", e.activeContextID)
-}
-
-// =============================================================================
-// Tests: send error propagation from talker
-// =============================================================================
-
-func TestSend_PropagatesTalkerError(t *testing.T) {
-	e := newTestExecutor()
+func TestConcurrency_ReadExecuteWrite(t *testing.T) {
 	talker := newMockTalker()
-	talker.sendErr = fmt.Errorf("write failed")
-	e.transport.stream = talker
-
-	err := e.send(&protos.TalkInput{})
-	require.Error(t, err)
-	assert.Equal(t, "write failed", err.Error())
-}
-
-// =============================================================================
-// Concurrent read/write on mu — listener reads, send writes
-// =============================================================================
-
-func TestConcurrency_ListenReadSendWrite(t *testing.T) {
-	e := newTestExecutor()
-	talker := newMockTalker()
-	e.transport.stream = talker
+	e := newTestExecutor(talker)
 	comm, _ := newTestComm()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -629,10 +536,10 @@ func TestConcurrency_ListenReadSendWrite(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Listener: reads from talker
+	// Reader: reads from talker
 	go func() {
 		defer wg.Done()
-		e.listen(ctx, comm)
+		e.Read(ctx, comm, e.connection)
 	}()
 
 	// Sender: writes concurrently
@@ -640,14 +547,17 @@ func TestConcurrency_ListenReadSendWrite(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
-			_ = e.send(&protos.TalkInput{})
+			_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
+				ContextID: fmt.Sprintf("ctx-%d", i),
+				Text:      "test",
+			})
 			sendCount.Add(1)
 		}
-		// After sending, terminate listener
+		// After sending, terminate Reader
 		talker.recvCh <- recvResult{err: io.EOF}
 	}()
 
-	// Wait for listener to exit
+	// Wait for Reader to exit
 	wg.Wait()
 	cancel()
 	assert.Equal(t, int32(50), sendCount.Load())
@@ -658,9 +568,8 @@ func TestConcurrency_ListenReadSendWrite(t *testing.T) {
 // =============================================================================
 
 func TestE2E_FullConversationTurn(t *testing.T) {
-	e := newTestExecutor()
 	talker := newMockTalker()
-	e.transport.stream = talker
+	e := newTestExecutor(talker)
 	comm, collector := newTestComm()
 
 	// 1. User sends a message
@@ -673,7 +582,7 @@ func TestE2E_FullConversationTurn(t *testing.T) {
 	// Verify: talker received the message, event was emitted
 	talker.mu.Lock()
 	require.Len(t, talker.sendCalls, 1)
-	assert.Equal(t, "What is Go?", talker.sendCalls[0].GetMessage().GetText())
+	assert.Equal(t, "What is Go?", talker.sendCalls[0].GetUser().GetText())
 	talker.mu.Unlock()
 
 	evs := findPackets[internal_type.ObservabilityEventRecordPacket](collector.all())
@@ -681,19 +590,19 @@ func TestE2E_FullConversationTurn(t *testing.T) {
 	assert.Equal(t, observability.LLMStarted, evs[0].Record.Event)
 
 	// 2. Simulate streaming deltas from agent
-	e.handleResponse(context.Background(), comm, &protos.TalkOutput{
+	e.Write(context.Background(), comm, &protos.TalkOutput{
 		Data: &protos.TalkOutput_Assistant{Assistant: &protos.ConversationAssistantMessage{
 			Id: "turn-1", Message: &protos.ConversationAssistantMessage_Text{Text: "Go is"},
 		}},
 	})
-	e.handleResponse(context.Background(), comm, &protos.TalkOutput{
+	e.Write(context.Background(), comm, &protos.TalkOutput{
 		Data: &protos.TalkOutput_Assistant{Assistant: &protos.ConversationAssistantMessage{
 			Id: "turn-1", Message: &protos.ConversationAssistantMessage_Text{Text: " a language"},
 		}},
 	})
 
 	// 3. Final response
-	e.handleResponse(context.Background(), comm, &protos.TalkOutput{
+	e.Write(context.Background(), comm, &protos.TalkOutput{
 		Data: &protos.TalkOutput_Assistant{Assistant: &protos.ConversationAssistantMessage{
 			Id: "turn-1", Completed: true,
 			Message: &protos.ConversationAssistantMessage_Text{Text: "Go is a language"},
@@ -711,9 +620,8 @@ func TestE2E_FullConversationTurn(t *testing.T) {
 }
 
 func TestE2E_MultiTurnConversation(t *testing.T) {
-	e := newTestExecutor()
 	talker := newMockTalker()
-	e.transport.stream = talker
+	e := newTestExecutor(talker)
 	comm, collector := newTestComm()
 
 	for turn := 1; turn <= 5; turn++ {
@@ -721,7 +629,7 @@ func TestE2E_MultiTurnConversation(t *testing.T) {
 		_ = e.Execute(context.Background(), comm, internal_type.UserInputPacket{
 			ContextID: ctxID, Text: fmt.Sprintf("msg-%d", turn),
 		})
-		e.handleResponse(context.Background(), comm, &protos.TalkOutput{
+		e.Write(context.Background(), comm, &protos.TalkOutput{
 			Data: &protos.TalkOutput_Assistant{Assistant: &protos.ConversationAssistantMessage{
 				Id: ctxID, Completed: true,
 				Message: &protos.ConversationAssistantMessage_Text{Text: fmt.Sprintf("reply-%d", turn)},
@@ -741,9 +649,8 @@ func TestE2E_MultiTurnConversation(t *testing.T) {
 }
 
 func TestE2E_InterruptDuringStreaming(t *testing.T) {
-	e := newTestExecutor()
 	talker := newMockTalker()
-	e.transport.stream = talker
+	e := newTestExecutor(talker)
 	comm, collector := newTestComm()
 
 	// User sends
@@ -752,7 +659,7 @@ func TestE2E_InterruptDuringStreaming(t *testing.T) {
 	})
 
 	// Delta arrives
-	e.handleResponse(context.Background(), comm, &protos.TalkOutput{
+	e.Write(context.Background(), comm, &protos.TalkOutput{
 		Data: &protos.TalkOutput_Assistant{Assistant: &protos.ConversationAssistantMessage{
 			Id: "ctx-1", Message: &protos.ConversationAssistantMessage_Text{Text: "Once upon"},
 		}},
@@ -768,7 +675,7 @@ func TestE2E_InterruptDuringStreaming(t *testing.T) {
 	})
 
 	// Stale delta from ctx-1 — rejected (activeContextID="ctx-2")
-	e.handleResponse(context.Background(), comm, &protos.TalkOutput{
+	e.Write(context.Background(), comm, &protos.TalkOutput{
 		Data: &protos.TalkOutput_Assistant{Assistant: &protos.ConversationAssistantMessage{
 			Id: "ctx-1", Completed: true,
 			Message: &protos.ConversationAssistantMessage_Text{Text: "stale"},
@@ -785,21 +692,21 @@ func TestE2E_ToolCallAndResult(t *testing.T) {
 	e.activeContextID = "ctx-1"
 
 	// Tool call
-	e.handleResponse(context.Background(), comm, &protos.TalkOutput{
+	e.Write(context.Background(), comm, &protos.TalkOutput{
 		Data: &protos.TalkOutput_ToolCall{ToolCall: &protos.ConversationToolCall{
 			Id: "ctx-1", ToolId: "tool-1", Name: "get_weather",
 		}},
 	})
 
 	// Tool result
-	e.handleResponse(context.Background(), comm, &protos.TalkOutput{
+	e.Write(context.Background(), comm, &protos.TalkOutput{
 		Data: &protos.TalkOutput_ToolCallResult{ToolCallResult: &protos.ConversationToolCallResult{
 			Id: "ctx-1", ToolId: "tool-1", Name: "get_weather",
 		}},
 	})
 
 	// Final response after tool
-	e.handleResponse(context.Background(), comm, &protos.TalkOutput{
+	e.Write(context.Background(), comm, &protos.TalkOutput{
 		Data: &protos.TalkOutput_Assistant{Assistant: &protos.ConversationAssistantMessage{
 			Id: "ctx-1", Completed: true,
 			Message: &protos.ConversationAssistantMessage_Text{Text: "It's 20C"},
@@ -832,7 +739,7 @@ func TestE2E_ErrorEndsConversation(t *testing.T) {
 	e := newTestExecutor()
 	comm, collector := newTestComm()
 
-	e.handleResponse(context.Background(), comm, &protos.TalkOutput{
+	e.Write(context.Background(), comm, &protos.TalkOutput{
 		Data: &protos.TalkOutput_Error{Error: &protos.Error{
 			ErrorCode: 500, ErrorMessage: "agent crashed",
 		}},
@@ -847,55 +754,13 @@ func TestE2E_ErrorEndsConversation(t *testing.T) {
 	assert.Equal(t, protos.ToolCallAction_TOOL_CALL_ACTION_END_CONVERSATION, dirs[0].Action)
 }
 
-func TestE2E_ListenProcessesAndExitsOnEOF(t *testing.T) {
-	e := newTestExecutor()
-	talker := newMockTalker()
-	e.transport.stream = talker
-	comm, collector := newTestComm()
-
-	// Queue: delta, completed, EOF
-	talker.recvCh <- recvResult{out: &protos.TalkOutput{
-		Data: &protos.TalkOutput_Assistant{Assistant: &protos.ConversationAssistantMessage{
-			Id: "r1", Message: &protos.ConversationAssistantMessage_Text{Text: "chunk"},
-		}},
-	}}
-	talker.recvCh <- recvResult{out: &protos.TalkOutput{
-		Data: &protos.TalkOutput_Assistant{Assistant: &protos.ConversationAssistantMessage{
-			Id: "r1", Completed: true,
-			Message: &protos.ConversationAssistantMessage_Text{Text: "done"},
-		}},
-	}}
-	talker.recvCh <- recvResult{err: io.EOF}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		e.listen(context.Background(), comm)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("listen did not exit")
-	}
-
-	pkts := collector.all()
-	deltas := findPackets[internal_type.LLMResponseDeltaPacket](pkts)
-	dones := findPackets[internal_type.LLMResponseDonePacket](pkts)
-	dirs := findActionToolCalls(pkts)
-	assert.Len(t, deltas, 1)
-	assert.Len(t, dones, 1)
-	assert.Len(t, dirs, 1)
-}
-
 // =============================================================================
 // Deadlock Detection (run with -timeout 10s and -race)
 // =============================================================================
 
 func TestDeadlock_ExecuteAndResponseConcurrent(t *testing.T) {
-	e := newTestExecutor()
 	talker := newMockTalker()
-	e.transport.stream = talker
+	e := newTestExecutor(talker)
 	comm, _ := newTestComm()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -917,7 +782,7 @@ func TestDeadlock_ExecuteAndResponseConcurrent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
-			e.handleResponse(ctx, comm, &protos.TalkOutput{
+			e.Write(ctx, comm, &protos.TalkOutput{
 				Data: &protos.TalkOutput_Assistant{Assistant: &protos.ConversationAssistantMessage{
 					Id: fmt.Sprintf("ctx-%d", i), Completed: true,
 					Message: &protos.ConversationAssistantMessage_Text{Text: "resp"},
@@ -932,15 +797,13 @@ func TestDeadlock_ExecuteAndResponseConcurrent(t *testing.T) {
 	select {
 	case <-done:
 	case <-ctx.Done():
-		t.Fatal("DEADLOCK: Execute + handleResponse timed out")
+		t.Fatal("DEADLOCK: Execute + Write timed out")
 	}
 }
 
-func TestDeadlock_ListenAndExecuteAndClose(t *testing.T) {
-	e := newTestExecutor()
+func TestDeadlock_ReadAndExecuteAndClose(t *testing.T) {
 	talker := newMockTalker()
-	e.transport.stream = talker
-	e.transport.listenerDone = make(chan struct{})
+	e := newTestExecutor(talker)
 	comm, _ := newTestComm()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -949,11 +812,10 @@ func TestDeadlock_ListenAndExecuteAndClose(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(3)
 
-	// Listener
+	// Reader
 	go func() {
-		defer close(e.transport.listenerDone)
 		defer wg.Done()
-		e.listen(ctx, comm)
+		e.Read(ctx, comm, e.connection)
 	}()
 
 	// Execute
@@ -967,17 +829,13 @@ func TestDeadlock_ListenAndExecuteAndClose(t *testing.T) {
 		}
 	}()
 
-	// Close (after brief delay, unblock listener)
+	// Close (after brief delay, unblock Reader)
 	go func() {
 		defer wg.Done()
 		time.Sleep(5 * time.Millisecond)
-		cancel() // cancel context to unblock listener
+		cancel() // cancel context to unblock Reader
 		close(talker.recvCh)
 		time.Sleep(time.Millisecond)
-		// Reset done so Close doesn't wait on already-closed channel
-		e.stateMu.Lock()
-		e.transport.listenerDone = nil
-		e.stateMu.Unlock()
 		_ = e.Close(context.Background())
 	}()
 
@@ -987,7 +845,7 @@ func TestDeadlock_ListenAndExecuteAndClose(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(6 * time.Second):
-		t.Fatal("DEADLOCK: listen + Execute + Close timed out")
+		t.Fatal("DEADLOCK: Read + Execute + Close timed out")
 	}
 }
 
@@ -996,9 +854,8 @@ func TestDeadlock_ListenAndExecuteAndClose(t *testing.T) {
 // =============================================================================
 
 func TestConcurrency_ExecuteAndInterruptRace(t *testing.T) {
-	e := newTestExecutor()
 	talker := newMockTalker()
-	e.transport.stream = talker
+	e := newTestExecutor(talker)
 	comm, _ := newTestComm()
 
 	var wg sync.WaitGroup
@@ -1027,9 +884,8 @@ func TestConcurrency_ExecuteAndInterruptRace(t *testing.T) {
 }
 
 func TestConcurrency_ResponseAndInterruptRace(t *testing.T) {
-	e := newTestExecutor()
 	talker := newMockTalker()
-	e.transport.stream = talker
+	e := newTestExecutor(talker)
 	comm, _ := newTestComm()
 
 	var wg sync.WaitGroup
@@ -1048,7 +904,7 @@ func TestConcurrency_ResponseAndInterruptRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
-			e.handleResponse(context.Background(), comm, &protos.TalkOutput{
+			e.Write(context.Background(), comm, &protos.TalkOutput{
 				Data: &protos.TalkOutput_Assistant{Assistant: &protos.ConversationAssistantMessage{
 					Id:      fmt.Sprintf("ctx-%d", i),
 					Message: &protos.ConversationAssistantMessage_Text{Text: "resp"},
@@ -1092,7 +948,7 @@ func TestConsistency_StaleContextDoesNotEmitPackets(t *testing.T) {
 	}
 
 	for _, resp := range staleTypes {
-		e.handleResponse(context.Background(), comm, resp)
+		e.Write(context.Background(), comm, resp)
 	}
 
 	assert.Empty(t, collector.all(), "all stale context responses should be dropped")
